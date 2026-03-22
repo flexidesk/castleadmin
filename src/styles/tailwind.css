@@ -1,0 +1,262 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 215 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 12%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --primary: 213 79% 28%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 15% 95%;
+    --secondary-foreground: 215 25% 25%;
+    --muted: 210 15% 95%;
+    --muted-foreground: 215 15% 50%;
+    --accent: 24 95% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 69% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --radius: 0.5rem;
+    --sidebar-width: 240px;
+    --sidebar-collapsed-width: 64px;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600;
+  }
+
+  .font-mono {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .sidebar-nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer select-none;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .sidebar-nav-item:hover {
+    background-color: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+  }
+
+  .sidebar-nav-item.active {
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+  }
+
+  .sidebar-nav-item.active svg {
+    color: hsl(var(--primary));
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95;
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  .btn-primary:hover {
+    background-color: hsl(var(--primary) / 0.9);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 border;
+    background-color: hsl(var(--card));
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border));
+  }
+
+  .btn-secondary:hover {
+    background-color: hsl(var(--secondary));
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95;
+    background-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
+  }
+
+  .card {
+    @apply rounded-xl border;
+    background-color: hsl(var(--card));
+    border-color: hsl(var(--border));
+  }
+
+  .input-base {
+    @apply w-full px-3 py-2 rounded-lg border text-sm transition-all duration-150 outline-none;
+    background-color: hsl(var(--card));
+    border-color: hsl(var(--border));
+    color: hsl(var(--foreground));
+  }
+
+  .input-base:focus {
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+  }
+
+  .input-base::placeholder {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .input-error {
+    border-color: hsl(var(--destructive)) !important;
+    box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.1) !important;
+  }
+
+  .label {
+    @apply block text-sm font-medium mb-1;
+    color: hsl(var(--foreground));
+  }
+
+  .helper-text {
+    @apply text-xs mt-1;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .error-text {
+    @apply text-xs mt-1;
+    color: hsl(var(--destructive));
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-accepted {
+    background-color: hsl(213 79% 28% / 0.1);
+    color: hsl(213 79% 28%);
+  }
+
+  .badge-assigned {
+    background-color: hsl(38 92% 50% / 0.12);
+    color: hsl(35 85% 35%);
+  }
+
+  .badge-outfordelivery {
+    background-color: hsl(24 95% 53% / 0.12);
+    color: hsl(24 80% 38%);
+  }
+
+  .badge-complete {
+    background-color: hsl(142 69% 35% / 0.1);
+    color: hsl(142 69% 30%);
+  }
+
+  .badge-delivery {
+    background-color: hsl(213 79% 28% / 0.08);
+    color: hsl(213 79% 28%);
+  }
+
+  .badge-collection {
+    background-color: hsl(270 50% 50% / 0.1);
+    color: hsl(270 50% 40%);
+  }
+
+  .badge-paid {
+    background-color: hsl(142 69% 35% / 0.1);
+    color: hsl(142 69% 30%);
+  }
+
+  .badge-unpaid {
+    background-color: hsl(0 84% 55% / 0.1);
+    color: hsl(0 84% 45%);
+  }
+
+  .badge-cash {
+    background-color: hsl(38 92% 50% / 0.12);
+    color: hsl(35 85% 35%);
+  }
+
+  .badge-card {
+    background-color: hsl(213 79% 28% / 0.08);
+    color: hsl(213 79% 28%);
+  }
+
+  .tab-item {
+    @apply px-4 py-2.5 text-sm font-medium border-b-2 transition-all duration-150 cursor-pointer whitespace-nowrap;
+    border-color: transparent;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .tab-item:hover {
+    color: hsl(var(--foreground));
+  }
+
+  .tab-item.active {
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-md;
+    background-color: hsl(var(--muted));
+  }
+
+  .status-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+
+  .status-dot-accepted { background-color: hsl(213 79% 28%); }
+  .status-dot-assigned { background-color: hsl(38 92% 50%); }
+  .status-dot-outfordelivery { background-color: hsl(24 95% 53%); }
+  .status-dot-complete { background-color: hsl(142 69% 35%); }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

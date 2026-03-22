@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="80" fill="#1e3a5f"/>
+  <rect x="40" y="40" width="432" height="432" rx="60" fill="#1e40af"/>
+  <!-- Castle tower shape -->
+  <rect x="156" y="200" width="60" height="160" fill="#ffffff"/>
+  <rect x="296" y="200" width="60" height="160" fill="#ffffff"/>
+  <rect x="136" y="160" width="100" height="50" fill="#ffffff"/>
+  <rect x="276" y="160" width="100" height="50" fill="#ffffff"/>
+  <!-- Battlements left -->
+  <rect x="136" y="140" width="20" height="30" fill="#ffffff"/>
+  <rect x="166" y="140" width="20" height="30" fill="#ffffff"/>
+  <rect x="196" y="140" width="20" height="30" fill="#ffffff"/>
+  <!-- Battlements right -->
+  <rect x="276" y="140" width="20" height="30" fill="#ffffff"/>
+  <rect x="306" y="140" width="20" height="30" fill="#ffffff"/>
+  <rect x="336" y="140" width="20" height="30" fill="#ffffff"/>
+  <!-- Bridge/gate -->
+  <rect x="216" y="280" width="80" height="80" rx="40" fill="#1e40af"/>
+  <rect x="216" y="300" width="80" height="60" fill="#1e40af"/>
+  <!-- Delivery truck icon -->
+  <rect x="170" y="340" width="172" height="20" fill="#60a5fa"/>
+  <!-- Checkmark -->
+  <path d="M220 390 L248 418 L292 370" stroke="#60a5fa" stroke-width="18" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
