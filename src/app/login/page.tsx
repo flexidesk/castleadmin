@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { useRouter } from 'next/navigation';
+
 
 interface LoginFormData {
   email: string;
@@ -16,17 +16,17 @@ interface LoginFormData {
 
 export default function LoginPage() {
   const { signIn, user, loading } = useAuth();
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
 
   useEffect(() => {
+    // If already logged in on page load, redirect immediately
     if (!loading && user) {
-      router.replace('/orders-dashboard');
+      window.location.href = '/orders-dashboard';
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   const {
     register,
@@ -41,41 +41,34 @@ export default function LoginPage() {
     setIsLoading(true);
     setAuthError(null);
 
-    const { error } = await (async () => {
-      try {
-        await signIn(data.email, data.password);
-        return { error: null };
-      } catch (e: any) {
-        return { error: e };
-      }
-    })();
-
-    if (!error) {
+    try {
+      await signIn(data.email, data.password);
       toast.success('Welcome back!');
-      // Keep spinner — useEffect will redirect once user state is set
+      // Hard redirect — ensures the browser sends the newly set auth cookie
+      window.location.href = '/orders-dashboard';
       return;
-    }
+    } catch (e: any) {
+      setIsLoading(false);
+      const rawMsg: string = e?.message || '';
+      const isRateLimit =
+        rawMsg.toLowerCase().includes('rate limit') ||
+        rawMsg.toLowerCase().includes('too many requests') ||
+        rawMsg.toLowerCase().includes('request rate limit');
 
-    setIsLoading(false);
-    const rawMsg: string = error?.message || '';
-    const isRateLimit =
-      rawMsg.toLowerCase().includes('rate limit') ||
-      rawMsg.toLowerCase().includes('too many requests') ||
-      rawMsg.toLowerCase().includes('request rate limit');
-
-    if (isRateLimit) {
-      setAuthError(
-        'Too many sign-in attempts. Please wait 60 seconds before trying again.'
-      );
-      let seconds = 60;
-      setRateLimitCooldown(seconds);
-      const interval = setInterval(() => {
-        seconds -= 1;
+      if (isRateLimit) {
+        setAuthError(
+          'Too many sign-in attempts. Please wait 60 seconds before trying again.'
+        );
+        let seconds = 60;
         setRateLimitCooldown(seconds);
-        if (seconds <= 0) clearInterval(interval);
-      }, 1000);
-    } else {
-      setAuthError(rawMsg || 'Invalid email or password. Please try again.');
+        const interval = setInterval(() => {
+          seconds -= 1;
+          setRateLimitCooldown(seconds);
+          if (seconds <= 0) clearInterval(interval);
+        }, 1000);
+      } else {
+        setAuthError(rawMsg || 'Invalid email or password. Please try again.');
+      }
     }
   };
 
