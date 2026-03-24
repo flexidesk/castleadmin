@@ -80,10 +80,19 @@ const handleStaleSession = async (
   redirectToLogin();
 };
 
-// Module-level flag: prevents React Strict Mode double-mount from firing
-// two concurrent INITIAL_SESSION handlers on the same client instance.
-// Reset on each full page navigation (module re-evaluation).
-let _initialSessionHandled = false;
+// Module-level flag stored on globalThis so it truly survives React Strict Mode's
+// unmount→remount cycle within the same JS module evaluation.
+// The flag is keyed by a page-load timestamp so it resets on genuine navigation.
+const PAGE_LOAD_KEY = typeof window !== 'undefined' ? window.performance?.now?.() ?? Date.now() : 0;
+const HANDLED_KEY = `__sbInitialSessionHandled_${PAGE_LOAD_KEY}`;
+
+function isInitialSessionHandled(): boolean {
+  return !!(globalThis as any)[HANDLED_KEY];
+}
+
+function markInitialSessionHandled(): void {
+  (globalThis as any)[HANDLED_KEY] = true;
+}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
@@ -93,18 +102,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const initializedRef = useRef(false);
 
   useEffect(() => {
-    // Reset the module flag when this provider mounts fresh (e.g. navigation)
-    _initialSessionHandled = false;
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
         // Guard: only process INITIAL_SESSION once per page load.
-        // React Strict Mode mounts twice, which would otherwise fire two
-        // simultaneous token-refresh requests and hit the rate limit.
-        if (_initialSessionHandled) return;
-        _initialSessionHandled = true;
+        // Uses globalThis so React Strict Mode's unmount→remount doesn't reset it.
+        if (isInitialSessionHandled()) return;
+        markInitialSessionHandled();
 
         if (!session) {
           setSession(null);
@@ -151,8 +156,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       subscription.unsubscribe();
-      // Reset flag on unmount so a genuine re-mount (navigation) works correctly
-      _initialSessionHandled = false;
     };
   }, []);
 
