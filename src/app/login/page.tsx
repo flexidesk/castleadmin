@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
+import { useRouter } from 'next/navigation';
 
 interface LoginFormData {
   email: string;
@@ -14,11 +15,18 @@ interface LoginFormData {
 }
 
 export default function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, user, loading } = useAuth();
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/orders-dashboard');
+    }
+  }, [user, loading, router]);
 
   const {
     register,
@@ -35,7 +43,7 @@ export default function LoginPage() {
     try {
       await signIn(data.email, data.password);
       toast.success('Welcome back!');
-      window.location.href = '/orders-dashboard';
+      router.replace('/orders-dashboard');
     } catch (error: any) {
       const rawMsg: string = error?.message || '';
       const isRateLimit =
