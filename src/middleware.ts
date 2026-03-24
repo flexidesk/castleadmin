@@ -1,8 +1,81 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 function isSecureRequest(request: NextRequest): boolean {
   return request.nextUrl.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
+}
+
+/**
+ * Decode a JWT payload without verifying the signature.
+ * This is safe for middleware auth-gating because:
+ * - We only use it to decide whether to redirect to /login
+ * - The actual token is validated by Supabase on real API calls
+ * - This avoids making ANY network call to Supabase on every request,
+ *   which was the root cause of the rate limit errors.
+ */
+function decodeJwtPayload(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
+    const decoded = atob(padded);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the Supabase session cookie contains a valid, non-expired JWT.
+ * Returns the user object from the JWT payload, or null if not authenticated.
+ * No network calls are made.
+ */
+function getSessionFromCookies(request: NextRequest): { user: any } | null {
+  // Supabase stores the session in a cookie named like:
+  // sb-<project-ref>-auth-token or sb-<project-ref>-auth-token.0
+  const cookies = request.cookies.getAll();
+
+  for (const cookie of cookies) {
+    if (!cookie.name.includes('auth-token')) continue;
+
+    let rawValue = cookie.value;
+
+    // The cookie value may be URL-encoded JSON
+    try {
+      rawValue = decodeURIComponent(rawValue);
+    } catch {}
+
+    // Try parsing as JSON (Supabase stores session as JSON in the cookie)
+    let accessToken: string | null = null;
+    try {
+      const parsed = JSON.parse(rawValue);
+      // Format: [accessToken, refreshToken] or { access_token, refresh_token }
+      if (Array.isArray(parsed) && parsed[0]) {
+        accessToken = parsed[0];
+      } else if (parsed?.access_token) {
+        accessToken = parsed.access_token;
+      }
+    } catch {
+      // Maybe the cookie value IS the access token directly
+      if (rawValue.split('.').length === 3) {
+        accessToken = rawValue;
+      }
+    }
+
+    if (!accessToken) continue;
+
+    const payload = decodeJwtPayload(accessToken);
+    if (!payload) continue;
+
+    // Check expiry — exp is in seconds
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) continue;
+
+    // Valid, non-expired session found
+    return { user: payload };
+  }
+
+  return null;
 }
 
 export async function middleware(request: NextRequest) {
@@ -44,53 +117,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
-  // Supabase auth session refresh
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, {
-              ...options,
-              sameSite: secure ? 'none' : 'lax',
-              secure,
-            })
-          );
-        },
-      },
-      auth: {
-        debug: false,
-      },
-    }
-  );
-
-  let user: any = null;
-  let error: any = null;
-  try {
-    const result = await supabase.auth.getSession();
-    user = result.data?.session?.user ?? null;
-    error = result.error;
-  } catch (e: any) {
-    error = e;
-  }
-
-  const isStaleRefreshToken =
-    error &&
-    (error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token Not Found') ||
-      error?.message?.includes('refresh_token_not_found'));
-
-  const isAuthenticated = !!user && !isStaleRefreshToken;
+  // Check session from cookies — NO network call, NO rate limit risk
+  const sessionData = getSessionFromCookies(request);
+  const isAuthenticated = !!sessionData;
 
   if (isAuthenticated) {
     // Redirect authenticated users away from login/register
@@ -99,40 +128,20 @@ export async function middleware(request: NextRequest) {
       dashboardUrl.pathname = '/orders-dashboard';
       return NextResponse.redirect(dashboardUrl);
     }
-    return supabaseResponse;
+    return NextResponse.next({ request });
   }
 
   // --- User is NOT authenticated ---
 
-  // Allow unauthenticated access to login/register (they need to see these pages)
+  // Allow unauthenticated access to login/register
   if (isAuthPage) {
-    return supabaseResponse;
+    return NextResponse.next({ request });
   }
 
   // Unauthenticated on a protected route — redirect to login
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = '/login';
-  const redirectResponse = NextResponse.redirect(loginUrl);
-
-  if (isStaleRefreshToken) {
-    request.cookies.getAll().forEach(({ name }) => {
-      if (
-        name.startsWith('sb-') ||
-        name.includes('auth-token') ||
-        name.includes('supabase') ||
-        name.includes('castleadmin-auth')
-      ) {
-        redirectResponse.cookies.set(name, '', {
-          maxAge: 0,
-          path: '/',
-          sameSite: secure ? 'none' : 'lax',
-          secure,
-        });
-      }
-    });
-  }
-
-  return redirectResponse;
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

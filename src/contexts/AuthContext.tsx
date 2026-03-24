@@ -80,36 +80,26 @@ const handleStaleSession = async (
   redirectToLogin();
 };
 
-// Module-level flag stored on globalThis so it truly survives React Strict Mode's
-// unmount→remount cycle within the same JS module evaluation.
-// The flag is keyed by a page-load timestamp so it resets on genuine navigation.
-const PAGE_LOAD_KEY = typeof window !== 'undefined' ? window.performance?.now?.() ?? Date.now() : 0;
-const HANDLED_KEY = `__sbInitialSessionHandled_${PAGE_LOAD_KEY}`;
-
-function isInitialSessionHandled(): boolean {
-  return !!(globalThis as any)[HANDLED_KEY];
-}
-
-function markInitialSessionHandled(): void {
-  (globalThis as any)[HANDLED_KEY] = true;
-}
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
-  const initializedRef = useRef(false);
+  // Use a ref to track if INITIAL_SESSION has been processed.
+  // This ref is component-instance scoped, but since the Supabase client
+  // is a singleton (via globalThis), only one INITIAL_SESSION fires per client.
+  const initialSessionProcessed = useRef(false);
 
   useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
-        // Guard: only process INITIAL_SESSION once per page load.
-        // Uses globalThis so React Strict Mode's unmount→remount doesn't reset it.
-        if (isInitialSessionHandled()) return;
-        markInitialSessionHandled();
+        // Guard against React Strict Mode double-invocation.
+        // The singleton Supabase client only fires INITIAL_SESSION once,
+        // but the ref ensures we don't process it twice if it somehow fires again.
+        if (initialSessionProcessed.current) return;
+        initialSessionProcessed.current = true;
 
         if (!session) {
           setSession(null);
@@ -132,7 +122,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setSession(session);
         setUser(sessionUser);
         setLoading(false);
-        initializedRef.current = true;
       } else if (
         event === 'TOKEN_REFRESHED' ||
         event === 'SIGNED_IN' ||
