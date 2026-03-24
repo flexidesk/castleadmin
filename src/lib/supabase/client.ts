@@ -2,15 +2,21 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const PFX = 'sb_';
 
+const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
     if (typeof document === 'undefined') return false;
     if (cache !== null) return cache;
     const k = '__sb_test__';
-    document.cookie = `${k}=1; Path=/; SameSite=None; Secure; Partitioned`;
+    document.cookie = isSecureContext
+      ? `${k}=1; Path=/; SameSite=None; Secure`
+      : `${k}=1; Path=/; SameSite=Lax`;
     cache = document.cookie.includes(k);
-    document.cookie = `${k}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+    document.cookie = isSecureContext
+      ? `${k}=; Path=/; Max-Age=0; SameSite=None; Secure`
+      : `${k}=; Path=/; Max-Age=0`;
     return cache;
   };
 })();
@@ -38,7 +44,12 @@ const fromStorage = () => {
 };
 
 const setCookie = (name: string, value: string, options?: any) => {
-  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}; SameSite=None; Secure; Partitioned`;
+  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}`;
+  if (isSecureContext) {
+    s += '; SameSite=None; Secure';
+  } else {
+    s += '; SameSite=Lax';
+  }
   if (options?.maxAge) s += `; Max-Age=${options.maxAge}`;
   if (options?.domain) s += `; Domain=${options.domain}`;
   if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
@@ -112,7 +123,6 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        storageKey: 'castleadmin-auth',
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
@@ -121,11 +131,14 @@ export function createClient() {
         getAll: () => (canUseCookies() ? fromCookies() : fromStorage()),
         setAll(cookiesToSet) {
           if (typeof document === 'undefined') return;
+          const clearStr = isSecureContext
+            ? '; Path=/; Max-Age=0; SameSite=None; Secure'
+            : '; Path=/; Max-Age=0';
           if (canUseCookies()) {
             cookiesToSet.forEach(({ name, value, options }) =>
               value
                 ? setCookie(name, value, options)
-                : (document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`)
+                : (document.cookie = `${name}=${clearStr}`)
             );
           } else {
             cookiesToSet.forEach(({ name, value, options }) => {
@@ -161,11 +174,12 @@ export function createClient() {
                       )
                       .forEach((k) => localStorage.removeItem(k));
                   } catch {}
-                  // Clear auth cookies
                   document.cookie.split(';').forEach((c) => {
                     const name = c.trim().split('=')[0];
                     if (name.startsWith('sb-') || name.includes('auth-token') || name.includes('supabase')) {
-                      document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+                      document.cookie = isSecureContext
+                        ? `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`
+                        : `${name}=; Path=/; Max-Age=0`;
                     }
                   });
                   // Redirect to login

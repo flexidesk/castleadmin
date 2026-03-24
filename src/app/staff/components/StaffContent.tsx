@@ -225,7 +225,7 @@ export default function StaffContent() {
         if (error) throw error;
         toast.success('Driver updated');
       } else {
-        const { data, error } = await supabase.from('drivers').insert(payload).select().single();
+        const { data, error } = await supabase.from('drivers').insert({ ...payload, avatar: '' }).select().single();
         if (error) throw error;
         driverId = data.id;
         toast.success('Driver added');

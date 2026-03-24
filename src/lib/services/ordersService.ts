@@ -300,7 +300,7 @@ export const ordersService = {
 
     if (error) {
       console.error('createOrder error:', error.message);
-      return null;
+      throw new Error(error.message);
     }
     return data as { id: string };
   },

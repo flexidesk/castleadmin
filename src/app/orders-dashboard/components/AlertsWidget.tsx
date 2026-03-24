@@ -66,7 +66,7 @@ function timeAgo(isoString: string): string {
 export default function AlertsWidget() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   const buildAlerts = useCallback(async () => {
     const supabase = createClient();
@@ -357,7 +357,7 @@ export default function AlertsWidget() {
       {/* Footer */}
       {!loading && alerts.length > 0 && (
         <p className="text-[10px] mt-3 text-center" style={{ color: 'hsl(var(--muted-foreground))' }}>
-          Last updated {lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Live via Supabase
+          Last updated {lastRefreshed?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? '—'} · Live via Supabase
         </p>
       )}
     </div>

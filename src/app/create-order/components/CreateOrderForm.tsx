@@ -86,8 +86,9 @@ const DEFAULT_PRODUCTS: ProductLineItem[] = [
 const PRODUCT_CATEGORIES = ['Bouncy Castle', 'Combo Castle', 'Inflatable', 'Accessory', 'Slide', 'Other'];
 
 function generateOrderId(): string {
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `CA-${num}`;
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+  return `CA-${ts}-${rand}`;
 }
 
 // ─── Zone detection helpers ───────────────────────────────────────────────────
@@ -361,12 +362,6 @@ export default function CreateOrderForm() {
         notes: data.bookingNotes || undefined,
         customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
       });
-
-      if (!result) {
-        setSubmitError('Failed to create booking. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
 
       toast.success('Booking created successfully');
       router.push('/orders-dashboard');

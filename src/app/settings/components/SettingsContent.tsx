@@ -209,6 +209,16 @@ const API_SCOPES = ['read', 'write', 'orders:read', 'orders:write', 'drivers:rea
 
 const SYSTEM_CONFIG_CATEGORIES = ['general', 'orders', 'security', 'display'];
 
+function sanitizeNulls<T extends Record<string, unknown>>(data: T, defaults: T): T {
+  const result = { ...defaults };
+  for (const key of Object.keys(defaults) as (keyof T)[]) {
+    const val = data[key];
+    result[key] = (val !== null && val !== undefined ? val : defaults[key]) as T[keyof T];
+  }
+  if (data.id !== undefined) (result as any).id = data.id;
+  return result;
+}
+
 // ─── Toggle ───────────────────────────────────────────────────────────────────
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -246,7 +256,7 @@ function NumInput({
           type="number"
           step={step}
           min={min}
-          value={value}
+          value={value ?? 0}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
           className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
           style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -268,7 +278,7 @@ function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
       <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
       <input
         type={type}
-        value={value}
+        value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
@@ -293,6 +303,52 @@ function generateApiKey(): { full: string; prefix: string; preview: string; hash
   return { full, prefix, preview, hash };
 }
 
+const DEFAULT_FLEET: FleetConfig = {
+  company_name: '', timezone: 'Europe/London', currency: 'GBP',
+  base_delivery_fee: 5, per_km_fee: 0.5, min_delivery_fee: 3,
+  max_delivery_fee: 50, fee_structure: 'flat',
+  company_address: '', company_phone: '', company_email: '',
+  auto_zone_allocation: false,
+  map_default_zone_id: null,
+};
+
+const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
+  company_name: '', trading_name: '', registration_number: '', vat_number: '',
+  industry: 'Logistics & Delivery', company_size: '1-10', founded_year: '',
+  website_url: '', logo_url: '', primary_email: '', support_email: '',
+  billing_email: '', primary_phone: '', secondary_phone: '',
+  address_line1: '', address_line2: '', city: '', county: '', postcode: '',
+  country: 'United Kingdom', social_linkedin: '', social_twitter: '',
+  social_facebook: '', description: '',
+};
+
+const DEFAULT_NOTIF_PREFS: NotificationPrefs = {
+  notify_new_order: true, notify_order_status_change: true,
+  notify_driver_assigned: true, notify_delivery_complete: true,
+  notify_delivery_failed: true, notify_driver_offline: false,
+  notify_low_driver_availability: true, email_notifications: true,
+  sms_notifications: false, push_notifications: true, notification_email: '',
+};
+
+const DEFAULT_DRIVER_RATES: DriverRateSettings = {
+  base_rate_per_hour: 12, rate_per_km: 0.25, overtime_multiplier: 1.5,
+  weekend_multiplier: 1.25, night_shift_multiplier: 1.20, bonus_per_delivery: 0.50,
+  fuel_allowance_per_km: 0.15, min_guaranteed_hours: 4, max_hours_per_day: 10,
+  currency: 'GBP', pay_cycle: 'weekly',
+};
+
+const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
+  min_active_drivers: 2, low_driver_warning_pct: 30,
+  late_delivery_minutes: 15, critical_delay_minutes: 45, max_failed_deliveries_pct: 10,
+  high_order_volume_per_hour: 20, unassigned_order_warning_count: 5,
+  driver_offline_alert_minutes: 10, gps_stale_alert_minutes: 5,
+  daily_revenue_target: 1000, low_revenue_warning_pct: 70,
+};
+
+const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
+  store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SettingsContent() {
@@ -302,23 +358,10 @@ export default function SettingsContent() {
   const [saving, setSaving] = useState(false);
 
   // Fleet config
-  const [fleet, setFleet] = useState<FleetConfig>({
-    company_name: '', timezone: 'Europe/London', currency: 'GBP',
-    base_delivery_fee: 5, per_km_fee: 0.5, min_delivery_fee: 3,
-    max_delivery_fee: 50, fee_structure: 'flat',
-    company_address: '', company_phone: '', company_email: '',
-    auto_zone_allocation: false,
-    map_default_zone_id: null,
-  });
+  const [fleet, setFleet] = useState<FleetConfig>(DEFAULT_FLEET);
 
   // Notification prefs
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({
-    notify_new_order: true, notify_order_status_change: true,
-    notify_driver_assigned: true, notify_delivery_complete: true,
-    notify_delivery_failed: true, notify_driver_offline: false,
-    notify_low_driver_availability: true, email_notifications: true,
-    sms_notifications: false, push_notifications: true, notification_email: '',
-  });
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
 
   // User roles
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
@@ -333,32 +376,13 @@ export default function SettingsContent() {
   const [integrationWebhook, setIntegrationWebhook] = useState('');
 
   // Driver rate settings
-  const [driverRates, setDriverRates] = useState<DriverRateSettings>({
-    base_rate_per_hour: 12, rate_per_km: 0.25, overtime_multiplier: 1.5,
-    weekend_multiplier: 1.25, night_shift_multiplier: 1.20, bonus_per_delivery: 0.50,
-    fuel_allowance_per_km: 0.15, min_guaranteed_hours: 4, max_hours_per_day: 10,
-    currency: 'GBP', pay_cycle: 'weekly',
-  });
+  const [driverRates, setDriverRates] = useState<DriverRateSettings>(DEFAULT_DRIVER_RATES);
 
   // Alert thresholds
-  const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>({
-    min_active_drivers: 2, low_driver_warning_pct: 30,
-    late_delivery_minutes: 15, critical_delay_minutes: 45, max_failed_deliveries_pct: 10,
-    high_order_volume_per_hour: 20, unassigned_order_warning_count: 5,
-    driver_offline_alert_minutes: 10, gps_stale_alert_minutes: 5,
-    daily_revenue_target: 1000, low_revenue_warning_pct: 70,
-  });
+  const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>(DEFAULT_ALERT_THRESHOLDS);
 
   // Company profile
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({
-    company_name: '', trading_name: '', registration_number: '', vat_number: '',
-    industry: 'Logistics & Delivery', company_size: '1-10', founded_year: '',
-    website_url: '', logo_url: '', primary_email: '', support_email: '',
-    billing_email: '', primary_phone: '', secondary_phone: '',
-    address_line1: '', address_line2: '', city: '', county: '', postcode: '',
-    country: 'United Kingdom', social_linkedin: '', social_twitter: '',
-    social_facebook: '', description: '',
-  });
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(DEFAULT_COMPANY_PROFILE);
 
   // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -376,9 +400,7 @@ export default function SettingsContent() {
   const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
 
   // WooCommerce settings
-  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>({
-    store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
-  });
+  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>(DEFAULT_WC_SETTINGS);
   const [wcSaving, setWcSaving] = useState(false);
   const [wcTesting, setWcTesting] = useState(false);
   const [wcShowSecret, setWcShowSecret] = useState(false);
@@ -414,13 +436,13 @@ export default function SettingsContent() {
         supabase.from('woocommerce_settings').select('*').limit(1).maybeSingle(),
       ]);
 
-      if (fleetRes.data) setFleet(fleetRes.data);
-      if (notifRes.data) setNotifPrefs(notifRes.data);
+      if (fleetRes.data) setFleet(sanitizeNulls(fleetRes.data, DEFAULT_FLEET));
+      if (notifRes.data) setNotifPrefs(sanitizeNulls(notifRes.data, DEFAULT_NOTIF_PREFS));
       if (rolesRes.data) setUserRoles(rolesRes.data);
       if (intRes.data) setIntegrations(intRes.data);
-      if (ratesRes.data) setDriverRates(ratesRes.data);
-      if (alertRes.data) setAlertThresholds(alertRes.data);
-      if (companyRes.data) setCompanyProfile(companyRes.data);
+      if (ratesRes.data) setDriverRates(sanitizeNulls(ratesRes.data, DEFAULT_DRIVER_RATES));
+      if (alertRes.data) setAlertThresholds(sanitizeNulls(alertRes.data, DEFAULT_ALERT_THRESHOLDS));
+      if (companyRes.data) setCompanyProfile(sanitizeNulls(companyRes.data, DEFAULT_COMPANY_PROFILE));
       if (apiKeysRes.data) setApiKeys(apiKeysRes.data);
       if (sysConfigRes.data) {
         setSystemConfigs(sysConfigRes.data);
@@ -429,9 +451,10 @@ export default function SettingsContent() {
         setConfigEdits(edits);
       }
       if (zonesRes.data) setDeliveryZones(zonesRes.data);
-      if (wcRes.data) setWcSettings(wcRes.data);
-    } catch {
-      toast.error('Failed to load settings');
+      if (wcRes.data) setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to load settings: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -458,13 +481,15 @@ export default function SettingsContent() {
         }).eq('id', fleet.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('fleet_config').insert(fleet).select().single();
+        const { id: _id, ...rest } = fleet;
+        const { data, error } = await supabase.from('fleet_config').insert(rest).select().single();
         if (error) throw error;
         if (data) setFleet(data);
       }
       toast.success('Fleet configuration saved');
-    } catch {
-      toast.error('Failed to save fleet configuration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save fleet configuration: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -476,18 +501,21 @@ export default function SettingsContent() {
     setSaving(true);
     try {
       if (notifPrefs.id) {
+        const { id: _id, ...rest } = notifPrefs;
         const { error } = await supabase.from('notification_preferences').update({
-          ...notifPrefs, updated_at: new Date().toISOString(),
+          ...rest, updated_at: new Date().toISOString(),
         }).eq('id', notifPrefs.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('notification_preferences').insert(notifPrefs).select().single();
+        const { id: _id, ...rest } = notifPrefs;
+        const { data, error } = await supabase.from('notification_preferences').insert(rest).select().single();
         if (error) throw error;
         if (data) setNotifPrefs(data);
       }
       toast.success('Notification preferences saved');
-    } catch {
-      toast.error('Failed to save notification preferences');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save notification preferences: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -499,18 +527,21 @@ export default function SettingsContent() {
     setSaving(true);
     try {
       if (driverRates.id) {
+        const { id: _id, ...rest } = driverRates;
         const { error } = await supabase.from('driver_rate_settings').update({
-          ...driverRates, updated_at: new Date().toISOString(),
+          ...rest, updated_at: new Date().toISOString(),
         }).eq('id', driverRates.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('driver_rate_settings').insert(driverRates).select().single();
+        const { id: _id, ...rest } = driverRates;
+        const { data, error } = await supabase.from('driver_rate_settings').insert(rest).select().single();
         if (error) throw error;
         if (data) setDriverRates(data);
       }
       toast.success('Driver rate settings saved');
-    } catch {
-      toast.error('Failed to save driver rate settings');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save driver rate settings: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -522,18 +553,21 @@ export default function SettingsContent() {
     setSaving(true);
     try {
       if (alertThresholds.id) {
+        const { id: _id, ...rest } = alertThresholds;
         const { error } = await supabase.from('alert_thresholds').update({
-          ...alertThresholds, updated_at: new Date().toISOString(),
+          ...rest, updated_at: new Date().toISOString(),
         }).eq('id', alertThresholds.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('alert_thresholds').insert(alertThresholds).select().single();
+        const { id: _id, ...rest } = alertThresholds;
+        const { data, error } = await supabase.from('alert_thresholds').insert(rest).select().single();
         if (error) throw error;
         if (data) setAlertThresholds(data);
       }
       toast.success('Alert thresholds saved');
-    } catch {
-      toast.error('Failed to save alert thresholds');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save alert thresholds: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -548,6 +582,16 @@ export default function SettingsContent() {
     }
     setSaving(true);
     try {
+      const { data: existing } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('email', newRoleForm.email.trim())
+        .maybeSingle();
+      if (existing) {
+        toast.error('A user with this email already exists');
+        setSaving(false);
+        return;
+      }
       const perms = {
         admin: { can_create_orders: true, can_edit_orders: true, can_delete_orders: true, can_manage_drivers: true, can_view_analytics: true, can_manage_settings: true },
         manager: { can_create_orders: true, can_edit_orders: true, can_delete_orders: false, can_manage_drivers: true, can_view_analytics: true, can_manage_settings: false },
@@ -555,15 +599,20 @@ export default function SettingsContent() {
         viewer: { can_create_orders: false, can_edit_orders: false, can_delete_orders: false, can_manage_drivers: false, can_view_analytics: true, can_manage_settings: false },
       };
       const { data, error } = await supabase.from('user_roles').insert({
-        ...newRoleForm, is_active: true, ...perms[newRoleForm.role],
+        email: newRoleForm.email.trim(),
+        full_name: newRoleForm.full_name.trim(),
+        role: newRoleForm.role,
+        is_active: true,
+        ...perms[newRoleForm.role],
       }).select().single();
       if (error) throw error;
       if (data) setUserRoles((prev) => [...prev, data]);
       setNewRoleForm({ email: '', full_name: '', role: 'viewer' });
       setShowNewRoleForm(false);
       toast.success('User role added');
-    } catch {
-      toast.error('Failed to add user role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to add user role: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -574,8 +623,9 @@ export default function SettingsContent() {
       const { error } = await supabase.from('user_roles').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
       if (error) throw error;
       setUserRoles((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r));
-    } catch {
-      toast.error('Failed to update role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to update role: ${msg}`);
     }
   };
 
@@ -585,8 +635,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setUserRoles((prev) => prev.filter((r) => r.id !== id));
       toast.success('User role removed');
-    } catch {
-      toast.error('Failed to remove user role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to remove user role: ${msg}`);
     }
   };
 
@@ -602,8 +653,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, is_enabled: enabled, status: enabled ? 'connected' : 'disconnected' } : i));
       toast.success(enabled ? 'Integration enabled' : 'Integration disabled');
-    } catch {
-      toast.error('Failed to update integration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to update integration: ${msg}`);
     }
   };
 
@@ -619,8 +671,9 @@ export default function SettingsContent() {
       setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, api_key: integrationApiKey || null, webhook_url: integrationWebhook || null } : i));
       setEditingIntegration(null);
       toast.success('Integration configuration saved');
-    } catch {
-      toast.error('Failed to save integration config');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save integration config: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -632,18 +685,21 @@ export default function SettingsContent() {
     setSaving(true);
     try {
       if (companyProfile.id) {
+        const { id: _id, ...rest } = companyProfile;
         const { error } = await supabase.from('company_profile').update({
-          ...companyProfile, updated_at: new Date().toISOString(),
+          ...rest, updated_at: new Date().toISOString(),
         }).eq('id', companyProfile.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('company_profile').insert(companyProfile).select().single();
+        const { id: _id, ...rest } = companyProfile;
+        const { data, error } = await supabase.from('company_profile').insert(rest).select().single();
         if (error) throw error;
         if (data) setCompanyProfile(data);
       }
       toast.success('Company profile saved');
-    } catch {
-      toast.error('Failed to save company profile');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save company profile: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -672,8 +728,9 @@ export default function SettingsContent() {
       setGeneratedKey(full);
       setNewKeyForm({ name: '', description: '', scopes: ['read'], expires_at: '' });
       toast.success('API key created — copy it now, it will not be shown again');
-    } catch {
-      toast.error('Failed to create API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to create API key: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -685,8 +742,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setApiKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
       toast.success('API key revoked');
-    } catch {
-      toast.error('Failed to revoke API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to revoke API key: ${msg}`);
     }
   };
 
@@ -696,8 +754,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setApiKeys((prev) => prev.filter((k) => k.id !== id));
       toast.success('API key deleted');
-    } catch {
-      toast.error('Failed to delete API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to delete API key: ${msg}`);
     }
   };
 
@@ -722,8 +781,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setSystemConfigs((prev) => prev.map((c) => c.config_key === configKey ? { ...c, config_value: configEdits[configKey] } : c));
       toast.success(`"${config.label}" updated`);
-    } catch {
-      toast.error('Failed to save configuration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save configuration: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -738,8 +798,9 @@ export default function SettingsContent() {
       await Promise.all(updates);
       setSystemConfigs((prev) => prev.map((c) => c.category === activeConfigCategory ? { ...c, config_value: configEdits[c.config_key] } : c));
       toast.success('System configuration saved');
-    } catch {
-      toast.error('Failed to save system configuration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save system configuration: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -767,11 +828,12 @@ export default function SettingsContent() {
           is_connected: false,
         }).select().single();
         if (error) throw error;
-        if (data) setWcSettings(data);
+        if (data) setWcSettings(sanitizeNulls(data, DEFAULT_WC_SETTINGS));
       }
       toast.success('WooCommerce credentials saved');
-    } catch {
-      toast.error('Failed to save WooCommerce credentials');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save WooCommerce credentials: ${msg}`);
     } finally {
       setWcSaving(false);
     }
@@ -891,7 +953,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Industry</label>
                 <select
-                  value={companyProfile.industry}
+                  value={companyProfile.industry ?? ''}
                   onChange={(e) => setCompanyProfile((p) => ({ ...p, industry: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -902,7 +964,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Size</label>
                 <select
-                  value={companyProfile.company_size}
+                  value={companyProfile.company_size ?? ''}
                   onChange={(e) => setCompanyProfile((p) => ({ ...p, company_size: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -916,7 +978,7 @@ export default function SettingsContent() {
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Description</label>
               <textarea
-                value={companyProfile.description}
+                value={companyProfile.description ?? ''}
                 onChange={(e) => setCompanyProfile((p) => ({ ...p, description: e.target.value }))}
                 rows={3}
                 placeholder="Brief description of your company…"
@@ -991,7 +1053,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Name</label>
                 <input
                   type="text"
-                  value={fleet.company_name}
+                  value={fleet.company_name ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_name: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1000,7 +1062,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Timezone</label>
                 <select
-                  value={fleet.timezone}
+                  value={fleet.timezone ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, timezone: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1012,7 +1074,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Email</label>
                 <input
                   type="email"
-                  value={fleet.company_email}
+                  value={fleet.company_email ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_email: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1022,7 +1084,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Phone</label>
                 <input
                   type="text"
-                  value={fleet.company_phone}
+                  value={fleet.company_phone ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_phone: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1032,7 +1094,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Address</label>
                 <input
                   type="text"
-                  value={fleet.company_address}
+                  value={fleet.company_address ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_address: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1075,7 +1137,7 @@ export default function SettingsContent() {
                     type="number"
                     step="0.01"
                     min="0"
-                    value={(fleet as any)[key]}
+                    value={(fleet as any)[key] ?? 0}
                     onChange={(e) => setFleet((f) => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
                     className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                     style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1123,6 +1185,11 @@ export default function SettingsContent() {
                   </option>
                 ))}
               </select>
+              {deliveryZones.length === 0 && (
+                <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  No delivery zones have been created yet. Go to <a href="/delivery-zones" className="underline font-medium" style={{ color: 'hsl(var(--primary))' }}>Delivery Zones</a> to draw zones on the map.
+                </p>
+              )}
               {fleet.map_default_zone_id && (() => {
                 const selected = deliveryZones.find((z) => z.id === fleet.map_default_zone_id);
                 return selected ? (
@@ -1175,7 +1242,7 @@ export default function SettingsContent() {
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notification Email Address</label>
               <input
                 type="email"
-                value={notifPrefs.notification_email}
+                value={notifPrefs.notification_email ?? ''}
                 onChange={(e) => setNotifPrefs((p) => ({ ...p, notification_email: e.target.value }))}
                 className="w-full max-w-sm px-3 py-2 rounded-lg border text-sm focus:outline-none"
                 style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1355,7 +1422,7 @@ export default function SettingsContent() {
                     <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Store URL</label>
                     <input
                       type="url"
-                      value={wcSettings.store_url}
+                      value={wcSettings.store_url ?? ''}
                       onChange={(e) => setWcSettings((s) => ({ ...s, store_url: e.target.value }))}
                       placeholder="https://yourstore.com"
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none font-mono"
@@ -1369,7 +1436,7 @@ export default function SettingsContent() {
                     <div className="relative">
                       <input
                         type={wcShowKey ? 'text' : 'password'}
-                        value={wcSettings.consumer_key}
+                        value={wcSettings.consumer_key ?? ''}
                         onChange={(e) => setWcSettings((s) => ({ ...s, consumer_key: e.target.value }))}
                         placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                         className="w-full px-3 py-2 pr-16 rounded-lg border text-sm focus:outline-none font-mono"
@@ -1392,7 +1459,7 @@ export default function SettingsContent() {
                     <div className="relative">
                       <input
                         type={wcShowSecret ? 'text' : 'password'}
-                        value={wcSettings.consumer_secret}
+                        value={wcSettings.consumer_secret ?? ''}
                         onChange={(e) => setWcSettings((s) => ({ ...s, consumer_secret: e.target.value }))}
                         placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                         className="w-full px-3 py-2 pr-16 rounded-lg border text-sm focus:outline-none font-mono"
@@ -1798,7 +1865,15 @@ export default function SettingsContent() {
                 </div>
               ))}
               {systemConfigs.filter((c) => c.category === activeConfigCategory).length === 0 && (
-                <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No configurations in this category.</p>
+                <div className="text-center py-6">
+                  <Sliders size={28} className="mx-auto mb-2 opacity-30" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No configurations in this category.</p>
+                  {systemConfigs.length === 0 && (
+                    <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      System configuration data has not been initialised. Please run the database migrations to seed default values.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex justify-end">

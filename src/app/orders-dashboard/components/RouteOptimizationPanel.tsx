@@ -269,7 +269,7 @@ export default function RouteOptimizationPanel() {
   const [orders, setOrders] = useState<AppOrder[]>([]);
   const [drivers, setDrivers] = useState<DriverWithZone[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -484,7 +484,7 @@ export default function RouteOptimizationPanel() {
       {!loading && zoneGroups.length > 0 && (
         <div className="mt-3 flex items-center justify-between">
           <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            {zoneGroups.length} zone{zoneGroups.length !== 1 ? 's' : ''} · Last updated {lastRefreshed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            {zoneGroups.length} zone{zoneGroups.length !== 1 ? 's' : ''} · Last updated {lastRefreshed?.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) ?? '—'}
           </p>
           <div className="flex items-center gap-1 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />

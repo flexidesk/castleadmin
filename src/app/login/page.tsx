@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
@@ -15,7 +14,6 @@ interface LoginFormData {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const { signIn } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,8 +35,7 @@ export default function LoginPage() {
     try {
       await signIn(data.email, data.password);
       toast.success('Welcome back!');
-      router.push('/orders-dashboard');
-      router.refresh();
+      window.location.href = '/orders-dashboard';
     } catch (error: any) {
       const rawMsg: string = error?.message || '';
       const isRateLimit =

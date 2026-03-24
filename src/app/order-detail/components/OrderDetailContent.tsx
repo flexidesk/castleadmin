@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   ArrowLeft, ChevronRight, Edit3, Trash2, CheckCircle2, Truck, Clock, Circle,
   Package, CreditCard, FileImage, Calendar, AlertTriangle, RefreshCw, ExternalLink, ChevronDown,
+  Search,
 } from 'lucide-react';
 import { StatusBadge, TypeBadge } from '@/components/ui/StatusBadge';
 import type { BookingStatus } from '@/components/ui/StatusBadge';
@@ -38,28 +39,144 @@ interface Props {
   orderId: string | null;
 }
 
+function OrderLookup() {
+  const router = useRouter();
+  const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingOrders, setLoadingOrders] = useState(true);
+
+  useEffect(() => {
+    ordersService.fetchAllOrders().then((data) => {
+      setAllOrders(data);
+      setLoadingOrders(false);
+    });
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return allOrders;
+    const q = searchQuery.toLowerCase();
+    return allOrders.filter(
+      (o) =>
+        o.id.toLowerCase().includes(q) ||
+        o.customer.name.toLowerCase().includes(q) ||
+        o.customer.email?.toLowerCase().includes(q) ||
+        o.customer.phone?.toLowerCase().includes(q) ||
+        o.wooOrderId?.toLowerCase().includes(q) ||
+        o.status?.toLowerCase().includes(q)
+    );
+  }, [allOrders, searchQuery]);
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      <div className="card p-6 md:p-8 flex flex-col items-center gap-4 text-center">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+        >
+          <Search size={28} style={{ color: 'hsl(var(--primary))' }} />
+        </div>
+        <h2 className="text-lg font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+          Order Lookup
+        </h2>
+        <p className="text-sm max-w-md" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          Search by order ID, customer name, email, phone, or WooCommerce ID to view booking details.
+        </p>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="p-4 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'hsl(var(--muted-foreground))' }}
+            />
+            <input
+              type="text"
+              placeholder="Search orders..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm outline-none transition-colors focus:ring-2"
+              style={{
+                borderColor: 'hsl(var(--border))',
+                backgroundColor: 'hsl(var(--background))',
+                color: 'hsl(var(--foreground))',
+              }}
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {loadingOrders ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 rounded-lg skeleton" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {searchQuery ? 'No orders match your search.' : 'No orders found.'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y max-h-[60vh] overflow-y-auto" style={{ borderColor: 'hsl(var(--border))' }}>
+            {filtered.slice(0, 50).map((o) => (
+              <button
+                key={o.id}
+                onClick={() => router.push(`/order-detail?id=${o.id}`)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-secondary/50 transition-colors touch-manipulation"
+              >
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+                >
+                  <Package size={16} style={{ color: 'hsl(var(--primary))' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                      {o.customer.name}
+                    </span>
+                    <StatusBadge status={o.status as BookingStatus} />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <span className="font-mono">{o.id}</span>
+                    <span>·</span>
+                    <span>
+                      {new Date(o.bookingDate).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OrderDetailContent({ orderId }: Props) {
   const router = useRouter();
   const [order, setOrder] = useState<AppOrder | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!orderId);
   const [notFound, setNotFound] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('details');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<BookingStatus | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  // Mobile: collapsible header info section
   const [headerExpanded, setHeaderExpanded] = useState(true);
-  // Mobile: actions dropdown
   const [actionsOpen, setActionsOpen] = useState(false);
 
-  // ── Fetch order by ID ────────────────────────────────────────────────────────
   const loadOrder = useCallback(async () => {
-    if (!orderId) {
-      setNotFound(true);
-      setLoading(false);
-      return;
-    }
+    if (!orderId) return;
     setLoading(true);
     const data = await ordersService.fetchOrderById(orderId);
     if (!data) {
@@ -236,7 +353,10 @@ export default function OrderDetailContent({ orderId }: Props) {
     }
   };
 
-  // ── Loading skeleton ─────────────────────────────────────────────────────────
+  if (!orderId) {
+    return <OrderLookup />;
+  }
+
   if (loading) {
     return (
       <div className="space-y-5 animate-fade-in">

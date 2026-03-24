@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bell, RefreshCw } from 'lucide-react';
 
 interface TopbarProps {
@@ -12,14 +12,18 @@ interface TopbarProps {
 
 export default function Topbar({ sidebarCollapsed, title, subtitle, notificationCount = 0 }: TopbarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
+  const [dateStr, setDateStr] = useState('');
 
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-GB', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
+  useEffect(() => {
+    setDateStr(
+      new Date().toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      })
+    );
+  }, []);
 
   return (
     <header

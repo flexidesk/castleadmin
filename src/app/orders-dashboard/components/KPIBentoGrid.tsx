@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Truck, CheckCircle2, CreditCard, PackageCheck, Calendar } from 'lucide-react';
 import { ordersService, AppOrder } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
@@ -132,8 +132,14 @@ export default function KPIBentoGrid() {
     return () => { supabase.removeChannel(channel); };
   }, [loadOrders]);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  const { todayStr, tomorrowStr } = useMemo(() => {
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 86400000);
+    return {
+      todayStr: now.toISOString().split('T')[0],
+      tomorrowStr: tomorrow.toISOString().split('T')[0],
+    };
+  }, [orders]);
 
   const todayOrders = orders.filter((o) => o.bookingDate === todayStr);
   const totalToday = todayOrders.length;

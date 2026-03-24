@@ -1,8 +1,14 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+function isSecureRequest(request: NextRequest): boolean {
+  return request.nextUrl.protocol === 'https:' ||
+    request.headers.get('x-forwarded-proto') === 'https';
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const secure = isSecureRequest(request);
 
   // Serve SVG fallback for PWA icon requests
   if (pathname.startsWith('/icons/icon-') && pathname.endsWith('.png')) {
@@ -22,13 +28,20 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Driver portal is publicly accessible — skip auth check
+  // Driver portal is publicly accessible — skip auth check entirely
   if (pathname.startsWith('/driver-portal')) {
     return NextResponse.next({ request });
   }
 
-  // Public routes — skip auth check
-  if (pathname.startsWith('/login') || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password') || pathname.startsWith('/register') || pathname.startsWith('/track') || pathname.startsWith('/auth')) {
+  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
+  const isPublicPage =
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password') ||
+    pathname.startsWith('/track') ||
+    pathname.startsWith('/auth');
+
+  // Fully public pages that never need auth checking
+  if (isPublicPage) {
     return NextResponse.next({ request });
   }
 
@@ -51,39 +64,59 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, {
               ...options,
-              sameSite: 'none',
-              secure: true,
+              sameSite: secure ? 'none' : 'lax',
+              secure,
             })
           );
         },
       },
       auth: {
-        // Suppress automatic error logging for stale refresh tokens
         debug: false,
       },
     }
   );
 
+  let user: any = null;
   let error: any = null;
   try {
     const result = await supabase.auth.getUser();
+    user = result.data?.user ?? null;
     error = result.error;
   } catch (e: any) {
     error = e;
   }
 
-  // If refresh token is invalid/not found, clear all auth cookies and redirect to login
-  if (
+  const isStaleRefreshToken =
     error &&
-    ((error as any)?.code === 'refresh_token_not_found' || error.message?.includes('Refresh Token Not Found') ||
-      error.message?.includes('refresh_token_not_found'))
-  ) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = '/login';
+    (error?.code === 'refresh_token_not_found' ||
+      error?.message?.includes('Refresh Token Not Found') ||
+      error?.message?.includes('refresh_token_not_found'));
 
-    const redirectResponse = NextResponse.redirect(loginUrl);
+  const isAuthenticated = !!user && !isStaleRefreshToken;
 
-    // Clear all Supabase auth cookies
+  if (isAuthenticated) {
+    // Redirect authenticated users away from login/register
+    if (isAuthPage) {
+      const dashboardUrl = request.nextUrl.clone();
+      dashboardUrl.pathname = '/orders-dashboard';
+      return NextResponse.redirect(dashboardUrl);
+    }
+    return supabaseResponse;
+  }
+
+  // --- User is NOT authenticated ---
+
+  // Allow unauthenticated access to login/register (they need to see these pages)
+  if (isAuthPage) {
+    return supabaseResponse;
+  }
+
+  // Unauthenticated on a protected route — redirect to login
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = '/login';
+  const redirectResponse = NextResponse.redirect(loginUrl);
+
+  if (isStaleRefreshToken) {
     request.cookies.getAll().forEach(({ name }) => {
       if (
         name.startsWith('sb-') ||
@@ -94,21 +127,19 @@ export async function middleware(request: NextRequest) {
         redirectResponse.cookies.set(name, '', {
           maxAge: 0,
           path: '/',
-          sameSite: 'none',
-          secure: true,
+          sameSite: secure ? 'none' : 'lax',
+          secure,
         });
       }
     });
-
-    return redirectResponse;
   }
 
-  return supabaseResponse;
+  return redirectResponse;
 }
 
 export const config = {
   matcher: [
     '/icons/:path*',
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.json|robots\\.txt|sitemap\\.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|json|xml|txt|woff|woff2|ttf|eot|map)$).*)',
   ],
 };

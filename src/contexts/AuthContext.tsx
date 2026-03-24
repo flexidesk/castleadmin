@@ -39,6 +39,7 @@ const clearAllAuthStorage = () => {
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   try {
+    const secure = typeof window !== 'undefined' && window.location.protocol === 'https:';
     document.cookie.split(';').forEach((c) => {
       const name = c.trim().split('=')[0];
       if (
@@ -47,8 +48,9 @@ const clearAllAuthStorage = () => {
         name.includes('supabase') ||
         name.includes('castleadmin-auth')
       ) {
-        document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
-        document.cookie = `${name}=; Path=/; Max-Age=0`;
+        document.cookie = secure
+          ? `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`
+          : `${name}=; Path=/; Max-Age=0`;
       }
     });
   } catch {}
@@ -92,41 +94,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (!session) {
-          // No session at all — user is logged out
           setSession(null);
           setUser(null);
           setLoading(false);
           return;
         }
 
-        // Validate the session by calling getUser() which hits the server
-        let user: any = null;
-        let error: any = null;
-        try {
-          const result = await supabase.auth.getUser();
-          user = result.data?.user ?? null;
-          error = result.error ?? null;
-        } catch (e: any) {
-          error = e;
-        }
+        // Use session.user directly to avoid an extra getUser() API call
+        // which can trigger rate limits when many clients initialize simultaneously
+        const sessionUser = session.user ?? null;
 
-        if (isRefreshTokenError(error)) {
-          await handleStaleSession(supabase, setSession, setUser, setLoading);
-          return;
-        }
-
-        if (error || !user) {
-          // Any other error or no user — clear and redirect
+        if (!sessionUser) {
           clearAllAuthStorage();
           setSession(null);
           setUser(null);
           setLoading(false);
-          redirectToLogin();
           return;
         }
 
         setSession(session);
-        setUser(user);
+        setUser(sessionUser);
         setLoading(false);
         initializedRef.current = true;
       } else if (

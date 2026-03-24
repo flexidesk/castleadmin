@@ -82,11 +82,15 @@ export default function BookingVolumeChart() {
     return () => { supabase.removeChannel(channel); };
   }, [loadData]);
 
-  // Compute date range label
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - 6);
-  const rangeLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const [rangeLabel, setRangeLabel] = useState('');
+  useEffect(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    setRangeLabel(
+      `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    );
+  }, []);
 
   return (
     <div className="card p-5">

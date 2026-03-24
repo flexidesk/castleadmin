@@ -1,4 +1,4 @@
-const CACHE_NAME = 'castle-driver-portal-v1';
+const CACHE_NAME = 'castle-driver-portal-v3';
 const OFFLINE_URL = '/driver-portal';
 
 const PRECACHE_URLS = [
@@ -47,13 +47,12 @@ self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests (Supabase, external APIs)
   if (url.origin !== self.location.origin) return;
 
-  // Skip Next.js internal routes
-  if (url.pathname.startsWith('/_next/')) {
-    event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request))
-    );
-    return;
-  }
+  // Only handle /driver-portal requests — never intercept admin panel or other routes
+  if (!url.pathname.startsWith('/driver-portal')) return;
+
+  // Never cache Next.js build artifacts — they change every build and serving
+  // stale chunks triggers ChunkLoadError
+  if (url.pathname.startsWith('/_next/')) return;
 
   // For driver-portal pages: network-first with offline fallback
   if (url.pathname.startsWith('/driver-portal')) {
@@ -106,7 +105,8 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request).then((response) => {
         if (response.ok) {
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+          const cloned = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, cloned));
         }
         return response;
       });

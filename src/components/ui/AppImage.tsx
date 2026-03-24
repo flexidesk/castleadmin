@@ -114,6 +114,7 @@ const AppImage = memo(function AppImage({
             height={height || 300}
             sizes={sizes}
             {...props}
+            style={{ width: 'auto', height: 'auto', ...props.style }}
         />
     );
 });
