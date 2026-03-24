@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -98,33 +98,43 @@ function isUrgent(order: AppOrder): boolean {
   return false;
 }
 
-// ─── PIN Login Screen ─────────────────────────────────────────────────────────
+// ─── Email/Password Login Screen ──────────────────────────────────────────────
 
-interface PinLoginProps {
+interface EmailLoginProps {
   onLogin: (driver: AppDriver & { access_code: string }) => void;
 }
 
-function PinLoginScreen({ onLogin }: PinLoginProps) {
-  const [pin, setPin] = useState('');
+function PinLoginScreen({ onLogin }: EmailLoginProps) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pin.trim()) return;
+    if (!email.trim() || !password.trim()) return;
     setLoading(true);
     setError(null);
     try {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (authError) throw authError;
+
       const { data, error: dbError } = await supabase
         .from('drivers')
         .select('*')
-        .eq('access_code', pin.trim().toUpperCase())
+        .eq('auth_user_id', authData.user.id)
         .eq('is_active', true)
         .single();
 
       if (dbError || !data) {
-        setError('Invalid access code. Please check with your dispatcher.');
+        await supabase.auth.signOut();
+        setError('No driver account found for these credentials. Please contact your administrator.');
         return;
       }
 
@@ -136,10 +146,10 @@ function PinLoginScreen({ onLogin }: PinLoginProps) {
         plate: data.plate,
         status: data.status,
         avatar: data.avatar,
-        access_code: data.access_code,
+        access_code: data.access_code ?? '',
       });
-    } catch {
-      setError('Failed to verify access code. Please try again.');
+    } catch (err: any) {
+      setError(err?.message || 'Invalid email or password. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -167,10 +177,10 @@ function PinLoginScreen({ onLogin }: PinLoginProps) {
             Driver Portal
           </div>
           <h1 className="text-xl font-semibold text-center" style={{ color: 'hsl(var(--foreground))' }}>
-            Enter Your Access Code
+            Driver Sign In
           </h1>
           <p className="mt-1 text-sm text-center" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            Your 6-character code is provided by your dispatcher
+            Sign in to view and manage your assigned orders
           </p>
         </div>
 
@@ -191,33 +201,75 @@ function PinLoginScreen({ onLogin }: PinLoginProps) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
             <div>
-              <label className="label">Access Code</label>
-              <input
-                type="text"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.toUpperCase())}
-                placeholder="e.g. AB12CD"
-                maxLength={8}
-                className="input-base text-center text-xl font-bold tracking-widest uppercase"
-                autoComplete="off"
-                autoFocus
-              />
+              <label className="label">Email address</label>
+              <div className="relative">
+                <span
+                  className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                >
+                  <Mail size={16} />
+                </span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="input-base pl-9"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </div>
             </div>
+
+            {/* Password */}
+            <div>
+              <label className="label">Password</label>
+              <div className="relative">
+                <span
+                  className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                >
+                  <Lock size={16} />
+                </span>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="input-base pl-9 pr-10"
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                  tabIndex={-1}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
             <button
               type="submit"
-              disabled={loading || !pin.trim()}
+              disabled={loading || !email.trim() || !password.trim()}
               className="btn-primary w-full justify-center py-2.5"
             >
               {loading ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Verifying…
+                  Signing in…
                 </>
               ) : (
                 <>
                   <Shield size={16} />
-                  Access Portal
+                  Sign in as Driver
                 </>
               )}
             </button>
@@ -1320,29 +1372,46 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
 
 export default function PublicDriverPortal() {
   const [driver, setDriver] = useState<(AppDriver & { access_code: string }) | null>(null);
+  const supabase = createClient();
 
-  // Persist session in sessionStorage
+  // Restore session from Supabase auth on mount
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem('driver_portal_session');
-      if (saved) {
-        setDriver(JSON.parse(saved));
-      }
-    } catch {}
+    const restoreSession = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data } = await supabase
+          .from('drivers')
+          .select('*')
+          .eq('auth_user_id', user.id)
+          .eq('is_active', true)
+          .single();
+
+        if (data) {
+          setDriver({
+            id: data.id,
+            name: data.name,
+            phone: data.phone,
+            vehicle: data.vehicle,
+            plate: data.plate,
+            status: data.status,
+            avatar: data.avatar,
+            access_code: data.access_code ?? '',
+          });
+        }
+      } catch {}
+    };
+    restoreSession();
   }, []);
 
   const handleLogin = (d: AppDriver & { access_code: string }) => {
     setDriver(d);
-    try {
-      sessionStorage.setItem('driver_portal_session', JSON.stringify(d));
-    } catch {}
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setDriver(null);
-    try {
-      sessionStorage.removeItem('driver_portal_session');
-    } catch {}
   };
 
   if (!driver) {
