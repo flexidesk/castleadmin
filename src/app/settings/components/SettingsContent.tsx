@@ -24,6 +24,7 @@ interface FleetConfig {
   company_email: string;
   auto_zone_allocation?: boolean;
   map_default_zone_id?: string | null;
+  map_default_postcode?: string;
 }
 
 interface NotificationPrefs {
@@ -211,7 +212,7 @@ const SYSTEM_CONFIG_CATEGORIES = ['general', 'orders', 'security', 'display'];
 
 function sanitizeNulls<T extends Record<string, unknown>>(data: T, defaults: T): T {
   const result = { ...defaults };
-  for (const key of Object.keys(defaults) as (keyof T)[]) {
+  for (let key of Object.keys(defaults) as (keyof T)[]) {
     const val = data[key];
     result[key] = (val !== null && val !== undefined ? val : defaults[key]) as T[keyof T];
   }
@@ -310,6 +311,7 @@ const DEFAULT_FLEET: FleetConfig = {
   company_address: '', company_phone: '', company_email: '',
   auto_zone_allocation: false,
   map_default_zone_id: null,
+  map_default_postcode: '',
 };
 
 const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
@@ -477,6 +479,7 @@ export default function SettingsContent() {
           company_address: fleet.company_address, company_phone: fleet.company_phone,
           company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
           map_default_zone_id: fleet.map_default_zone_id ?? null,
+          map_default_postcode: fleet.map_default_postcode ?? '',
           updated_at: new Date().toISOString(),
         }).eq('id', fleet.id);
         if (error) throw error;
@@ -832,7 +835,7 @@ export default function SettingsContent() {
       }
       toast.success('WooCommerce credentials saved');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Connection failed';
       toast.error(`Failed to save WooCommerce credentials: ${msg}`);
     } finally {
       setWcSaving(false);
@@ -1166,41 +1169,25 @@ export default function SettingsContent() {
           {/* Map Default Zone */}
           <div className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
             <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <MapPin size={15} style={{ color: 'hsl(var(--primary))' }} /> Map Default Zone
+              <MapPin size={15} style={{ color: 'hsl(var(--primary))' }} /> Map Default Address
             </h2>
             <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Select the delivery zone that maps will centre on by default when no specific zone is selected.
+              Enter the postcode that maps will centre on by default when no specific location is selected.
             </p>
             <div className="max-w-sm">
-              <select
-                value={fleet.map_default_zone_id ?? ''}
-                onChange={(e) => setFleet((f) => ({ ...f, map_default_zone_id: e.target.value || null }))}
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+              <input
+                type="text"
+                value={fleet.map_default_postcode ?? ''}
+                onChange={(e) => setFleet((f) => ({ ...f, map_default_postcode: e.target.value.toUpperCase() }))}
+                placeholder="e.g. LE4 7RN"
+                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none uppercase"
                 style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-              >
-                <option value="">— No default zone —</option>
-                {deliveryZones.map((zone) => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </option>
-                ))}
-              </select>
-              {deliveryZones.length === 0 && (
+              />
+              {fleet.map_default_postcode && (
                 <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  No delivery zones have been created yet. Go to <a href="/delivery-zones" className="underline font-medium" style={{ color: 'hsl(var(--primary))' }}>Delivery Zones</a> to draw zones on the map.
+                  Maps will default to <span className="font-semibold font-mono" style={{ color: 'hsl(var(--foreground))' }}>{fleet.map_default_postcode}</span>
                 </p>
               )}
-              {fleet.map_default_zone_id && (() => {
-                const selected = deliveryZones.find((z) => z.id === fleet.map_default_zone_id);
-                return selected ? (
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: selected.color }} />
-                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {selected.name} is set as the map default zone
-                    </span>
-                  </div>
-                ) : null;
-              })()}
             </div>
           </div>
 
