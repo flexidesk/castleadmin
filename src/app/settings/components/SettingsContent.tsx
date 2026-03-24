@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, Sliders, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2 } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -141,17 +141,6 @@ interface ApiKey {
   created_at: string;
 }
 
-interface SystemConfig {
-  id: string;
-  config_key: string;
-  config_value: string;
-  config_type: string;
-  category: string;
-  label: string;
-  description: string;
-  is_sensitive: boolean;
-}
-
 interface DeliveryZone {
   id: string;
   name: string;
@@ -182,7 +171,7 @@ interface WebhookConfig {
   last_status?: string | null;
 }
 
-type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'system';
+type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company';
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
@@ -207,102 +196,6 @@ const INTEGRATION_ICONS: Record<string, string> = {
 };
 
 const API_SCOPES = ['read', 'write', 'orders:read', 'orders:write', 'drivers:read', 'drivers:write', 'analytics:read', 'settings:read', 'settings:write'];
-
-const SYSTEM_CONFIG_CATEGORIES = ['general', 'orders', 'security', 'display'];
-
-function sanitizeNulls<T extends Record<string, unknown>>(data: T, defaults: T): T {
-  const result = { ...defaults };
-  for (let key of Object.keys(defaults) as (keyof T)[]) {
-    const val = data[key];
-    result[key] = (val !== null && val !== undefined ? val : defaults[key]) as T[keyof T];
-  }
-  if (data.id !== undefined) (result as any).id = data.id;
-  return result;
-}
-
-// ─── Toggle ───────────────────────────────────────────────────────────────────
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-        checked ? 'bg-primary' : 'bg-gray-300'
-      }`}
-      style={checked ? { backgroundColor: 'hsl(var(--primary))' } : {}}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? 'translate-x-5' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
-}
-
-// ─── Number Input ─────────────────────────────────────────────────────────────
-
-function NumInput({
-  label, value, onChange, step = '1', min, suffix,
-}: {
-  label: string; value: number; onChange: (v: number) => void;
-  step?: string; min?: string; suffix?: string;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          step={step}
-          min={min}
-          value={value ?? 0}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-          style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-        />
-        {suffix && <span className="text-xs shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }}>{suffix}</span>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Text Input ───────────────────────────────────────────────────────────────
-
-function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
-      <input
-        type={type}
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-      />
-    </div>
-  );
-}
-
-// ─── Generate random API key ──────────────────────────────────────────────────
-
-function generateApiKey(): { full: string; prefix: string; preview: string; hash: string } {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const prefix = 'ca_live_';
-  let key = '';
-  for (let i = 0; i < 40; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  const full = prefix + key;
-  const preview = prefix + key.slice(0, 6) + '...' + key.slice(-4);
-  const hash = btoa(full).slice(0, 32);
-  return { full, prefix, preview, hash };
-}
 
 const DEFAULT_FLEET: FleetConfig = {
   company_name: '', timezone: 'Europe/London', currency: 'GBP',
@@ -393,38 +286,12 @@ export default function SettingsContent() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 
-  // System config
-  const [systemConfigs, setSystemConfigs] = useState<SystemConfig[]>([]);
-  const [configEdits, setConfigEdits] = useState<Record<string, string>>({});
-  const [activeConfigCategory, setActiveConfigCategory] = useState('general');
-
-  // Delivery zones (for map default zone selector)
-  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
-
-  // WooCommerce settings
-  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>(DEFAULT_WC_SETTINGS);
-  const [wcSaving, setWcSaving] = useState(false);
-  const [wcTesting, setWcTesting] = useState(false);
-  const [wcShowSecret, setWcShowSecret] = useState(false);
-  const [wcShowKey, setWcShowKey] = useState(false);
-
-  // Webhooks
-  const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
-  const [showNewWebhookForm, setShowNewWebhookForm] = useState(false);
-  const [newWebhookForm, setNewWebhookForm] = useState<WebhookConfig>({
-    name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true,
-  });
-  const [testingWebhook, setTestingWebhook] = useState<string | null>(null);
-
-  // Integrations sub-tab
-  const [integrationsSubTab, setIntegrationsSubTab] = useState<'connections' | 'api_keys' | 'webhooks'>('connections');
-
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [fleetRes, notifRes, rolesRes, intRes, ratesRes, alertRes, companyRes, apiKeysRes, sysConfigRes, zonesRes, wcRes] = await Promise.all([
+      const [fleetRes, notifRes, rolesRes, intRes, ratesRes, alertRes, companyRes, apiKeysRes, zonesRes, wcRes] = await Promise.all([
         supabase.from('fleet_config').select('*').limit(1).maybeSingle(),
         supabase.from('notification_preferences').select('*').limit(1).maybeSingle(),
         supabase.from('user_roles').select('*').order('created_at', { ascending: true }),
@@ -433,7 +300,6 @@ export default function SettingsContent() {
         supabase.from('alert_thresholds').select('*').limit(1).maybeSingle(),
         supabase.from('company_profile').select('*').limit(1).maybeSingle(),
         supabase.from('api_keys').select('*').order('created_at', { ascending: false }),
-        supabase.from('system_config').select('*').order('category', { ascending: true }),
         supabase.from('delivery_zones').select('id, name, color, is_active').eq('is_active', true).order('name', { ascending: true }),
         supabase.from('woocommerce_settings').select('*').limit(1).maybeSingle(),
       ]);
@@ -446,12 +312,6 @@ export default function SettingsContent() {
       if (alertRes.data) setAlertThresholds(sanitizeNulls(alertRes.data, DEFAULT_ALERT_THRESHOLDS));
       if (companyRes.data) setCompanyProfile(sanitizeNulls(companyRes.data, DEFAULT_COMPANY_PROFILE));
       if (apiKeysRes.data) setApiKeys(apiKeysRes.data);
-      if (sysConfigRes.data) {
-        setSystemConfigs(sysConfigRes.data);
-        const edits: Record<string, string> = {};
-        sysConfigRes.data.forEach((c: SystemConfig) => { edits[c.config_key] = c.config_value ?? ''; });
-        setConfigEdits(edits);
-      }
       if (zonesRes.data) setDeliveryZones(zonesRes.data);
       if (wcRes.data) setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
     } catch (err: unknown) {
@@ -675,7 +535,7 @@ export default function SettingsContent() {
       setEditingIntegration(null);
       toast.success('Integration configuration saved');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to save integration config: ${msg}`);
     } finally {
       setSaving(false);
@@ -732,7 +592,7 @@ export default function SettingsContent() {
       setNewKeyForm({ name: '', description: '', scopes: ['read'], expires_at: '' });
       toast.success('API key created — copy it now, it will not be shown again');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to create API key: ${msg}`);
     } finally {
       setSaving(false);
@@ -746,7 +606,7 @@ export default function SettingsContent() {
       setApiKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
       toast.success('API key revoked');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to revoke API key: ${msg}`);
     }
   };
@@ -758,7 +618,7 @@ export default function SettingsContent() {
       setApiKeys((prev) => prev.filter((k) => k.id !== id));
       toast.success('API key deleted');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to delete API key: ${msg}`);
     }
   };
@@ -770,118 +630,6 @@ export default function SettingsContent() {
     }));
   };
 
-  // ─── System Config ───────────────────────────────────────────────────────────
-
-  const saveSystemConfig = async (configKey: string) => {
-    const config = systemConfigs.find((c) => c.config_key === configKey);
-    if (!config) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase.from('system_config').update({
-        config_value: configEdits[configKey],
-        updated_at: new Date().toISOString(),
-      }).eq('id', config.id);
-      if (error) throw error;
-      setSystemConfigs((prev) => prev.map((c) => c.config_key === configKey ? { ...c, config_value: configEdits[configKey] } : c));
-      toast.success(`"${config.label}" updated`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
-      toast.error(`Failed to save configuration: ${msg}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveAllSystemConfigs = async () => {
-    setSaving(true);
-    try {
-      const updates = systemConfigs
-        .filter((c) => c.category === activeConfigCategory)
-        .map((c) => supabase.from('system_config').update({ config_value: configEdits[c.config_key], updated_at: new Date().toISOString() }).eq('id', c.id));
-      await Promise.all(updates);
-      setSystemConfigs((prev) => prev.map((c) => c.category === activeConfigCategory ? { ...c, config_value: configEdits[c.config_key] } : c));
-      toast.success('System configuration saved');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
-      toast.error(`Failed to save system configuration: ${msg}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ─── WooCommerce ─────────────────────────────────────────────────────────────
-
-  const saveWcSettings = async () => {
-    if (!wcSettings.store_url) { toast.error('Store URL is required'); return; }
-    setWcSaving(true);
-    try {
-      if (wcSettings.id) {
-        const { error } = await supabase.from('woocommerce_settings').update({
-          store_url: wcSettings.store_url,
-          consumer_key: wcSettings.consumer_key,
-          consumer_secret: wcSettings.consumer_secret,
-          updated_at: new Date().toISOString(),
-        }).eq('id', wcSettings.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from('woocommerce_settings').insert({
-          store_url: wcSettings.store_url,
-          consumer_key: wcSettings.consumer_key,
-          consumer_secret: wcSettings.consumer_secret,
-          is_connected: false,
-        }).select().single();
-        if (error) throw error;
-        if (data) setWcSettings(sanitizeNulls(data, DEFAULT_WC_SETTINGS));
-      }
-      toast.success('WooCommerce credentials saved');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Connection failed';
-      toast.error(`Failed to save WooCommerce credentials: ${msg}`);
-    } finally {
-      setWcSaving(false);
-    }
-  };
-
-  const testWcConnection = async () => {
-    if (!wcSettings.store_url || !wcSettings.consumer_key || !wcSettings.consumer_secret) {
-      toast.error('Please fill in all WooCommerce fields before testing');
-      return;
-    }
-    setWcTesting(true);
-    try {
-      const baseUrl = wcSettings.store_url.replace(/\/$/, '');
-      const url = `${baseUrl}/wp-json/wc/v3/system_status?consumer_key=${encodeURIComponent(wcSettings.consumer_key)}&consumer_secret=${encodeURIComponent(wcSettings.consumer_secret)}`;
-      const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-      const success = res.ok;
-      const message = success ? 'Connection successful' : `Connection failed (HTTP ${res.status})`;
-      const now = new Date().toISOString();
-      if (wcSettings.id) {
-        await supabase.from('woocommerce_settings').update({
-          is_connected: success,
-          last_tested_at: now,
-          last_test_status: success ? 'success' : 'failed',
-          last_test_message: message,
-          updated_at: now,
-        }).eq('id', wcSettings.id);
-      }
-      setWcSettings((prev) => ({ ...prev, is_connected: success, last_tested_at: now, last_test_status: success ? 'success' : 'failed', last_test_message: message }));
-      if (success) toast.success('WooCommerce connection successful!');
-      else toast.error(message);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Connection failed';
-      const now = new Date().toISOString();
-      if (wcSettings.id) {
-        await supabase.from('woocommerce_settings').update({
-          is_connected: false, last_tested_at: now, last_test_status: 'failed', last_test_message: msg, updated_at: now,
-        }).eq('id', wcSettings.id);
-      }
-      setWcSettings((prev) => ({ ...prev, is_connected: false, last_tested_at: now, last_test_status: 'failed', last_test_message: msg }));
-      toast.error(`Connection failed: ${msg}`);
-    } finally {
-      setWcTesting(false);
-    }
-  };
-
   // ─── Tabs ────────────────────────────────────────────────────────────────────
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -891,7 +639,6 @@ export default function SettingsContent() {
     { id: 'roles', label: 'Team Roles', icon: Users },
     { id: 'driver_rates', label: 'Driver Rates', icon: Car },
     { id: 'alert_thresholds', label: 'Alert Thresholds', icon: AlertTriangle },
-    { id: 'system', label: 'System Config', icon: Sliders },
     { id: 'integrations', label: 'Integrations', icon: Plug },
   ];
 
@@ -1816,58 +1563,6 @@ export default function SettingsContent() {
             <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
               <Save size={15} /> {saving ? 'Saving…' : 'Save Thresholds'}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── System Config ─────────────────────────────────────────────────────── */}
-      {activeTab === 'system' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Sliders size={15} style={{ color: 'hsl(var(--primary))' }} /> System Configuration</h2>
-            <div className="flex gap-2 flex-wrap">
-              {SYSTEM_CONFIG_CATEGORIES.map((cat) => (
-                <button key={cat} onClick={() => setActiveConfigCategory(cat)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium border capitalize"
-                  style={activeConfigCategory === cat ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                  {cat}
-                </button>
-              ))}
-            </div>
-            <div className="space-y-3">
-              {systemConfigs.filter((c) => c.category === activeConfigCategory).map((c) => (
-                <div key={c.config_key} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>{c.label}</label>
-                    {c.description && <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>{c.description}</p>}
-                    <input
-                      type={c.is_sensitive ? 'password' : 'text'}
-                      value={configEdits[c.config_key] ?? ''}
-                      onChange={(e) => setConfigEdits((prev) => ({ ...prev, [c.config_key]: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                    />
-                  </div>
-                  <button onClick={() => saveSystemConfig(c.config_key)} disabled={saving} className="mt-5 px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60 shrink-0" style={{ backgroundColor: 'hsl(var(--primary))' }}>Save</button>
-                </div>
-              ))}
-              {systemConfigs.filter((c) => c.category === activeConfigCategory).length === 0 && (
-                <div className="text-center py-6">
-                  <Sliders size={28} className="mx-auto mb-2 opacity-30" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                  <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No configurations in this category.</p>
-                  {systemConfigs.length === 0 && (
-                    <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      System configuration data has not been initialised. Please run the database migrations to seed default values.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end">
-              <button onClick={saveAllSystemConfigs} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                <Save size={15} /> {saving ? 'Saving…' : 'Save All'}
-              </button>
-            </div>
           </div>
         </div>
       )}
