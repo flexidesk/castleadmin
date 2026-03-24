@@ -47,6 +47,9 @@ export default function LoginPage() {
     try {
       await signIn(data.email, data.password);
       toast.success('Welcome back!');
+      // Small delay to allow Supabase to write the auth cookie before the
+      // middleware checks it on the next request.
+      await new Promise((resolve) => setTimeout(resolve, 300));
       window.location.href = '/orders-dashboard';
       return;
     } catch (e: any) {
