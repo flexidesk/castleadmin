@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -23,19 +23,13 @@ const features = [
 ];
 
 export default function LoginPage() {
-  const { signIn, user, loading } = useAuth();
+  const { signIn } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const MAX_ATTEMPTS = 5;
-
-  useEffect(() => {
-    if (!loading && user) {
-      window.location.href = '/orders-dashboard';
-    }
-  }, [user, loading]);
 
   const {
     register,
