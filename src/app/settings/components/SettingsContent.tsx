@@ -157,6 +157,20 @@ interface WooCommerceSettings {
   last_tested_at?: string | null;
   last_test_status?: string | null;
   last_test_message?: string | null;
+  field_mapping?: WooCommerceFieldMapping;
+}
+
+interface WooCommerceFieldMapping {
+  order_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  delivery_address: string;
+  delivery_city: string;
+  delivery_postcode: string;
+  order_notes: string;
+  order_total: string;
+  order_status: string;
 }
 
 interface WebhookConfig {
@@ -240,6 +254,19 @@ const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   daily_revenue_target: 1000, low_revenue_warning_pct: 70,
 };
 
+const DEFAULT_WC_FIELD_MAPPING: WooCommerceFieldMapping = {
+  order_id: 'id',
+  customer_name: 'billing.first_name + billing.last_name',
+  customer_email: 'billing.email',
+  customer_phone: 'billing.phone',
+  delivery_address: 'shipping.address_1',
+  delivery_city: 'shipping.city',
+  delivery_postcode: 'shipping.postcode',
+  order_notes: 'customer_note',
+  order_total: 'total',
+  order_status: 'status',
+};
+
 const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
   store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
 };
@@ -286,6 +313,12 @@ export default function SettingsContent() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 
+  // WooCommerce UI state
+  const [wcShowInstructions, setWcShowInstructions] = useState(false);
+  const [wcShowFieldMapping, setWcShowFieldMapping] = useState(false);
+  const [wcFieldMapping, setWcFieldMapping] = useState<WooCommerceFieldMapping>(DEFAULT_WC_FIELD_MAPPING);
+  const [wcFieldMappingSaving, setWcFieldMappingSaving] = useState(false);
+
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -313,7 +346,10 @@ export default function SettingsContent() {
       if (companyRes.data) setCompanyProfile(sanitizeNulls(companyRes.data, DEFAULT_COMPANY_PROFILE));
       if (apiKeysRes.data) setApiKeys(apiKeysRes.data);
       if (zonesRes.data) setDeliveryZones(zonesRes.data);
-      if (wcRes.data) setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
+      if (wcRes.data) {
+        setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
+        if (wcRes.data.field_mapping) setWcFieldMapping(wcRes.data.field_mapping as WooCommerceFieldMapping);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
       toast.error(`Failed to load settings: ${msg}`);
@@ -517,7 +553,7 @@ export default function SettingsContent() {
       setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, is_enabled: enabled, status: enabled ? 'connected' : 'disconnected' } : i));
       toast.success(enabled ? 'Integration enabled' : 'Integration disabled');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to update integration: ${msg}`);
     }
   };
@@ -539,6 +575,24 @@ export default function SettingsContent() {
       toast.error(`Failed to save integration config: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveWcFieldMapping = async () => {
+    if (!wcSettings.id) { toast.error('Save credentials first'); return; }
+    setWcFieldMappingSaving(true);
+    try {
+      const { error } = await supabase.from('woocommerce_settings').update({
+        field_mapping: wcFieldMapping,
+        updated_at: new Date().toISOString(),
+      }).eq('id', wcSettings.id);
+      if (error) throw error;
+      toast.success('Field mapping saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save field mapping: ${msg}`);
+    } finally {
+      setWcFieldMappingSaving(false);
     }
   };
 
@@ -1162,7 +1216,7 @@ export default function SettingsContent() {
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none font-mono"
                       style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                     />
-                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>The root URL of your WooCommerce store (e.g. https://yourstore.com)</p>
+                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>The root URL of your WooCommerce store (e.g. https://yourstore.com) — no trailing slash.</p>
                   </div>
 
                   <div>
@@ -1185,7 +1239,7 @@ export default function SettingsContent() {
                         {wcShowKey ? 'Hide' : 'Show'}
                       </button>
                     </div>
-                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Generate in WooCommerce → Settings → Advanced → REST API</p>
+                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Generate in WooCommerce → Settings → Advanced → REST API — set Description to "CastleAdmin", User to an admin account, and Permissions to "Read/Write".</p>
                   </div>
 
                   <div>
@@ -1219,6 +1273,125 @@ export default function SettingsContent() {
                     )}
                   </div>
                 )}
+
+                {/* ── Setup Instructions ── */}
+                <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <button
+                    type="button"
+                    onClick={() => setWcShowInstructions((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left transition-colors hover:bg-black/5"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-base">📋</span> Setup Instructions
+                    </span>
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{wcShowInstructions ? '▲ Hide' : '▼ Show'}</span>
+                  </button>
+                  {wcShowInstructions && (
+                    <div className="px-4 py-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                      <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Follow these steps to connect your WooCommerce store:</p>
+                      <ol className="space-y-2.5">
+                        {[
+                          { step: 1, title: 'Log in to your WordPress admin panel', desc: 'Go to your store\'s WordPress dashboard (e.g. https://yourstore.com/wp-admin).' },
+                          { step: 2, title: 'Navigate to WooCommerce → Settings → Advanced → REST API', desc: 'Click "Add key" to create a new API key.' },
+                          { step: 3, title: 'Create a new API key', desc: 'Set Description to "CastleAdmin", User to an admin account, and Permissions to "Read/Write". Click "Generate API key".' },
+                          { step: 4, title: 'Copy your Consumer Key and Consumer Secret', desc: 'These are shown only once. Paste them into the fields above and click "Save Credentials".' },
+                          { step: 5, title: 'Enter your Store URL', desc: 'Use the root URL of your store (e.g. https://yourstore.com) — no trailing slash.' },
+                          { step: 6, title: 'Test the connection', desc: 'Click "Test Connection" to verify the credentials are working correctly.' },
+                          { step: 7, title: 'Set up the webhook (optional)', desc: 'Go to the Webhooks tab and copy the incoming webhook URL. In WooCommerce → Settings → Advanced → Webhooks, add a new webhook pointing to that URL for order events.' },
+                        ].map(({ step, title, desc }) => (
+                          <li key={step} className="flex gap-3">
+                            <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white mt-0.5" style={{ backgroundColor: 'hsl(var(--primary))' }}>{step}</span>
+                            <div>
+                              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{title}</p>
+                              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{desc}</p>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))' }}>
+                        <p className="text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>💡 Tip</p>
+                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Make sure your WooCommerce store has the REST API enabled. Go to WooCommerce → Settings → Advanced and ensure "Legacy REST API" is enabled if you are on WooCommerce 2.x.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Field Mapping ── */}
+                <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <button
+                    type="button"
+                    onClick={() => setWcShowFieldMapping((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left transition-colors hover:bg-black/5"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-base">🗂️</span> Field Mapping
+                    </span>
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{wcShowFieldMapping ? '▲ Hide' : '▼ Show'}</span>
+                  </button>
+                  {wcShowFieldMapping && (
+                    <div className="px-4 py-4 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Map WooCommerce order fields to CastleAdmin fields. Use dot notation for nested fields (e.g. <code className="px-1 py-0.5 rounded text-xs font-mono" style={{ backgroundColor: 'hsl(var(--secondary))' }}>billing.email</code>).
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {(
+                          [
+                            { key: 'order_id', label: 'Order ID', placeholder: 'id' },
+                            { key: 'customer_name', label: 'Customer Name', placeholder: 'billing.first_name + billing.last_name' },
+                            { key: 'customer_email', label: 'Customer Email', placeholder: 'billing.email' },
+                            { key: 'customer_phone', label: 'Customer Phone', placeholder: 'billing.phone' },
+                            { key: 'delivery_address', label: 'Delivery Address', placeholder: 'shipping.address_1' },
+                            { key: 'delivery_city', label: 'Delivery City', placeholder: 'shipping.city' },
+                            { key: 'delivery_postcode', label: 'Delivery Postcode', placeholder: 'shipping.postcode' },
+                            { key: 'order_notes', label: 'Order Notes', placeholder: 'customer_note' },
+                            { key: 'order_total', label: 'Order Total', placeholder: 'total' },
+                            { key: 'order_status', label: 'Order Status', placeholder: 'status' },
+                          ] as { key: keyof WooCommerceFieldMapping; label: string; placeholder: string }[]
+                        ).map(({ key, label, placeholder }) => (
+                          <div key={key}>
+                            <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {label}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs px-2 py-1.5 rounded-l-lg border-y border-l font-mono shrink-0" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                                WC →
+                              </span>
+                              <input
+                                type="text"
+                                value={wcFieldMapping[key]}
+                                onChange={(e) => setWcFieldMapping((m) => ({ ...m, [key]: e.target.value }))}
+                                placeholder={placeholder}
+                                className="flex-1 px-3 py-1.5 rounded-r-lg border text-xs focus:outline-none font-mono"
+                                style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setWcFieldMapping(DEFAULT_WC_FIELD_MAPPING)}
+                          className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+                          style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                        >
+                          Reset to Defaults
+                        </button>
+                        <button
+                          type="button"
+                          onClick={saveWcFieldMapping}
+                          disabled={wcFieldMappingSaving}
+                          className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-60"
+                          style={{ backgroundColor: 'hsl(var(--primary))' }}
+                        >
+                          <Save size={12} /> {wcFieldMappingSaving ? 'Saving…' : 'Save Mapping'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3 pt-1">
                   <button
