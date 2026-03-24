@@ -32,7 +32,6 @@ const clearAllAuthStorage = () => {
           k.startsWith('sb_') ||
           k === 'castleadmin-auth'|| k.includes('castleadmin-auth') ||
           k.includes('supabase') ||
-          // Also clear the sb_ prefixed version used by the custom storage layer
           k.startsWith('sb_castleadmin') ||
           k.startsWith('sb_sb-')
       )
@@ -81,6 +80,11 @@ const handleStaleSession = async (
   redirectToLogin();
 };
 
+// Module-level flag: prevents React Strict Mode double-mount from firing
+// two concurrent INITIAL_SESSION handlers on the same client instance.
+// Reset on each full page navigation (module re-evaluation).
+let _initialSessionHandled = false;
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -89,10 +93,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const initializedRef = useRef(false);
 
   useEffect(() => {
+    // Reset the module flag when this provider mounts fresh (e.g. navigation)
+    _initialSessionHandled = false;
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
+        // Guard: only process INITIAL_SESSION once per page load.
+        // React Strict Mode mounts twice, which would otherwise fire two
+        // simultaneous token-refresh requests and hit the rate limit.
+        if (_initialSessionHandled) return;
+        _initialSessionHandled = true;
+
         if (!session) {
           setSession(null);
           setUser(null);
@@ -100,8 +113,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        // Use session.user directly to avoid an extra getUser() API call
-        // which can trigger rate limits when many clients initialize simultaneously
+        // Use session.user directly — avoids an extra getUser() API call
         const sessionUser = session.user ?? null;
 
         if (!sessionUser) {
@@ -137,7 +149,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      // Reset flag on unmount so a genuine re-mount (navigation) works correctly
+      _initialSessionHandled = false;
+    };
   }, []);
 
   // Email/Password Sign Up

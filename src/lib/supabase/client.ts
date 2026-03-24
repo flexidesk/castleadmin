@@ -112,11 +112,17 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
 
 let _supabaseClient: ReturnType<typeof createBrowserClient> | null = null;
 
+// Use globalThis so the singleton survives React Strict Mode double-invocation
+const GLOBAL_KEY = '__supabaseClientSingleton__';
+
 export function createClient() {
-  if (typeof window !== 'undefined' && (window as any).__supabaseClient) {
-    return (window as any).__supabaseClient as ReturnType<typeof createBrowserClient>;
+  if (typeof globalThis !== 'undefined' && (globalThis as any)[GLOBAL_KEY]) {
+    return (globalThis as any)[GLOBAL_KEY] as ReturnType<typeof createBrowserClient>;
   }
-  if (_supabaseClient) return _supabaseClient;
+  if (_supabaseClient) {
+    if (typeof globalThis !== 'undefined') (globalThis as any)[GLOBAL_KEY] = _supabaseClient;
+    return _supabaseClient;
+  }
 
   const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -132,8 +138,7 @@ export function createClient() {
         setAll(cookiesToSet) {
           if (typeof document === 'undefined') return;
           const clearStr = isSecureContext
-            ? '; Path=/; Max-Age=0; SameSite=None; Secure'
-            : '; Path=/; Max-Age=0';
+            ? '; Path=/; Max-Age=0; SameSite=None; Secure' :'; Path=/; Max-Age=0';
           if (canUseCookies()) {
             cookiesToSet.forEach(({ name, value, options }) =>
               value
@@ -199,6 +204,9 @@ export function createClient() {
   _supabaseClient = client;
   if (typeof window !== 'undefined') {
     (window as any).__supabaseClient = client;
+  }
+  if (typeof globalThis !== 'undefined') {
+    (globalThis as any)[GLOBAL_KEY] = client;
   }
   return client;
 }
