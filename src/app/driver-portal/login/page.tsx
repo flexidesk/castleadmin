@@ -18,6 +18,9 @@ export default function DriverLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const MAX_ATTEMPTS = 5;
 
   const {
     register,
@@ -28,6 +31,7 @@ export default function DriverLoginPage() {
   });
 
   const onSubmit = async (data: DriverLoginFormData) => {
+    if (rateLimitCooldown > 0) return;
     setIsLoading(true);
     setAuthError(null);
     try {
@@ -51,13 +55,55 @@ export default function DriverLoginPage() {
         throw new Error('No driver account found for these credentials. Please contact your administrator.');
       }
 
+      setFailedAttempts(0);
       router.push('/driver-portal');
       router.refresh();
     } catch (error: any) {
-      const msg = error?.message || 'Invalid email or password. Please try again.';
-      setAuthError(msg);
-    } finally {
       setIsLoading(false);
+      const rawMsg: string = error?.message || '';
+      const isRateLimit =
+        rawMsg.toLowerCase().includes('rate limit') ||
+        rawMsg.toLowerCase().includes('too many requests') ||
+        rawMsg.toLowerCase().includes('request rate limit');
+
+      const newAttempts = failedAttempts + 1;
+      setFailedAttempts(newAttempts);
+
+      if (isRateLimit) {
+        setAuthError(
+          'Too many sign-in attempts. Please wait 60 seconds before trying again.'
+        );
+        let seconds = 60;
+        setRateLimitCooldown(seconds);
+        const interval = setInterval(() => {
+          seconds -= 1;
+          setRateLimitCooldown(seconds);
+          if (seconds <= 0) clearInterval(interval);
+        }, 1000);
+      } else if (rawMsg.includes('No driver account')) {
+        setAuthError(rawMsg);
+      } else {
+        const remaining = MAX_ATTEMPTS - newAttempts;
+        if (remaining > 0) {
+          setAuthError(
+            `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before temporary lockout.`
+          );
+        } else {
+          setAuthError(
+            'Too many failed attempts. Please wait before trying again, or contact your administrator if you need access.'
+          );
+          let seconds = 30;
+          setRateLimitCooldown(seconds);
+          const interval = setInterval(() => {
+            seconds -= 1;
+            setRateLimitCooldown(seconds);
+            if (seconds <= 0) {
+              clearInterval(interval);
+              setFailedAttempts(0);
+            }
+          }, 1000);
+        }
+      }
     }
   };
 
@@ -116,6 +162,19 @@ export default function DriverLoginPage() {
             >
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <span>{authError}</span>
+            </div>
+          )}
+
+          {failedAttempts > 0 && failedAttempts < MAX_ATTEMPTS && !rateLimitCooldown && (
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg mb-4 text-xs"
+              style={{
+                color: 'hsl(var(--muted-foreground))',
+                border: '1px solid hsl(var(--border))',
+              }}
+            >
+              <span className="font-medium">{failedAttempts}/{MAX_ATTEMPTS} failed attempts</span>
+              <span>— account will be temporarily locked after {MAX_ATTEMPTS} failures.</span>
             </div>
           )}
 
@@ -197,7 +256,7 @@ export default function DriverLoginPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || rateLimitCooldown > 0}
               className="btn-primary w-full justify-center py-2.5 mt-2"
             >
               {isLoading ? (
@@ -224,6 +283,8 @@ export default function DriverLoginPage() {
                   </svg>
                   Signing in…
                 </>
+              ) : rateLimitCooldown > 0 ? (
+                `Try again in ${rateLimitCooldown}s`
               ) : (
                 'Sign in as Driver'
               )}

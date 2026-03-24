@@ -20,6 +20,8 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const MAX_ATTEMPTS = 5;
 
   useEffect(() => {
     // If already logged in on page load, redirect immediately
@@ -55,6 +57,9 @@ export default function LoginPage() {
         rawMsg.toLowerCase().includes('too many requests') ||
         rawMsg.toLowerCase().includes('request rate limit');
 
+      const newAttempts = failedAttempts + 1;
+      setFailedAttempts(newAttempts);
+
       if (isRateLimit) {
         setAuthError(
           'Too many sign-in attempts. Please wait 60 seconds before trying again.'
@@ -67,7 +72,26 @@ export default function LoginPage() {
           if (seconds <= 0) clearInterval(interval);
         }, 1000);
       } else {
-        setAuthError(rawMsg || 'Invalid email or password. Please try again.');
+        const remaining = MAX_ATTEMPTS - newAttempts;
+        if (remaining > 0) {
+          setAuthError(
+            `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before temporary lockout.`
+          );
+        } else {
+          setAuthError(
+            'Too many failed attempts. Please wait a moment before trying again, or use "Forgot password?" to reset your credentials.'
+          );
+          let seconds = 30;
+          setRateLimitCooldown(seconds);
+          const interval = setInterval(() => {
+            seconds -= 1;
+            setRateLimitCooldown(seconds);
+            if (seconds <= 0) {
+              clearInterval(interval);
+              setFailedAttempts(0);
+            }
+          }, 1000);
+        }
       }
     }
   };
@@ -117,6 +141,20 @@ export default function LoginPage() {
             >
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <span>{authError}</span>
+            </div>
+          )}
+
+          {failedAttempts > 0 && failedAttempts < MAX_ATTEMPTS && !rateLimitCooldown && (
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg mb-4 text-xs"
+              style={{
+                backgroundColor: 'hsl(var(--warning, 38 92% 50%) / 0.08)',
+                color: 'hsl(var(--muted-foreground))',
+                border: '1px solid hsl(var(--border))',
+              }}
+            >
+              <span className="font-medium">{failedAttempts}/{MAX_ATTEMPTS} failed attempts</span>
+              <span>— account will be temporarily locked after {MAX_ATTEMPTS} failures.</span>
             </div>
           )}
 
