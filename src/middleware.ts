@@ -2,8 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 function isSecureRequest(request: NextRequest): boolean {
-  return request.nextUrl.protocol === 'https:' ||
-    request.headers.get('x-forwarded-proto') === 'https';
+  return request.nextUrl.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
 }
 
 export async function middleware(request: NextRequest) {
@@ -79,8 +78,8 @@ export async function middleware(request: NextRequest) {
   let user: any = null;
   let error: any = null;
   try {
-    const result = await supabase.auth.getUser();
-    user = result.data?.user ?? null;
+    const result = await supabase.auth.getSession();
+    user = result.data?.session?.user ?? null;
     error = result.error;
   } catch (e: any) {
     error = e;
@@ -88,8 +87,7 @@ export async function middleware(request: NextRequest) {
 
   const isStaleRefreshToken =
     error &&
-    (error?.code === 'refresh_token_not_found' ||
-      error?.message?.includes('Refresh Token Not Found') ||
+    (error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token Not Found') ||
       error?.message?.includes('refresh_token_not_found'));
 
   const isAuthenticated = !!user && !isStaleRefreshToken;
