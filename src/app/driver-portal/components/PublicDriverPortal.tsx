@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff, Settings, Save } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -498,6 +498,442 @@ function ClockInOutCard({
   );
 }
 
+// ─── Driver Profile Section ───────────────────────────────────────────────────
+
+interface DriverProfileSectionProps {
+  driver: AppDriver & { access_code: string };
+  onDriverUpdate: (updated: AppDriver & { access_code: string }) => void;
+  onLogout: () => void;
+}
+
+function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfileSectionProps) {
+  const supabase = createClient();
+
+  // Profile fields
+  const [name, setName] = useState(driver.name);
+  const [phone, setPhone] = useState(driver.phone ?? '');
+  const [vehicle, setVehicle] = useState(driver.vehicle ?? '');
+  const [plate, setPlate] = useState(driver.plate ?? '');
+  const [email, setEmail] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState(false);
+
+  // Password fields
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  // Load current auth email
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user?.email) setEmail(data.user.email);
+    });
+  }, []);
+
+  const handleSaveProfile = async () => {
+    if (!name.trim()) return;
+    setSavingProfile(true);
+    setProfileSuccess(false);
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({
+          name: name.trim(),
+          phone: phone.trim() || null,
+          vehicle: vehicle.trim() || null,
+          plate: plate.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', driver.id);
+
+      if (error) throw error;
+
+      onDriverUpdate({ ...driver, name: name.trim(), phone: phone.trim(), vehicle: vehicle.trim(), plate: plate.trim() });
+      setProfileSuccess(true);
+      toast.success('Profile updated successfully');
+      setTimeout(() => setProfileSuccess(false), 3000);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError(null);
+    if (!newPassword || !confirmPassword) {
+      setPasswordError('Please fill in all password fields.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match.');
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordSuccess(false);
+    try {
+      // Re-authenticate first
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) throw new Error('No authenticated user found.');
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (signInError) throw new Error('Current password is incorrect.');
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success('Password changed successfully');
+      setTimeout(() => setPasswordSuccess(false), 3000);
+    } catch (err: any) {
+      setPasswordError(err.message ?? 'Failed to change password');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const initials = driver.name.slice(0, 2).toUpperCase();
+
+  return (
+    <div className="space-y-4">
+      {/* Avatar + Name Header */}
+      <div
+        className="rounded-2xl border p-5 flex flex-col items-center text-center"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold mb-3"
+          style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+        >
+          {driver.avatar || initials}
+        </div>
+        <p className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
+        {email && (
+          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{email}</p>
+        )}
+        <div
+          className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+          style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
+        >
+          <Truck size={11} />
+          Driver
+        </div>
+      </div>
+
+      {/* Personal Info */}
+      <div
+        className="rounded-2xl border p-4 space-y-4"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <User size={15} style={{ color: 'hsl(var(--primary))' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Personal Information</h3>
+        </div>
+
+        {/* Name */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Full Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your full name"
+            className="w-full rounded-lg px-3 py-2.5 text-sm border transition-colors"
+            style={{
+              backgroundColor: 'hsl(var(--background))',
+              borderColor: 'hsl(var(--border))',
+              color: 'hsl(var(--foreground))',
+            }}
+          />
+        </div>
+
+        {/* Email (read-only) */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Email Address</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <Mail size={14} />
+            </span>
+            <input
+              type="email"
+              value={email}
+              readOnly
+              className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm border cursor-not-allowed"
+              style={{
+                backgroundColor: 'hsl(var(--secondary))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--muted-foreground))',
+              }}
+            />
+          </div>
+          <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Email is managed by your administrator</p>
+        </div>
+
+        {/* Phone */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Phone Number</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <Phone size={14} />
+            </span>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+44 7700 000000"
+              className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm border transition-colors"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleSaveProfile}
+          disabled={savingProfile || !name.trim()}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
+          style={{
+            backgroundColor: profileSuccess ? 'hsl(142 69% 35%)' : 'hsl(var(--primary))',
+            color: 'white',
+            opacity: savingProfile || !name.trim() ? 0.6 : 1,
+          }}
+        >
+          {savingProfile ? (
+            <><Loader2 size={14} className="animate-spin" /> Saving…</>
+          ) : profileSuccess ? (
+            <><CheckCircle2 size={14} /> Saved!</>
+          ) : (
+            <><Save size={14} /> Save Personal Info</>
+          )}
+        </button>
+      </div>
+
+      {/* Vehicle Info */}
+      <div
+        className="rounded-2xl border p-4 space-y-4"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <Truck size={15} style={{ color: 'hsl(var(--primary))' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Vehicle Information</h3>
+        </div>
+
+        {/* Vehicle */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Vehicle Type / Description</label>
+          <input
+            type="text"
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            placeholder="e.g. Ford Transit Van"
+            className="w-full rounded-lg px-3 py-2.5 text-sm border transition-colors"
+            style={{
+              backgroundColor: 'hsl(var(--background))',
+              borderColor: 'hsl(var(--border))',
+              color: 'hsl(var(--foreground))',
+            }}
+          />
+        </div>
+
+        {/* Plate */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Registration Plate</label>
+          <input
+            type="text"
+            value={plate}
+            onChange={(e) => setPlate(e.target.value.toUpperCase())}
+            placeholder="e.g. AB12 CDE"
+            className="w-full rounded-lg px-3 py-2.5 text-sm border transition-colors font-mono tracking-wider"
+            style={{
+              backgroundColor: 'hsl(var(--background))',
+              borderColor: 'hsl(var(--border))',
+              color: 'hsl(var(--foreground))',
+            }}
+          />
+        </div>
+
+        <button
+          onClick={handleSaveProfile}
+          disabled={savingProfile || !name.trim()}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
+          style={{
+            backgroundColor: profileSuccess ? 'hsl(142 69% 35%)' : 'hsl(var(--primary))',
+            color: 'white',
+            opacity: savingProfile || !name.trim() ? 0.6 : 1,
+          }}
+        >
+          {savingProfile ? (
+            <><Loader2 size={14} className="animate-spin" /> Saving…</>
+          ) : profileSuccess ? (
+            <><CheckCircle2 size={14} /> Saved!</>
+          ) : (
+            <><Save size={14} /> Save Vehicle Info</>
+          )}
+        </button>
+      </div>
+
+      {/* Account Settings — Change Password */}
+      <div
+        className="rounded-2xl border p-4 space-y-4"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <Settings size={15} style={{ color: 'hsl(var(--primary))' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Account Settings</h3>
+        </div>
+
+        {passwordError && (
+          <div
+            className="flex items-start gap-2 p-3 rounded-lg text-xs"
+            style={{
+              backgroundColor: 'hsl(var(--destructive) / 0.08)',
+              color: 'hsl(var(--destructive))',
+              border: '1px solid hsl(var(--destructive) / 0.2)',
+            }}
+          >
+            <AlertCircle size={13} className="shrink-0 mt-0.5" />
+            {passwordError}
+          </div>
+        )}
+
+        {/* Current Password */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Current Password</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <Lock size={14} />
+            </span>
+            <input
+              type={showCurrentPw ? 'text' : 'password'}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password"
+              className="w-full rounded-lg pl-9 pr-10 py-2.5 text-sm border transition-colors"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowCurrentPw((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'hsl(var(--muted-foreground))' }}
+            >
+              {showCurrentPw ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* New Password */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>New Password</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <Lock size={14} />
+            </span>
+            <input
+              type={showNewPw ? 'text' : 'password'}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Min. 6 characters"
+              className="w-full rounded-lg pl-9 pr-10 py-2.5 text-sm border transition-colors"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewPw((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'hsl(var(--muted-foreground))' }}
+            >
+              {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Confirm Password */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Confirm New Password</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <Lock size={14} />
+            </span>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Repeat new password"
+              className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm border transition-colors"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleChangePassword}
+          disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
+          style={{
+            backgroundColor: passwordSuccess ? 'hsl(142 69% 35%)' : 'hsl(var(--primary))',
+            color: 'white',
+            opacity: savingPassword || !currentPassword || !newPassword || !confirmPassword ? 0.6 : 1,
+          }}
+        >
+          {savingPassword ? (
+            <><Loader2 size={14} className="animate-spin" /> Updating…</>
+          ) : passwordSuccess ? (
+            <><CheckCircle2 size={14} /> Password Changed!</>
+          ) : (
+            <><Shield size={14} /> Change Password</>
+          )}
+        </button>
+      </div>
+
+      {/* Sign Out */}
+      <div
+        className="rounded-2xl border p-4"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
+          style={{ backgroundColor: 'hsl(var(--destructive) / 0.1)', color: 'hsl(var(--destructive))' }}
+        >
+          <LogOut size={14} />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 interface DashboardProps {
@@ -511,7 +947,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'today' | 'all'>('today');
-  const [activeSection, setActiveSection] = useState<'orders' | 'earnings' | 'map'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'earnings' | 'map' | 'profile'>('orders');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
@@ -788,7 +1224,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
                         <button
                           key={opt}
                           onClick={() => handleAvailabilityChange(opt)}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-left transition-colors hover:bg-secondary"
+                          className="w-full flex items-center justify-center gap-2.5 px-3 py-2.5 text-xs text-left transition-colors hover:bg-secondary"
                           style={{ color: 'hsl(var(--foreground))' }}
                         >
                           <span
@@ -926,6 +1362,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
             { key: 'orders', label: 'Orders', icon: Package },
             { key: 'earnings', label: 'Earnings', icon: PoundSterling },
             { key: 'map', label: 'Map', icon: MapPin },
+            { key: 'profile', label: 'Profile', icon: User },
           ] as const).map((tab) => (
             <button
               key={tab.key}
@@ -1362,6 +1799,15 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
               driverName={driver.name}
             />
           </div>
+        )}
+
+        {/* ── PROFILE SECTION ── */}
+        {activeSection === 'profile' && (
+          <DriverProfileSection
+            driver={driver}
+            onDriverUpdate={(updated) => setDriver(updated)}
+            onLogout={onLogout}
+          />
         )}
       </div>
     </div>
