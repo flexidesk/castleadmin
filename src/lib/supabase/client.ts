@@ -72,7 +72,9 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
       msg.includes('refresh_token_not_found') ||
       msg.includes('Refresh Token Not Found') ||
       msg.includes('Invalid Refresh Token') ||
-      (msg.includes('AuthApiError') && msg.includes('400'))
+      (msg.includes('AuthApiError') && msg.includes('400')) ||
+      (msg.includes('AbortError') && msg.includes('steal')) ||
+      msg.includes('Lock broken by another request')
     ) {
       return; // suppress
     }
@@ -103,7 +105,7 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
     const reason = event?.reason;
     if (
       reason instanceof Error &&
-      reason.name === 'AbortError' && reason.message?.includes('steal')
+      reason.name === 'AbortError' && (reason.message?.includes('steal') || reason.message?.includes('Lock broken'))
     ) {
       event.preventDefault();
     }
@@ -132,6 +134,19 @@ export function createClient() {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
+        lock: async (name, acquireTimeout, fn) => {
+          // Use Web Locks API if available, otherwise fall back to direct execution
+          if (typeof navigator !== 'undefined' && navigator.locks) {
+            return navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
+              if (!lock) {
+                // Lock not available, execute without lock to avoid steal conflicts
+                return fn();
+              }
+              return fn();
+            });
+          }
+          return fn();
+        },
       },
       cookies: {
         getAll: () => (canUseCookies() ? fromCookies() : fromStorage()),
