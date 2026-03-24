@@ -40,33 +40,42 @@ export default function LoginPage() {
     if (rateLimitCooldown > 0) return;
     setIsLoading(true);
     setAuthError(null);
-    try {
-      await signIn(data.email, data.password);
-      toast.success('Welcome back!');
-      router.replace('/orders-dashboard');
-    } catch (error: any) {
-      const rawMsg: string = error?.message || '';
-      const isRateLimit =
-        rawMsg.toLowerCase().includes('rate limit') ||
-        rawMsg.toLowerCase().includes('too many requests') ||
-        rawMsg.toLowerCase().includes('request rate limit');
 
-      if (isRateLimit) {
-        setAuthError(
-          'Too many sign-in attempts. Please wait 60 seconds before trying again.'
-        );
-        let seconds = 60;
-        setRateLimitCooldown(seconds);
-        const interval = setInterval(() => {
-          seconds -= 1;
-          setRateLimitCooldown(seconds);
-          if (seconds <= 0) clearInterval(interval);
-        }, 1000);
-      } else {
-        setAuthError(rawMsg || 'Invalid email or password. Please try again.');
+    const { error } = await (async () => {
+      try {
+        await signIn(data.email, data.password);
+        return { error: null };
+      } catch (e: any) {
+        return { error: e };
       }
-    } finally {
-      setIsLoading(false);
+    })();
+
+    if (!error) {
+      toast.success('Welcome back!');
+      // Keep spinner — useEffect will redirect once user state is set
+      return;
+    }
+
+    setIsLoading(false);
+    const rawMsg: string = error?.message || '';
+    const isRateLimit =
+      rawMsg.toLowerCase().includes('rate limit') ||
+      rawMsg.toLowerCase().includes('too many requests') ||
+      rawMsg.toLowerCase().includes('request rate limit');
+
+    if (isRateLimit) {
+      setAuthError(
+        'Too many sign-in attempts. Please wait 60 seconds before trying again.'
+      );
+      let seconds = 60;
+      setRateLimitCooldown(seconds);
+      const interval = setInterval(() => {
+        seconds -= 1;
+        setRateLimitCooldown(seconds);
+        if (seconds <= 0) clearInterval(interval);
+      }, 1000);
+    } else {
+      setAuthError(rawMsg || 'Invalid email or password. Please try again.');
     }
   };
 
