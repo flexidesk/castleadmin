@@ -14,9 +14,20 @@ CREATE INDEX IF NOT EXISTS idx_wc_webhook_log_retry ON public.woocommerce_webhoo
 CREATE INDEX IF NOT EXISTS idx_wc_webhook_log_http_status ON public.woocommerce_webhook_log(http_status);
 
 -- Allow authenticated users to update (for resend/retry)
-CREATE POLICY "Authenticated users can update woocommerce_webhook_log"
-  ON public.woocommerce_webhook_log
-  FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'woocommerce_webhook_log'
+      AND policyname = 'Authenticated users can update woocommerce_webhook_log'
+  ) THEN
+    CREATE POLICY "Authenticated users can update woocommerce_webhook_log"
+      ON public.woocommerce_webhook_log
+      FOR UPDATE
+      TO authenticated
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END;
+$$;
