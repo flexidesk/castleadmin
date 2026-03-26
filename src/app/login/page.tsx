@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, AlertCircle, ArrowRight, Package, MapPin, Truck, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import Icon from '@/components/ui/AppIcon';
 
 
 interface LoginFormData {
@@ -149,7 +148,7 @@ export default function LoginPage() {
 
           {/* Feature tiles */}
           <div className="grid grid-cols-2 gap-3 mb-10">
-            {features.map(({ icon: Icon, label, desc }) => (
+            {features.map(({ icon: FeatureIcon, label, desc }) => (
               <div
                 key={label}
                 className="rounded-xl p-4 backdrop-blur-sm"
@@ -159,7 +158,7 @@ export default function LoginPage() {
                   className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
                   style={{ backgroundColor: 'hsl(var(--accent) / 0.15)' }}
                 >
-                  <Icon size={16} style={{ color: 'hsl(var(--accent))' }} />
+                  <FeatureIcon size={16} style={{ color: 'hsl(var(--accent))' }} />
                 </div>
                 <p className="text-white text-sm font-medium leading-tight">{label}</p>
                 <p className="text-white/50 text-xs mt-0.5">{desc}</p>

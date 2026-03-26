@@ -26,42 +26,78 @@ function decodeJwtPayload(token: string): any {
 }
 
 /**
+ * Decode a base64url string to its original string value.
+ * @supabase/ssr v0.5+ stores cookies as "base64-<base64url-encoded-json>".
+ */
+function decodeBase64URL(base64url: string): string {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  return atob(padded);
+}
+
+/**
  * Check if the Supabase session cookie contains a valid, non-expired JWT.
  * Returns the user object from the JWT payload, or null if not authenticated.
  * No network calls are made.
+ *
+ * Handles all @supabase/ssr cookie formats:
+ *  - Legacy: plain JSON array [accessToken, refreshToken]
+ *  - Legacy: plain JSON object { access_token, refresh_token }
+ *  - v0.5+: "base64-<base64url-encoded-json>" (default cookieEncoding)
+ *  - Chunked: multiple cookies named auth-token.0, auth-token.1, …
  */
 function getSessionFromCookies(request: NextRequest): { user: any } | null {
-  // Supabase stores the session in a cookie named like:
-  // sb-<project-ref>-auth-token or sb-<project-ref>-auth-token.0
-  const cookies = request.cookies.getAll();
+  const allCookies = request.cookies.getAll();
 
-  for (const cookie of cookies) {
-    if (!cookie.name.includes('auth-token')) continue;
+  // Collect all auth-token cookies (base cookie + chunks .0, .1, …)
+  const authCookies = allCookies
+    .filter((c) => c.name.includes('auth-token'))
+    .sort((a, b) => {
+      // Sort so that .0 < .1 < .2 … < base (no suffix last, acts as single-chunk fallback)
+      const aIdx = a.name.match(/\.(\d+)$/)?.[1] ?? '-1';
+      const bIdx = b.name.match(/\.(\d+)$/)?.[1] ?? '-1';
+      return parseInt(aIdx) - parseInt(bIdx);
+    });
 
-    let rawValue = cookie.value;
+  if (authCookies.length === 0) return null;
 
-    // The cookie value may be URL-encoded JSON
-    try {
-      rawValue = decodeURIComponent(rawValue);
-    } catch {}
+  // Reassemble chunked values into one string
+  const rawJoined = authCookies.map((c) => c.value).join('');
 
-    // Try parsing as JSON (Supabase stores session as JSON in the cookie)
-    let accessToken: string | null = null;
-    try {
-      const parsed = JSON.parse(rawValue);
-      // Format: [accessToken, refreshToken] or { access_token, refresh_token }
-      if (Array.isArray(parsed) && parsed[0]) {
-        accessToken = parsed[0];
-      } else if (parsed?.access_token) {
-        accessToken = parsed.access_token;
-      }
-    } catch {
-      // Maybe the cookie value IS the access token directly
-      if (rawValue.split('.').length === 3) {
-        accessToken = rawValue;
+  // Attempt to parse the assembled (possibly encoded) value
+  const extractAccessToken = (raw: string): string | null => {
+    let value = raw;
+
+    // URL-decode if needed (Next.js usually decodes, but be safe)
+    try { value = decodeURIComponent(value); } catch {}
+
+    // @supabase/ssr v0.5+ base64url encoding
+    if (value.startsWith('base64-')) {
+      try {
+        value = decodeBase64URL(value.slice('base64-'.length));
+      } catch {
+        return null;
       }
     }
 
+    // Try JSON: { access_token } or [accessToken, refreshToken]
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed?.access_token) return parsed.access_token;
+      if (Array.isArray(parsed) && parsed[0]) return parsed[0];
+    } catch {}
+
+    // Raw JWT directly in the cookie
+    if (value.split('.').length === 3) return value;
+
+    return null;
+  };
+
+  // Try the reassembled chunk string first, then fall back to each cookie individually
+  const candidates = [rawJoined, ...authCookies.map((c) => c.value)];
+
+  for (const candidate of candidates) {
+    const accessToken = extractAccessToken(candidate);
     if (!accessToken) continue;
 
     const payload = decodeJwtPayload(accessToken);
@@ -71,7 +107,6 @@ function getSessionFromCookies(request: NextRequest): { user: any } | null {
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) continue;
 
-    // Valid, non-expired session found
     return { user: payload };
   }
 
