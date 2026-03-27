@@ -298,6 +298,87 @@ function generateApiKey(): { full: string; prefix: string; preview: string; hash
   return { full, prefix, preview, hash: hash.toString(16) };
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function TextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
+      <input
+        type={type}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+      />
+    </div>
+  );
+}
+
+function NumInput({
+  label,
+  value,
+  onChange,
+  step = '1',
+  min = '0',
+  suffix,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  step?: string;
+  min?: string;
+  suffix?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
+      <div className="flex items-center">
+        <input
+          type="number"
+          step={step}
+          min={min}
+          value={value ?? 0}
+          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+          style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+        />
+        {suffix && <span className="ml-1.5 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${checked ? '' : ''}`}
+      style={{ backgroundColor: checked ? 'hsl(var(--primary))' : 'hsl(var(--border))' }}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-1'}`}
+      />
+    </button>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SettingsContent() {
