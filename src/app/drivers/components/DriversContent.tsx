@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff, ToggleLeft, ToggleRight, ChevronDown, Download, FileSpreadsheet, Archive, ArchiveRestore, TrendingUp, CheckSquare, Square, Users, Zap, BarChart2,  } from 'lucide-react';
+import {
+  Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff, ToggleLeft, ToggleRight, ChevronDown, Download, FileSpreadsheet, Archive, ArchiveRestore, TrendingUp, CheckSquare, Square, Users, Zap, BarChart2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
+import VehicleManagementContent from './VehicleManagementContent';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -235,7 +238,7 @@ export default function DriversContent() {
   const supabase = createClient();
 
   // ─── Shared state ──────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'profiles' | 'management'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'management' | 'vehicles'>('profiles');
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [ratings, setRatings] = useState<Record<string, DriverRating>>({});
   const [zones, setZones] = useState<DriverZone[]>([]);
@@ -707,6 +710,7 @@ export default function DriversContent() {
         {([
           { key: 'profiles', label: 'Driver Profiles' },
           { key: 'management', label: 'Management' },
+          { key: 'vehicles', label: 'Vehicle Management' },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -1095,7 +1099,7 @@ export default function DriversContent() {
                   </button>
                   <div className="relative">
                     <button onClick={() => setShowBulkZoneDropdown((v) => !v)} disabled={bulkLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-secondary disabled:opacity-60" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
-                      <Zap size={13} style={{ color: 'hsl(var(--primary))' }} />Assign Zone<ChevronDown size={11} />
+                      <Zap size={14} style={{ color: 'hsl(var(--primary))' }} />Assign Zone<ChevronDown size={11} />
                     </button>
                     {showBulkZoneDropdown && (
                       <>
@@ -1279,6 +1283,13 @@ export default function DriversContent() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          VEHICLES TAB
+      ═══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'vehicles' && (
+        <VehicleManagementContent />
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -1560,8 +1571,8 @@ export default function DriversContent() {
             </div>
             <p className="text-sm mb-5" style={{ color: 'hsl(var(--muted-foreground))' }}>{confirmDeactivate.is_active ? 'This driver will be marked as inactive and will not appear in active assignments.' : 'This driver will be reactivated and can be assigned to deliveries again.'}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmDeactivate(null)} className="flex-1 px-4 py-2 rounded-lg border text-sm font-medium transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
-              <button onClick={() => handleDeactivate(confirmDeactivate)} className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 ${confirmDeactivate.is_active ? 'bg-red-500' : 'bg-green-500'}`}>
+              <button onClick={() => setConfirmDeactivate(null)} className="flex-1 py-2 text-sm rounded-lg border transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={() => handleDeactivate(confirmDeactivate)} className={`flex-1 py-2 text-sm rounded-lg font-medium text-white transition-opacity hover:opacity-90 ${confirmDeactivate.is_active ? 'bg-red-500' : 'bg-green-500'}`}>
                 {confirmDeactivate.is_active ? 'Deactivate' : 'Reactivate'}
               </button>
             </div>
