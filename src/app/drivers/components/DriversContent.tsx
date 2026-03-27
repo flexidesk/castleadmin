@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage,  } from 'lucide-react';
+import { Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff  } from 'lucide-react';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 
@@ -194,6 +194,14 @@ export default function DriversContent() {
   const [showDocUpload, setShowDocUpload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Credentials modal state
+  const [showCredentials, setShowCredentials] = useState(false);
+  const [credentialsDriver, setCredentialsDriver] = useState<Driver | null>(null);
+  const [credEmail, setCredEmail] = useState('');
+  const [credPassword, setCredPassword] = useState('');
+  const [credShowPassword, setCredShowPassword] = useState(false);
+  const [savingCredentials, setSavingCredentials] = useState(false);
+
   // ─── Fetch Drivers ──────────────────────────────────────────────────────────
 
   const fetchDrivers = useCallback(async () => {
@@ -314,76 +322,47 @@ export default function DriversContent() {
     setShowForm(true);
   }
 
-  async function handleSave() {
-    if (!form.name.trim() || !form.phone.trim()) {
-      toast.error('Name and phone are required');
-      return;
-    }
-    setSaving(true);
-    const payload = {
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim() || null,
-      vehicle: form.vehicle.trim(),
-      plate: form.plate.trim().toUpperCase(),
-      status: form.status,
-      zone: form.zone || null,
-    };
+  // ─── Set Credentials ────────────────────────────────────────────────────────
 
-    if (editingDriver) {
-      const { error } = await supabase.from('drivers').update(payload).eq('id', editingDriver.id);
-      if (error) { toast.error('Update failed: ' + error.message); }
-      else {
-        toast.success('Driver updated');
-        setShowForm(false);
-        fetchDrivers();
-        fetchRatings();
-      }
-    } else {
-      const { error } = await supabase.from('drivers').insert({
-        ...payload,
-        avatar: '',
-        is_active: true,
-        is_archived: false,
-        verification_status: 'unverified',
+  function openCredentials(driver: Driver) {
+    setCredentialsDriver(driver);
+    setCredEmail(driver.email ?? '');
+    setCredPassword('');
+    setCredShowPassword(false);
+    setShowCredentials(true);
+  }
+
+  async function handleSetCredentials() {
+    if (!credentialsDriver) return;
+    if (!credEmail.trim()) { toast.error('Email is required'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credEmail.trim())) { toast.error('Enter a valid email address'); return; }
+    if (!credPassword.trim()) { toast.error('Password is required'); return; }
+    if (credPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+
+    setSavingCredentials(true);
+    try {
+      const res = await fetch('/api/drivers/set-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: credentialsDriver.id,
+          email: credEmail.trim(),
+          password: credPassword,
+        }),
       });
-      if (error) { toast.error('Create failed: ' + error.message); }
-      else {
-        toast.success('Driver added');
-        setShowForm(false);
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to set credentials');
+      } else {
+        toast.success(`Credentials set for ${credentialsDriver.name}`);
+        setShowCredentials(false);
         fetchDrivers();
       }
+    } catch {
+      toast.error('Network error — please try again');
     }
-    setSaving(false);
+    setSavingCredentials(false);
   }
-
-  // ─── Deactivate ─────────────────────────────────────────────────────────────
-
-  async function handleDeactivate(driver: Driver) {
-    const { error } = await supabase
-      .from('drivers')
-      .update({ is_active: !driver.is_active })
-      .eq('id', driver.id);
-    if (error) toast.error('Failed: ' + error.message);
-    else {
-      toast.success(driver.is_active ? `${driver.name} deactivated` : `${driver.name} reactivated`);
-      setConfirmDeactivate(null);
-      fetchDrivers();
-    }
-  }
-
-  // ─── Verification ────────────────────────────────────────────────────────────
-
-  async function updateVerification(driver: Driver, status: VerificationStatus) {
-    const { error } = await supabase.from('drivers').update({ verification_status: status }).eq('id', driver.id);
-    if (error) toast.error('Failed to update verification: ' + error.message);
-    else {
-      toast.success(`${driver.name} marked as ${VERIFICATION_CONFIG[status].label}`);
-      fetchDrivers();
-    }
-  }
-
-  // ─── Document upload ────────────────────────────────────────────────────────
 
   async function handleDocUpload() {
     if (!selectedDriver || !docFile) {
@@ -638,6 +617,14 @@ export default function DriversContent() {
                     >
                       <Edit2 size={13} />
                       Edit
+                    </button>
+                    <button
+                      onClick={() => openCredentials(selectedDriver)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors hover:bg-secondary"
+                      style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    >
+                      <KeyRound size={13} />
+                      Set Credentials
                     </button>
                     <button
                       onClick={() => setConfirmDeactivate(selectedDriver)}
@@ -1111,6 +1098,117 @@ export default function DriversContent() {
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : null}
                 {editingDriver ? 'Save Changes' : 'Add Driver'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Set Credentials Modal ───────────────────────────────────────────── */}
+      {showCredentials && credentialsDriver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div
+            className="w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden"
+            style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
+                  <KeyRound size={16} style={{ color: 'hsl(var(--primary))' }} />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Set Driver Credentials</h2>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{credentialsDriver.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCredentials(false)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+                <X size={18} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div
+                className="flex items-start gap-3 p-3 rounded-lg text-sm"
+                style={{ backgroundColor: 'hsl(var(--primary) / 0.06)', border: '1px solid hsl(var(--primary) / 0.15)' }}
+              >
+                <KeyRound size={15} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--primary))' }} />
+                <p style={{ color: 'hsl(var(--foreground))' }}>
+                  These credentials allow the driver to log into the <strong>Driver Portal</strong>. The driver will use their email and password to sign in.
+                </p>
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <Mail size={15} />
+                  </span>
+                  <input
+                    type="email"
+                    value={credEmail}
+                    onChange={(e) => setCredEmail(e.target.value)}
+                    placeholder="driver@example.com"
+                    className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <KeyRound size={15} />
+                  </span>
+                  <input
+                    type={credShowPassword ? 'text' : 'password'}
+                    value={credPassword}
+                    onChange={(e) => setCredPassword(e.target.value)}
+                    placeholder="Min. 6 characters"
+                    className="w-full pl-9 pr-10 py-2.5 text-sm rounded-lg border outline-none focus:ring-2"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCredShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                    style={{ color: 'hsl(var(--muted-foreground))' }}
+                    tabIndex={-1}
+                  >
+                    {credShowPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  {credentialsDriver.auth_user_id ? 'Saving will update the existing password.' : 'A new driver portal account will be created.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+              <button
+                onClick={() => setShowCredentials(false)}
+                className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors hover:bg-secondary"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSetCredentials}
+                disabled={savingCredentials}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {savingCredentials ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                {credentialsDriver.auth_user_id ? 'Update Credentials' : 'Set Credentials'}
               </button>
             </div>
           </div>
