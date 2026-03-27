@@ -271,6 +271,33 @@ const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
   store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function sanitizeNulls<T extends object>(data: Partial<T>, defaults: T): T {
+  const result = { ...defaults } as T;
+  for (const key in defaults) {
+    const k = key as keyof T;
+    const val = (data as T)[k];
+    if (val !== null && val !== undefined) {
+      (result as T)[k] = val;
+    }
+  }
+  return result;
+}
+
+function generateApiKey(): { full: string; prefix: string; preview: string; hash: string } {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const randomStr = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const prefix = 'ca_' + randomStr(8);
+  const secret = randomStr(32);
+  const full = prefix + secret;
+  const preview = prefix + '…' + secret.slice(-4);
+  // Simple hash for storage (not cryptographic)
+  let hash = 0;
+  for (let i = 0; i < full.length; i++) { hash = ((hash << 5) - hash) + full.charCodeAt(i); hash |= 0; }
+  return { full, prefix, preview, hash: hash.toString(16) };
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SettingsContent() {
@@ -318,6 +345,27 @@ export default function SettingsContent() {
   const [wcShowFieldMapping, setWcShowFieldMapping] = useState(false);
   const [wcFieldMapping, setWcFieldMapping] = useState<WooCommerceFieldMapping>(DEFAULT_WC_FIELD_MAPPING);
   const [wcFieldMappingSaving, setWcFieldMappingSaving] = useState(false);
+
+  // WooCommerce settings state
+  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>(DEFAULT_WC_SETTINGS);
+  const [wcTesting, setWcTesting] = useState(false);
+  const [wcSaving, setWcSaving] = useState(false);
+  const [wcShowKey, setWcShowKey] = useState(false);
+  const [wcShowSecret, setWcShowSecret] = useState(false);
+
+  // Delivery zones
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+
+  // Integrations sub-tab
+  const [integrationsSubTab, setIntegrationsSubTab] = useState<'connections' | 'api_keys' | 'webhooks'>('connections');
+
+  // Webhooks
+  const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
+  const [showNewWebhookForm, setShowNewWebhookForm] = useState(false);
+  const [newWebhookForm, setNewWebhookForm] = useState<WebhookConfig>({
+    name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true,
+  });
+  const [testingWebhook, setTestingWebhook] = useState<string | null>(null);
 
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
@@ -619,6 +667,87 @@ export default function SettingsContent() {
       toast.error(`Failed to save company profile: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── WooCommerce ─────────────────────────────────────────────────────────────
+
+  const saveWcSettings = async () => {
+    setWcSaving(true);
+    try {
+      if (wcSettings.id) {
+        const { error } = await supabase.from('woocommerce_settings').update({
+          store_url: wcSettings.store_url,
+          consumer_key: wcSettings.consumer_key,
+          consumer_secret: wcSettings.consumer_secret,
+          updated_at: new Date().toISOString(),
+        }).eq('id', wcSettings.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('woocommerce_settings').insert({
+          store_url: wcSettings.store_url,
+          consumer_key: wcSettings.consumer_key,
+          consumer_secret: wcSettings.consumer_secret,
+          is_connected: false,
+        }).select().single();
+        if (error) throw error;
+        if (data) setWcSettings((s) => ({ ...s, ...data }));
+      }
+      toast.success('WooCommerce credentials saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save WooCommerce settings: ${msg}`);
+    } finally {
+      setWcSaving(false);
+    }
+  };
+
+  const testWcConnection = async () => {
+    if (!wcSettings.store_url || !wcSettings.consumer_key || !wcSettings.consumer_secret) {
+      toast.error('Please fill in all WooCommerce credentials first');
+      return;
+    }
+    setWcTesting(true);
+    try {
+      const url = wcSettings.store_url.replace(/\/$/, '');
+      const res = await fetch(`${url}/wp-json/wc/v3/orders?per_page=1`, {
+        headers: {
+          Authorization: 'Basic ' + btoa(`${wcSettings.consumer_key}:${wcSettings.consumer_secret}`),
+        },
+      });
+      const status = res.ok ? 'success' : 'failed';
+      const message = res.ok
+        ? `Connection successful (HTTP ${res.status})`
+        : `Connection failed (HTTP ${res.status})`;
+      const now = new Date().toISOString();
+      if (wcSettings.id) {
+        await supabase.from('woocommerce_settings').update({
+          last_tested_at: now,
+          last_test_status: status,
+          last_test_message: message,
+          is_connected: res.ok,
+          updated_at: now,
+        }).eq('id', wcSettings.id);
+      }
+      setWcSettings((s) => ({ ...s, last_tested_at: now, last_test_status: status, last_test_message: message, is_connected: res.ok }));
+      if (res.ok) toast.success('WooCommerce connection successful');
+      else toast.error(`WooCommerce connection failed: HTTP ${res.status}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const now = new Date().toISOString();
+      if (wcSettings.id) {
+        await supabase.from('woocommerce_settings').update({
+          last_tested_at: now,
+          last_test_status: 'failed',
+          last_test_message: msg,
+          is_connected: false,
+          updated_at: now,
+        }).eq('id', wcSettings.id);
+      }
+      setWcSettings((s) => ({ ...s, last_tested_at: now, last_test_status: 'failed', last_test_message: msg, is_connected: false }));
+      toast.error(`WooCommerce connection error: ${msg}`);
+    } finally {
+      setWcTesting(false);
     }
   };
 
@@ -1496,7 +1625,7 @@ export default function SettingsContent() {
                         <p className="text-xs font-mono" style={{ color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? k.key_preview : k.key_preview}</p>
                         <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? 'Hide' : 'Show'}</button>
                         {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
                         <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
