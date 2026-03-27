@@ -31,7 +31,6 @@ const navItems: NavItem[] = [
   { label: 'Drivers', href: '/drivers', icon: Truck, group: 'Fleet' },
   { label: 'Delivery Zones', href: '/delivery-zones', icon: Layers, group: 'Fleet' },
   { label: 'Staff', href: '/staff', icon: Users, group: 'Fleet' },
-  { label: 'Driver Management', href: '/driver-management', icon: Truck, group: 'Fleet' },
   { label: 'Customers', href: '/customer-management', icon: Users, group: 'Fleet' },
   { label: 'Activity Log', href: '/activity-log', icon: ClipboardList, group: 'Reports' },
   { label: 'Analytics', href: '/analytics', icon: BarChart3, group: 'Reports' },
