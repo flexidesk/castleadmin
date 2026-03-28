@@ -1593,7 +1593,7 @@ export default function SettingsContent() {
               <button
                 onClick={saveTermsOfHire}
                 disabled={savingTerms}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
                 style={{ backgroundColor: 'hsl(var(--primary))' }}
               >
                 <Save size={14} /> {savingTerms ? 'Saving…' : 'Save Terms'}
@@ -2544,7 +2544,14 @@ export default function SettingsContent() {
                     setImportBackupResult(null);
                     try {
                       const text = await importBackupFile.text();
-                      const data = JSON.parse(text) as Record<string, unknown[]>;
+                      const parsed = JSON.parse(text);
+                      // Handle both export formats:
+                      // - Full backup: { exported_at, tables, data: { table: rows[] } }
+                      // - Legacy/direct: { table: rows[] }
+                      const data: Record<string, unknown[]> =
+                        parsed?.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+                          ? (parsed.data as Record<string, unknown[]>)
+                          : (parsed as Record<string, unknown[]>);
                       const supabaseClient = createClient();
                       const tables = Object.keys(data);
                       let success = 0;
@@ -2609,10 +2616,10 @@ export default function SettingsContent() {
 
       {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
       {activeTab === 'database' && (
-        <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
           <div className="flex items-center gap-2">
             <RefreshCw size={15} style={{ color: 'hsl(var(--primary))' }} />
-            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Force Clear Cache</h2>
+            <h2 className="font-semibold text-sm text-red-600">Force Clear Cache</h2>
           </div>
           <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
             Clears all locally stored data including browser cache, localStorage, sessionStorage, and service worker caches. Use this if you are experiencing stale data or display issues. The page will automatically reload after clearing.
@@ -2635,7 +2642,7 @@ export default function SettingsContent() {
       )}
 
       {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
-      <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-6" style={{ backgroundColor: 'hsl(var(--card))' }}>
+      <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-6" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
         <div className="flex items-center gap-2">
           <AlertTriangle size={16} className="text-red-500" />
           <h2 className="font-semibold text-sm text-red-600">Danger Zone</h2>
@@ -2657,7 +2664,7 @@ export default function SettingsContent() {
       {/* ── Reset Confirmation Modal ───────────────────────────────────────────── */}
       {showResetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))' }}>
+          <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
             {/* Header */}
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-full bg-red-100 flex-shrink-0">
