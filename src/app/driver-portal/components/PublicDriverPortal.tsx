@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff, Settings, Save, History, Car, Wrench, Search, CheckSquare, XCircle, Info } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff, Settings, Save, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -289,13 +289,26 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
   const [inspectionType, setInspectionType] = useState<'interim' | 'full'>('interim');
   const [checkResults, setCheckResults] = useState<Record<string, CheckResult>>({});
+  const [checkImages, setCheckImages] = useState<Record<string, { file: File; preview: string } | null>>({});
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pastInspections, setPastInspections] = useState<any[]>([]);
   const [loadingInspections, setLoadingInspections] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const checks = inspectionType === 'interim' ? INTERIM_CHECKS : FULL_CHECKS;
+
+  const loadInspections = useCallback(async () => {
+    // Load ALL inspections (all drivers) so history is shared
+    const { data: inspData } = await supabase
+      .from('vehicle_inspections')
+      .select('*, vehicles(registration, make, model), drivers(name)')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (inspData) setPastInspections(inspData);
+    setLoadingInspections(false);
+  }, [supabase]);
 
   useEffect(() => {
     const load = async () => {
@@ -305,21 +318,42 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
         .eq('is_active', true)
         .order('registration');
       if (vehiclesData) setVehicles(vehiclesData);
-
-      const { data: inspData } = await supabase
-        .from('vehicle_inspections')
-        .select('*, vehicles(registration, make, model)')
-        .eq('driver_id', driverId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (inspData) setPastInspections(inspData);
-      setLoadingInspections(false);
+      await loadInspections();
     };
     load();
-  }, [driverId]);
+  }, [driverId, loadInspections]);
 
   const handleResultChange = (check: string, result: CheckResult) => {
     setCheckResults((prev) => ({ ...prev, [check]: result }));
+  };
+
+  const handleImageSelect = (check: string, file: File) => {
+    const preview = URL.createObjectURL(file);
+    setCheckImages((prev) => ({ ...prev, [check]: { file, preview } }));
+  };
+
+  const handleImageRemove = (check: string) => {
+    setCheckImages((prev) => {
+      const existing = prev[check];
+      if (existing) URL.revokeObjectURL(existing.preview);
+      return { ...prev, [check]: null };
+    });
+    if (fileInputRefs.current[check]) {
+      fileInputRefs.current[check]!.value = '';
+    }
+  };
+
+  const uploadCheckImage = async (check: string, inspectionId: string): Promise<{ url: string; name: string } | null> => {
+    const img = checkImages[check];
+    if (!img) return null;
+    const ext = img.file.name.split('.').pop() ?? 'jpg';
+    const path = `${inspectionId}/${check.replace(/\s+/g, '_')}_${Date.now()}.${ext}`;
+    const { data, error } = await supabase.storage
+      .from('safety-check-images')
+      .upload(path, img.file, { upsert: true });
+    if (error) return null;
+    const { data: urlData } = supabase.storage.from('safety-check-images').getPublicUrl(data.path);
+    return { url: urlData.publicUrl, name: img.file.name };
   };
 
   const handleSubmit = async () => {
@@ -356,33 +390,32 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
 
       if (inspError) throw inspError;
 
-      // Insert check items
-      const items = checks.map((check, idx) => ({
-        inspection_id: inspection.id,
-        check_name: check,
-        result: checkResults[check],
-        notes: null,
-        image_url: null,
-        image_name: null,
-        sort_order: idx,
-      }));
+      // Upload images and insert check items
+      const items = await Promise.all(
+        checks.map(async (check, idx) => {
+          const imgResult = await uploadCheckImage(check, inspection.id);
+          return {
+            inspection_id: inspection.id,
+            check_name: check,
+            result: checkResults[check],
+            notes: null,
+            image_url: imgResult?.url ?? null,
+            image_name: imgResult?.name ?? null,
+            sort_order: idx,
+          };
+        })
+      );
 
       await supabase.from('vehicle_inspection_items').insert(items);
 
       toast.success('Safety check submitted successfully!');
       setShowForm(false);
       setCheckResults({});
+      setCheckImages({});
       setNotes('');
       setSelectedVehicleId('');
 
-      // Reload inspections
-      const { data: inspData } = await supabase
-        .from('vehicle_inspections')
-        .select('*, vehicles(registration, make, model)')
-        .eq('driver_id', driverId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (inspData) setPastInspections(inspData);
+      await loadInspections();
     } catch (err: any) {
       toast.error(err.message ?? 'Failed to submit safety check');
     } finally {
@@ -447,7 +480,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
               {(['interim', 'full'] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => { setInspectionType(t); setCheckResults({}); }}
+                  onClick={() => { setInspectionType(t); setCheckResults({}); setCheckImages({}); }}
                   className="flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize"
                   style={{
                     backgroundColor: inspectionType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
@@ -467,16 +500,17 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
             </p>
             {checks.map((check) => {
               const result = checkResults[check];
+              const img = checkImages[check];
               return (
                 <div
                   key={check}
-                  className="rounded-lg p-3"
+                  className="rounded-lg p-3 space-y-2"
                   style={{
                     backgroundColor: result ? resultConfig[result].light : 'hsl(var(--secondary))',
                     border: `1px solid ${result ? resultConfig[result].bg + '40' : 'transparent'}`,
                   }}
                 >
-                  <p className="text-sm font-medium mb-2" style={{ color: 'hsl(var(--foreground))' }}>{check}</p>
+                  <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{check}</p>
                   <div className="flex gap-2">
                     {(['good', 'needs_attention', 'immediate'] as const).map((r) => (
                       <button
@@ -492,6 +526,47 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
                         {resultConfig[r].label}
                       </button>
                     ))}
+                  </div>
+                  {/* Image upload for this check item */}
+                  <div className="flex items-center gap-2">
+                    {img ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <img
+                          src={img.preview}
+                          alt={`${check} photo`}
+                          className="w-12 h-12 rounded-lg object-cover border"
+                          style={{ borderColor: 'hsl(var(--border))' }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs truncate font-medium" style={{ color: 'hsl(var(--foreground))' }}>{img.file.name}</p>
+                          <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{(img.file.size / 1024).toFixed(0)} KB</p>
+                        </div>
+                        <button
+                          onClick={() => handleImageRemove(check)}
+                          className="p-1.5 rounded-lg transition-colors hover:bg-secondary shrink-0"
+                          title="Remove image"
+                        >
+                          <Trash2 size={13} style={{ color: 'hsl(0 84% 60%)' }} />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors hover:bg-secondary border"
+                        style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                        <Camera size={12} />
+                        Add Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          ref={(el) => { fileInputRefs.current[check] = el; }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageSelect(check, file);
+                          }}
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
               );
@@ -524,9 +599,9 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
         </div>
       )}
 
-      {/* Past Inspections */}
+      {/* Past Inspections — all drivers */}
       <div>
-        <p className="text-xs font-semibold mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>Recent Checks</p>
+        <p className="text-xs font-semibold mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>All Safety Check History</p>
         {loadingInspections ? (
           <div className="space-y-2">
             {[1, 2].map((i) => (
@@ -546,6 +621,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
           <div className="space-y-2">
             {pastInspections.map((insp) => {
               const res = overallResultLabel(insp.overall_result);
+              const driverName = (insp.drivers as any)?.name;
               return (
                 <div key={insp.id} className="rounded-xl border p-3 flex items-center gap-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: res.bg }}>
@@ -558,7 +634,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
                         {(insp.vehicles as any)?.registration ?? 'Unknown Vehicle'}
                       </p>
@@ -569,6 +645,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
                     <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {insp.inspection_type === 'interim' ? 'Interim' : 'Full'} check ·{' '}
                       {new Date(insp.completed_at ?? insp.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {driverName ? ` · ${driverName}` : ''}
                     </p>
                   </div>
                 </div>
@@ -1809,10 +1886,10 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: "Today's Orders", value: todayOrders.length, icon: Package, color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)' },
-            { label: 'Active Now', value: todayActive, icon: Truck, color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)' },
+            { label: "Today's Deliveries", value: todayActive, icon: Truck, color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)' },
             { label: 'Completed', value: todayComplete, icon: CheckCircle2, color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)' },
             {
-              label: 'Urgent',
+              label: "Today's Collections",
               value: urgentCount,
               icon: AlertCircle,
               color: urgentCount > 0 ? 'hsl(0 84% 60%)' : 'hsl(var(--muted-foreground))',
