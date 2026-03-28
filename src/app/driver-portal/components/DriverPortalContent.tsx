@@ -41,7 +41,7 @@ export default function DriverPortalContent() {
   const [driver, setDriver] = useState<AppDriver | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'completed'>('active');
+  const [activeFilter, setActiveFilter] = useState<'orders' | 'history'>('orders');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
@@ -192,9 +192,15 @@ export default function DriverPortalContent() {
 
   // ─── Derived state ────────────────────────────────────────────────────────────
 
-  const filteredOrders = orders.filter((o) => {
-    if (activeFilter === 'active') return o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled';
-    if (activeFilter === 'completed') return o.status === 'Booking Complete';
+  const sortedOrders = [...orders].sort((a, b) => {
+    const dateA = new Date(`${a.bookingDate}T${a.deliveryWindow?.split(' - ')[0] || '00:00'}`).getTime();
+    const dateB = new Date(`${b.bookingDate}T${b.deliveryWindow?.split(' - ')[0] || '00:00'}`).getTime();
+    return dateA - dateB;
+  });
+
+  const filteredOrders = sortedOrders.filter((o) => {
+    if (activeFilter === 'orders') return o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled';
+    if (activeFilter === 'history') return o.status === 'Booking Complete' || o.status === 'Booking Cancelled';
     return true;
   });
 
@@ -323,18 +329,21 @@ export default function DriverPortalContent() {
       {/* Filter Tabs + Refresh */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-          {(['active', 'completed', 'all'] as const).map((f) => (
+          {([
+            { key: 'orders', label: 'Orders' },
+            { key: 'history', label: 'History' },
+          ] as const).map(({ key, label }) => (
             <button
-              key={f}
-              onClick={() => setActiveFilter(f)}
-              className="px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize"
+              key={key}
+              onClick={() => setActiveFilter(key)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
               style={{
-                backgroundColor: activeFilter === f ? 'hsl(var(--card))' : 'transparent',
-                color: activeFilter === f ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
-                boxShadow: activeFilter === f ? '0 1px 3px hsl(var(--border))' : 'none',
+                backgroundColor: activeFilter === key ? 'hsl(var(--card))' : 'transparent',
+                color: activeFilter === key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
+                boxShadow: activeFilter === key ? '0 1px 3px hsl(var(--border))' : 'none',
               }}
             >
-              {f}
+              {label}
             </button>
           ))}
         </div>
@@ -370,7 +379,7 @@ export default function DriverPortalContent() {
           <Package size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
           <p className="font-medium text-sm" style={{ color: 'hsl(var(--foreground))' }}>No orders found</p>
           <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            {activeFilter === 'active' ? 'No active deliveries assigned to you.' : 'No orders in this category.'}
+            {activeFilter === 'orders' ? 'No active deliveries assigned to you.' : 'No completed orders yet.'}
           </p>
         </div>
       ) : (
