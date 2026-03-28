@@ -67,6 +67,8 @@ interface CreateOrderFormData {
   // Payment
   paymentMethod: PaymentMethod;
   paymentAmount: string;
+  depositPaid: string;
+  totalDueOnDelivery: string;
   // Custom fields
   eventType: string;
   powerSource: string;
@@ -224,6 +226,8 @@ export default function CreateOrderForm() {
       products: DEFAULT_PRODUCTS,
       paymentMethod: 'Unrecorded',
       paymentAmount: '',
+      depositPaid: '',
+      totalDueOnDelivery: '',
     },
   });
 
@@ -292,6 +296,8 @@ export default function CreateOrderForm() {
         collectionWindow: collectionWindow,
         paymentMethod: data.paymentMethod,
         paymentAmount: data.paymentAmount ? parseFloat(data.paymentAmount) : totalValue,
+        depositPaid: data.depositPaid ? parseFloat(data.depositPaid) : undefined,
+        totalDueOnDelivery: data.totalDueOnDelivery ? parseFloat(data.totalDueOnDelivery) : undefined,
         products,
         notes: data.bookingNotes || undefined,
         customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
@@ -1074,6 +1080,60 @@ export default function CreateOrderForm() {
               )}
             </div>
           )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label htmlFor="depositPaid" className="label">
+                Deposit Paid (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="depositPaid"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.depositPaid ? 'input-error' : ''}`}
+                  {...register('depositPaid', {
+                    validate: (v) => {
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
+                      return true;
+                    },
+                  })}
+                />
+              </div>
+              {errors.depositPaid && <p className="error-text">{errors.depositPaid.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="totalDueOnDelivery" className="label">
+                Total Due on Delivery (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="totalDueOnDelivery"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.totalDueOnDelivery ? 'input-error' : ''}`}
+                  {...register('totalDueOnDelivery', {
+                    validate: (v) => {
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
+                      return true;
+                    },
+                  })}
+                />
+              </div>
+              {errors.totalDueOnDelivery && <p className="error-text">{errors.totalDueOnDelivery.message}</p>}
+            </div>
+          </div>
         </div>
 
         {/* ─── SECTION 9: Custom Fields ─── */}

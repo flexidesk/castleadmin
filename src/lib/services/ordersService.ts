@@ -275,6 +275,8 @@ export const ordersService = {
     collectionWindow?: string;
     paymentMethod: string;
     paymentAmount: number;
+    depositPaid?: number;
+    totalDueOnDelivery?: number;
     products: any[];
     notes?: string;
     customFields?: Record<string, string>;
@@ -298,6 +300,8 @@ export const ordersService = {
       payment_method: payload.paymentMethod,
       payment_status: paymentStatus,
       payment_amount: payload.paymentAmount || 0,
+      deposit_paid: payload.depositPaid ?? null,
+      amount_due: payload.totalDueOnDelivery ?? null,
       products: payload.products,
       notes: payload.notes || null,
       custom_fields: payload.customFields || {},
