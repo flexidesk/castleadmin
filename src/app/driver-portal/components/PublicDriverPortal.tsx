@@ -1545,6 +1545,7 @@ function DriverDashboard({
             deliveryCharge: Number(o.delivery_charge ?? o.payment?.deliveryCharge ?? 0),
             notes: o.payment_notes ?? o.payment?.notes ?? '',
           },
+          pod: o.pod ?? null,
           notes: o.notes ?? '',
           driverId: o.driver_id ?? '',
         }));
@@ -1664,6 +1665,15 @@ function DriverDashboard({
     e.stopPropagation();
     const nextStatus = NEXT_STATUS_VALUE[order.status];
     if (!nextStatus) return;
+
+    // Block job completion until POD has been submitted
+    if (nextStatus === 'Booking Complete') {
+      const podSubmitted = !!(order as any).pod?.completedAt;
+      if (!podSubmitted) {
+        toast.error('Proof of delivery must be completed before marking this job as complete. Please open the job details and submit the POD first.');
+        return;
+      }
+    }
 
     setUpdatingOrderId(order.id);
     try {
