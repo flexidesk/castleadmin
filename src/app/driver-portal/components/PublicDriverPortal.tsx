@@ -941,7 +941,6 @@ function ClockInOutCard({
   const [endNotes, setEndNotes] = useState('');
   const [deliveriesCount, setDeliveriesCount] = useState('0');
   const [showPayTypeModal, setShowPayTypeModal] = useState(false);
-  const [payType, setPayType] = useState<'hourly' | 'fixed' | 'per_delivery'>('hourly');
   const [shiftType, setShiftType] = useState<'regular' | 'overtime'>('regular');
   const [hourlyRate, setHourlyRate] = useState('');
   const [fixedAmount, setFixedAmount] = useState('');
@@ -989,11 +988,11 @@ function ClockInOutCard({
       const { error } = await supabase.from('driver_shifts').insert({
         driver_id: driverId,
         clock_in: new Date().toISOString(),
-        pay_type: payType,
+        pay_type: null,
         shift_type: shiftType,
-        hourly_rate: payType === 'hourly' ? Number(hourlyRate) || null : null,
-        fixed_amount: payType === 'fixed' ? Number(fixedAmount) || null : null,
-        per_delivery_rate: payType === 'per_delivery' ? Number(perDeliveryRate) || null : null,
+        hourly_rate: null,
+        fixed_amount: null,
+        per_delivery_rate: null,
         break_minutes: 0,
         status: 'active',
       });
@@ -1147,38 +1146,6 @@ function ClockInOutCard({
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="w-full sm:max-w-sm rounded-2xl p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
             <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Clock In</h3>
-            <div>
-              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Pay Type</label>
-              <div className="flex gap-2">
-                {(['hourly', 'fixed', 'per_delivery'] as const).map((t) => (
-                  <button key={t} onClick={() => setPayType(t)} className="flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-all"
-                    style={{ backgroundColor: payType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))', color: payType === t ? 'white' : 'hsl(var(--muted-foreground))' }}>
-                    {t.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {payType === 'hourly' && (
-              <div>
-                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Hourly Rate (£)</label>
-                <input type="number" min="0" step="0.01" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="0.00"
-                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-              </div>
-            )}
-            {payType === 'fixed' && (
-              <div>
-                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Fixed Amount (£)</label>
-                <input type="number" min="0" step="0.01" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} placeholder="0.00"
-                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-              </div>
-            )}
-            {payType === 'per_delivery' && (
-              <div>
-                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Rate per Delivery (£)</label>
-                <input type="number" min="0" step="0.01" value={perDeliveryRate} onChange={(e) => setPerDeliveryRate(e.target.value)} placeholder="0.00"
-                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-              </div>
-            )}
             <div>
               <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Shift Type</label>
               <div className="flex gap-2">
@@ -2237,19 +2204,15 @@ function DriverDashboard({
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                      <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                      <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Completed</p>
+                      <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
                         {allOrders.filter((o) => o.status === 'Booking Complete').length}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        Total Completed
                       </p>
                     </div>
                     <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                      <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                      <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Bonus Earned</p>
+                      <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
                         £{(allOrders.filter((o) => o.status === 'Booking Complete').length * earnings.bonusPerDelivery).toFixed(2)}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        Total Bonus Earned
                       </p>
                     </div>
                   </div>
