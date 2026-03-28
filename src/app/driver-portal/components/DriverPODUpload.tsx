@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   Upload, PenLine, Trash2, Image as ImageIcon, FileCheck,
   CheckCircle2, RefreshCw, ZoomIn, X, ScrollText, ChevronDown, ChevronUp,
+  MapPin,
 } from 'lucide-react';
 
 interface Props {
@@ -32,6 +33,8 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<UploadedPhoto | null>(null);
+  const [capturedLocation, setCapturedLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   // Terms of hire state
   const [termsText, setTermsText] = useState<string>('');
@@ -182,6 +185,24 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
     }
 
     setIsSaving(true);
+
+    // Capture live GPS location
+    let location: { lat: number; lng: number; accuracy: number } | null = capturedLocation;
+    if (!location && typeof navigator !== 'undefined' && navigator.geolocation) {
+      try {
+        location = await new Promise((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+            () => resolve(null),
+            { timeout: 8000, maximumAge: 0, enableHighAccuracy: true }
+          );
+        });
+        if (location) setCapturedLocation(location);
+      } catch {
+        // location capture failed — continue without it
+      }
+    }
+
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -225,6 +246,7 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
             notes: notes.trim() || null,
             photos: photosPayload,
             submitted_at: new Date().toISOString(),
+            ...(location ? { location_lat: location.lat, location_lng: location.lng, location_accuracy: location.accuracy } : {}),
           });
 
         if (podError) {
@@ -241,6 +263,14 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
         completedAt: new Date().toISOString(),
         termsAccepted: true,
         termsAcceptedAt: new Date().toISOString(),
+        ...(location ? {
+          location: {
+            lat: location.lat,
+            lng: location.lng,
+            accuracy: location.accuracy,
+            capturedAt: new Date().toISOString(),
+          }
+        } : {}),
       };
 
       await supabase
@@ -480,6 +510,31 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
             color: 'hsl(var(--foreground))',
           }}
         />
+      </div>
+
+      {/* Location Capture Info */}
+      <div
+        className="rounded-xl border p-3 flex items-center gap-3"
+        style={{
+          borderColor: capturedLocation ? 'hsl(142 69% 35% / 0.3)' : 'hsl(var(--border))',
+          backgroundColor: capturedLocation ? 'hsl(142 69% 35% / 0.05)' : 'hsl(var(--card))',
+        }}
+      >
+        <MapPin size={15} style={{ color: capturedLocation ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))', flexShrink: 0 }} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+            {capturedLocation ? 'Location captured' : 'Live location will be captured on submit'}
+          </p>
+          {capturedLocation ? (
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {capturedLocation.lat.toFixed(5)}, {capturedLocation.lng.toFixed(5)} · ±{Math.round(capturedLocation.accuracy)}m
+            </p>
+          ) : (
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              GPS coordinates saved with proof of delivery
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Terms of Hire */}

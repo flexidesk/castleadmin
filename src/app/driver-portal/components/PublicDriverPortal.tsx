@@ -1699,7 +1699,7 @@ function DriverDashboard({
   // ─── Derived State ─────────────────────────────────────────────────────────
 
   const today = getTodayStr();
-  const todayOrders = allOrders.filter((o) => o.bookingDate === today);
+  const todayOrders = allOrders.filter((o) => o.bookingDate === today && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
   const displayOrders = activeTab === 'today' ? todayOrders : allOrders;
   const todayActive = todayOrders.filter(
     (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
@@ -1918,10 +1918,10 @@ function DriverDashboard({
               >
                 <Package size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
                 <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
-                  {activeTab === 'today' ? 'No deliveries today' : 'No orders assigned'}
+                  {activeTab === 'today' ? 'No active orders today' : 'No orders assigned'}
                 </p>
                 <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  Check back later or view all orders.
+                  {activeTab === 'today' ? 'Completed orders are shown in Past Bookings.' : 'Check back later or view all orders.'}
                 </p>
               </div>
             ) : (
@@ -2121,6 +2121,21 @@ function DriverDashboard({
                               Booking Cancelled
                             </span>
                           </div>
+                          {order.deliveryAddress && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                                `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                              style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              title="Navigate with Google Maps"
+                            >
+                              <Navigation size={14} style={{ color: 'hsl(var(--primary))' }} />
+                              <span className="text-xs">Nav</span>
+                            </a>
+                          )}
                           <button
                             onClick={() => setSelectedBookingDetail(order)}
                             className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
