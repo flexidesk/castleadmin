@@ -8,9 +8,10 @@ import Icon from '@/components/ui/AppIcon';
 
 interface Props {
   order: AppOrder;
+  wcActive?: boolean;
 }
 
-export default function OrderDetailsTab({ order }: Props) {
+export default function OrderDetailsTab({ order, wcActive = false }: Props) {
   const [assignedDriver, setAssignedDriver] = useState<AppDriver | undefined>(order.driver);
   const [drivers, setDrivers] = useState<AppDriver[]>([]);
   const [driverDropdownOpen, setDriverDropdownOpen] = useState(false);
@@ -79,7 +80,7 @@ export default function OrderDetailsTab({ order }: Props) {
         </div>
 
         {/* Custom WooCommerce Fields */}
-        {order.customFields && (
+        {wcActive && order.customFields && (
           <div className="pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
             <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5"
               style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -163,10 +164,10 @@ export default function OrderDetailsTab({ order }: Props) {
 
       {/* Products + Driver */}
       <div className="space-y-4 lg:col-span-2 2xl:col-span-1">
-        {/* WooCommerce Products */}
+        {/* Items */}
         <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
           <Package size={15} style={{ color: 'hsl(var(--primary))' }} />
-          WooCommerce Items
+          {wcActive ? 'WooCommerce Items' : 'Order Items'}
         </h3>
         <div className="border rounded-xl overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
           <table className="w-full text-sm">

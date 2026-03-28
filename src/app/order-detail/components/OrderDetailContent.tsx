@@ -183,6 +183,20 @@ export default function OrderDetailContent({ orderId }: Props) {
   const [headerExpanded, setHeaderExpanded] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [podModalOpen, setPodModalOpen] = useState(false);
+  const [wcActive, setWcActive] = useState(false);
+
+  // Check if WooCommerce is configured and connected
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from('woocommerce_settings')
+      .select('id, is_connected, store_url')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setWcActive(!!(data?.id && data?.is_connected && data?.store_url));
+      });
+  }, []);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) return;
@@ -500,8 +514,12 @@ export default function OrderDetailContent({ orderId }: Props) {
                   <span className="font-mono font-medium" style={{ color: 'hsl(var(--primary))' }}>
                     {order.id}
                   </span>
-                  <span className="hidden sm:inline">·</span>
-                  <span className="hidden sm:inline font-mono">WooCommerce {order.wooOrderId}</span>
+                  {wcActive && order.wooOrderId && (
+                    <>
+                      <span className="hidden sm:inline">·</span>
+                      <span className="hidden sm:inline font-mono">WooCommerce {order.wooOrderId}</span>
+                    </>
+                  )}
                   <span>·</span>
                   <span className="flex items-center gap-1">
                     <Calendar size={11} />
@@ -535,18 +553,20 @@ export default function OrderDetailContent({ orderId }: Props) {
                   <Edit3 size={14} />
                   Edit Booking
                 </button>
-                <button
-                  className="btn-secondary text-sm"
-                  onClick={() =>
-                    window.open(
-                      `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
-                      '_blank'
-                    )
-                  }
-                >
-                  <ExternalLink size={14} />
-                  WooCommerce
-                </button>
+                {wcActive && (
+                  <button
+                    className="btn-secondary text-sm"
+                    onClick={() =>
+                      window.open(
+                        `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
+                        '_blank'
+                      )
+                    }
+                  >
+                    <ExternalLink size={14} />
+                    WooCommerce
+                  </button>
+                )}
                 <button
                   className="p-2 rounded-lg border hover:bg-red-50 transition-colors"
                   style={{ borderColor: 'hsl(var(--border))' }}
@@ -579,19 +599,21 @@ export default function OrderDetailContent({ orderId }: Props) {
                     <Edit3 size={14} />
                     Edit
                   </button>
-                  <button
-                    className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
-                    style={{ minHeight: '44px' }}
-                    onClick={() =>
-                      window.open(
-                        `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
-                        '_blank'
-                      )
-                    }
-                  >
-                    <ExternalLink size={14} />
-                    WooCommerce
-                  </button>
+                  {wcActive && (
+                    <button
+                      className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
+                      style={{ minHeight: '44px' }}
+                      onClick={() =>
+                        window.open(
+                          `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
+                          '_blank'
+                        )
+                      }
+                    >
+                      <ExternalLink size={14} />
+                      WooCommerce
+                    </button>
+                  )}
                   <button
                     className="p-3 rounded-lg border hover:bg-red-50 transition-colors touch-manipulation"
                     style={{ borderColor: 'hsl(var(--border))', minHeight: '44px', minWidth: '44px' }}
@@ -738,7 +760,7 @@ export default function OrderDetailContent({ orderId }: Props) {
         </div>
 
         <div className="p-4 md:p-6">
-          {activeTab === 'details' && <OrderDetailsTab order={order} />}
+          {activeTab === 'details' && <OrderDetailsTab order={order} wcActive={wcActive} />}
           {activeTab === 'payment' && <PaymentTab order={order} />}
           {activeTab === 'pod' && <ProofOfDeliveryTab order={order} />}
         </div>
