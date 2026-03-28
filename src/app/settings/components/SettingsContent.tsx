@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2 } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -25,6 +25,8 @@ interface FleetConfig {
   auto_zone_allocation?: boolean;
   map_default_zone_id?: string | null;
   map_default_postcode?: string;
+  app_logo_url?: string | null;
+  app_favicon_url?: string | null;
 }
 
 interface NotificationPrefs {
@@ -445,6 +447,14 @@ export default function SettingsContent() {
   // Integrations sub-tab
   const [integrationsSubTab, setIntegrationsSubTab] = useState<'connections' | 'api_keys' | 'webhooks'>('connections');
 
+  // App Branding
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
+
   // Webhooks
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
   const [showNewWebhookForm, setShowNewWebhookForm] = useState(false);
@@ -756,6 +766,67 @@ export default function SettingsContent() {
     }
   };
 
+  // ─── App Branding ─────────────────────────────────────────────────────────────
+
+  const uploadBrandingAsset = async (
+    file: File,
+    assetType: 'logo' | 'favicon',
+    setUploading: (v: boolean) => void,
+    setPreview: (v: string | null) => void,
+  ) => {
+    setUploading(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const fileName = `${assetType}-${Date.now()}.${ext}`;
+      const { data, error } = await supabase.storage
+        .from('app-branding')
+        .upload(fileName, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from('app-branding').getPublicUrl(data.path);
+      const publicUrl = urlData.publicUrl;
+      setPreview(publicUrl);
+      // Save URL to fleet_config
+      const column = assetType === 'logo' ? 'app_logo_url' : 'app_favicon_url';
+      if (fleet.id) {
+        const { error: updateError } = await supabase
+          .from('fleet_config')
+          .update({ [column]: publicUrl })
+          .eq('id', fleet.id);
+        if (updateError) throw updateError;
+      } else {
+        const { error: upsertError } = await supabase
+          .from('fleet_config')
+          .insert({ [column]: publicUrl });
+        if (upsertError) throw upsertError;
+      }
+      setFleet((prev) => ({ ...prev, [column]: publicUrl }));
+      toast.success(`App ${assetType} updated successfully`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to upload ${assetType}: ${msg}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    uploadBrandingAsset(file, 'logo', setLogoUploading, setLogoPreview);
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setFaviconPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    uploadBrandingAsset(file, 'favicon', setFaviconUploading, setFaviconPreview);
+  };
+
   // ─── WooCommerce ─────────────────────────────────────────────────────────────
 
   const saveWcSettings = async () => {
@@ -1043,6 +1114,143 @@ export default function SettingsContent() {
               <TextInput label="LinkedIn" value={companyProfile.social_linkedin} onChange={(v) => setCompanyProfile((p) => ({ ...p, social_linkedin: v }))} placeholder="https://linkedin.com/company/…" type="url" />
               <TextInput label="Twitter / X" value={companyProfile.social_twitter} onChange={(v) => setCompanyProfile((p) => ({ ...p, social_twitter: v }))} placeholder="https://twitter.com/…" type="url" />
               <TextInput label="Facebook" value={companyProfile.social_facebook} onChange={(v) => setCompanyProfile((p) => ({ ...p, social_facebook: v }))} placeholder="https://facebook.com/…" type="url" />
+            </div>
+          </div>
+
+          {/* App Branding */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <Image size={15} style={{ color: 'hsl(var(--primary))' }} /> App Branding
+            </h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Upload your app logo and favicon. Changes are saved immediately on upload.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Logo Upload */}
+              <div className="space-y-3">
+                <label className="block text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>App Logo</label>
+                <div
+                  className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 gap-3 cursor-pointer transition-colors hover:border-primary/60"
+                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {(logoPreview || fleet.app_logo_url) ? (
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={logoPreview || fleet.app_logo_url || ''}
+                        alt="App logo preview"
+                        className="h-16 max-w-full object-contain rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLogoPreview(null); setFleet((p) => ({ ...p, app_logo_url: null })); }}
+                        className="absolute -top-2 -right-2 p-0.5 rounded-full bg-red-500 text-white hover:bg-red-600"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-full" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                        <Upload size={20} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Click to upload logo</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>PNG, JPG, SVG, WebP — max 5 MB</p>
+                      </div>
+                    </>
+                  )}
+                  {logoUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20">
+                      <Loader size={20} className="animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                />
+                {(fleet.app_logo_url || logoPreview) && (
+                  <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {fleet.app_logo_url || logoPreview}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={logoUploading}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
+                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  <Upload size={12} /> {logoUploading ? 'Uploading…' : 'Choose Logo File'}
+                </button>
+              </div>
+
+              {/* Favicon Upload */}
+              <div className="space-y-3">
+                <label className="block text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Favicon</label>
+                <div
+                  className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 gap-3 cursor-pointer transition-colors hover:border-primary/60"
+                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                  onClick={() => faviconInputRef.current?.click()}
+                >
+                  {(faviconPreview || fleet.app_favicon_url) ? (
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={faviconPreview || fleet.app_favicon_url || ''}
+                        alt="Favicon preview"
+                        className="h-12 w-12 object-contain rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setFaviconPreview(null); setFleet((p) => ({ ...p, app_favicon_url: null })); }}
+                        className="absolute -top-2 -right-2 p-0.5 rounded-full bg-red-500 text-white hover:bg-red-600"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-full" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                        <Upload size={20} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Click to upload favicon</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>ICO, PNG, SVG — recommended 32×32 px</p>
+                      </div>
+                    </>
+                  )}
+                  {faviconUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20">
+                      <Loader size={20} className="animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={faviconInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon,image/svg+xml"
+                  className="hidden"
+                  onChange={handleFaviconUpload}
+                />
+                {(fleet.app_favicon_url || faviconPreview) && (
+                  <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {fleet.app_favicon_url || faviconPreview}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => faviconInputRef.current?.click()}
+                  disabled={faviconUploading}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
+                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  <Upload size={12} /> {faviconUploading ? 'Uploading…' : 'Choose Favicon File'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1585,7 +1793,7 @@ export default function SettingsContent() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => setWcFieldMapping(DEFAULT_WC_FIELD_MAPPING)}
