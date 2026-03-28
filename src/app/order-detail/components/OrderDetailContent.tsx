@@ -14,6 +14,7 @@ import Modal from '@/components/ui/Modal';
 import OrderDetailsTab from './OrderDetailsTab';
 import PaymentTab from './PaymentTab';
 import ProofOfDeliveryTab from './ProofOfDeliveryTab';
+import ProofOfDeliveryModal from './ProofOfDeliveryModal';
 import { ordersService, AppOrder } from '@/lib/services/ordersService';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -174,6 +175,7 @@ export default function OrderDetailContent({ orderId }: Props) {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [podModalOpen, setPodModalOpen] = useState(false);
 
   const loadOrder = useCallback(async () => {
     if (!orderId) return;
@@ -298,8 +300,34 @@ export default function OrderDetailContent({ orderId }: Props) {
 
   const handleAdvanceStatus = () => {
     if (currentStatusIndex < STATUS_FLOW.length - 1) {
-      setPendingStatus(STATUS_FLOW[currentStatusIndex + 1]);
+      const nextStatus = STATUS_FLOW[currentStatusIndex + 1];
+      // Intercept "Booking Complete" to show Proof of Delivery modal
+      if (nextStatus === 'Booking Complete') {
+        setPodModalOpen(true);
+        return;
+      }
+      setPendingStatus(nextStatus);
       setStatusModalOpen(true);
+    }
+  };
+
+  const handlePodCompleted = () => {
+    setPodModalOpen(false);
+    setOrder((prev) => prev ? { ...prev, status: 'Booking Complete' } : prev);
+    // Send status notification email to customer (fire-and-forget)
+    if (order) {
+      fetch('/api/orders/send-status-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: order.customer.email,
+          customerName: order.customer.name,
+          orderId: order.id,
+          status: 'Booking Complete',
+          bookingDate: order.bookingDate,
+          deliveryWindow: order.deliveryWindow,
+        }),
+      }).catch(() => {});
     }
   };
 
@@ -708,6 +736,16 @@ export default function OrderDetailContent({ orderId }: Props) {
           {activeTab === 'pod' && <ProofOfDeliveryTab order={order} />}
         </div>
       </div>
+
+      {/* POD Modal — intercepts Mark as Complete */}
+      {order && (
+        <ProofOfDeliveryModal
+          open={podModalOpen}
+          order={order}
+          onClose={() => setPodModalOpen(false)}
+          onCompleted={handlePodCompleted}
+        />
+      )}
 
       {/* Delete confirm modal */}
       <Modal

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -468,6 +468,11 @@ export default function SettingsContent() {
   const [dbTableExporting, setDbTableExporting] = useState<string | null>(null);
   const [dbExportFormat, setDbExportFormat] = useState<'json' | 'csv'>('json');
 
+  // Terms of Hire
+  const [termsOfHire, setTermsOfHire] = useState('');
+  const [termsOfHireId, setTermsOfHireId] = useState<string | null>(null);
+  const [savingTerms, setSavingTerms] = useState(false);
+
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -498,6 +503,17 @@ export default function SettingsContent() {
       if (wcRes.data) {
         setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
         if (wcRes.data.field_mapping) setWcFieldMapping(wcRes.data.field_mapping as WooCommerceFieldMapping);
+      }
+
+      // Load terms of hire from system_config
+      const { data: termsData } = await supabase
+        .from('system_config')
+        .select('id, config_value')
+        .eq('config_key', 'terms_of_hire')
+        .maybeSingle();
+      if (termsData) {
+        setTermsOfHire(termsData.config_value ?? '');
+        setTermsOfHireId(termsData.id);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
@@ -540,6 +556,43 @@ export default function SettingsContent() {
       toast.error(`Failed to save fleet configuration: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── Save Terms of Hire ──────────────────────────────────────────────────────
+
+  const saveTermsOfHire = async () => {
+    setSavingTerms(true);
+    try {
+      if (termsOfHireId) {
+        const { error } = await supabase
+          .from('system_config')
+          .update({ config_value: termsOfHire, updated_at: new Date().toISOString() })
+          .eq('id', termsOfHireId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('system_config')
+          .insert({
+            config_key: 'terms_of_hire',
+            config_value: termsOfHire,
+            config_type: 'text',
+            category: 'booking',
+            label: 'Terms of Hire',
+            description: 'Terms displayed to customers at point of delivery',
+            is_sensitive: false,
+          })
+          .select('id')
+          .single();
+        if (error) throw error;
+        if (data) setTermsOfHireId(data.id);
+      }
+      toast.success('Terms of hire saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save terms of hire: ${msg}`);
+    } finally {
+      setSavingTerms(false);
     }
   };
 
@@ -1421,6 +1474,44 @@ export default function SettingsContent() {
             </div>
           </div>
 
+          {/* Terms of Hire */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div>
+              <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                <FileText size={15} style={{ color: 'hsl(var(--primary))' }} /> Terms of Hire
+              </h2>
+              <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                These terms are displayed to customers at the point of delivery and must be accepted (with signature) before a booking can be marked as complete.
+              </p>
+            </div>
+            <textarea
+              rows={12}
+              value={termsOfHire}
+              onChange={(e) => setTermsOfHire(e.target.value)}
+              placeholder="Enter your terms and conditions of hire here…"
+              className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none resize-y font-mono"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+                minHeight: '200px',
+              }}
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {termsOfHire.length} characters
+              </p>
+              <button
+                onClick={saveTermsOfHire}
+                disabled={savingTerms}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                <Save size={14} /> {savingTerms ? 'Saving…' : 'Save Terms'}
+              </button>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <button
               onClick={saveFleetConfig}
@@ -1826,8 +1917,7 @@ export default function SettingsContent() {
                   <button
                     onClick={testWcConnection}
                     disabled={wcTesting || wcSaving}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-60"
-                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     {wcTesting ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                     {wcTesting ? 'Testing…' : 'Test Connection'}
@@ -1835,7 +1925,7 @@ export default function SettingsContent() {
                   <button
                     onClick={saveWcSettings}
                     disabled={wcSaving || wcTesting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-60"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
                     style={{ backgroundColor: 'hsl(var(--primary))' }}
                   >
                     <Save size={14} /> {wcSaving ? 'Saving…' : 'Save Credentials'}
