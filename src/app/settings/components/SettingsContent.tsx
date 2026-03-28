@@ -395,6 +395,7 @@ export default function SettingsContent() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [resetting, setResetting] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
 
   // Fleet config
   const [fleet, setFleet] = useState<FleetConfig>(DEFAULT_FLEET);
@@ -638,6 +639,33 @@ export default function SettingsContent() {
       toast.error(`Failed to reset app data: ${msg}`);
     } finally {
       setResetting(false);
+    }
+  };
+
+  // ─── Clear Cache ─────────────────────────────────────────────────────────────
+
+  const clearCache = async () => {
+    setClearingCache(true);
+    try {
+      // Clear localStorage
+      localStorage.clear();
+
+      // Clear sessionStorage
+      sessionStorage.clear();
+
+      // Clear all caches via Cache API if available
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      }
+
+      toast.success('Cache cleared successfully. The page will reload.');
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear cache';
+      toast.error(`Cache clear failed: ${msg}`);
+    } finally {
+      setClearingCache(false);
     }
   };
 
@@ -2468,6 +2496,33 @@ export default function SettingsContent() {
                 Exports contain a snapshot of your data at the time of download. Sensitive fields such as API keys and passwords are included — store backup files securely. For scheduled automated backups, configure Supabase Point-in-Time Recovery (PITR) in your Supabase project dashboard.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
+      {activeTab === 'database' && (
+        <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+          <div className="flex items-center gap-2">
+            <RefreshCw size={15} style={{ color: 'hsl(var(--primary))' }} />
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Force Clear Cache</h2>
+          </div>
+          <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            Clears all locally stored data including browser cache, localStorage, sessionStorage, and service worker caches. Use this if you are experiencing stale data or display issues. The page will automatically reload after clearing.
+          </p>
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={clearCache}
+              disabled={clearingCache}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            >
+              {clearingCache ? (
+                <><RefreshCw size={14} className="animate-spin" /> Clearing…</>
+              ) : (
+                <><RefreshCw size={14} /> Clear Cache</>
+              )}
+            </button>
           </div>
         </div>
       )}
