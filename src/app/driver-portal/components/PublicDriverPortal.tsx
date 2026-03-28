@@ -1533,7 +1533,16 @@ function DriverDashboard({
             email: o.customer_email ?? o.customer?.email ?? '',
             phone: o.customer_phone ?? o.customer?.phone ?? '',
           },
-          deliveryAddress: o.delivery_address ?? o.deliveryAddress ?? null,
+          deliveryAddress: (o.delivery_address_line1 || o.delivery_address?.line1)
+            ? {
+                line1: o.delivery_address_line1 ?? o.delivery_address?.line1 ?? '',
+                line2: o.delivery_address_line2 ?? o.delivery_address?.line2 ?? '',
+                city: o.delivery_address_city ?? o.delivery_address?.city ?? '',
+                county: o.delivery_address_county ?? o.delivery_address?.county ?? '',
+                postcode: o.delivery_address_postcode ?? o.delivery_address?.postcode ?? '',
+                notes: o.delivery_address_notes ?? o.delivery_address?.notes ?? '',
+              }
+            : (o.deliveryAddress ?? null),
           products: o.products ?? o.line_items ?? [],
           payment: {
             status: o.payment_status ?? o.payment?.status ?? '',
