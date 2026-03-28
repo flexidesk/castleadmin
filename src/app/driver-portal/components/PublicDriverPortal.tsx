@@ -136,13 +136,17 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
 
   const handleRecordPayment = async () => {
     const amount = parseFloat(payAmount);
-    if (isNaN(amount) || amount <= 0) {
+    if (isNaN(amount) || amount < 0) {
       toast.error('Please enter a valid payment amount');
+      return;
+    }
+    if (amount === 0 && amountDue > 0) {
+      toast.error('Please enter the amount collected');
       return;
     }
     setSavingPayment(true);
     try {
-      const newStatus = amount >= amountDue ? 'Paid' : 'Partial';
+      const newStatus: string = amount >= amountDue && amountDue > 0 ? 'Paid' : amount > 0 ? 'Paid' : 'Partial';
       const { error } = await supabase
         .from('orders')
         .update({
@@ -1328,7 +1332,7 @@ pay_type: 'hourly',
           <div className="w-full sm:max-w-sm rounded-2xl p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
             <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Clock Out</h3>
             <div>
-              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Deliveries completed</label>
+              <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Deliveries completed</label>
               <input
                 type="number"
                 min="0"
@@ -1339,7 +1343,7 @@ pay_type: 'hourly',
               />
             </div>
             <div>
-              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
+              <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
               <textarea
                 value={endNotes}
                 onChange={(e) => setEndNotes(e.target.value)}
@@ -1457,7 +1461,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfil
           {editing ? (
             <>
               <button onClick={() => setEditing(false)} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>Cancel</button>
-              <button onClick={handleSave} disabled={saving} className="flex-1 py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: saving ? 0.7 : 1 }}>
+              <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: saving ? 0.7 : 1 }}>
                 {saving ? <Loader2 size={13} className="animate-spin" /> : null}
                 Save
               </button>
@@ -1753,7 +1757,7 @@ function DriverDashboard({
                 className="p-2 rounded-lg transition-colors hover:bg-secondary"
                 title="Call dispatch"
               >
-                <Phone size={15} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                <Phone size={15} style={{ color: 'hsl(var(--primary))' }} />
               </a>
             )}
           </div>
@@ -2060,6 +2064,21 @@ function DriverDashboard({
                               Delivery Complete
                             </span>
                           </div>
+                          {order.deliveryAddress && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                                `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                              style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              title="Navigate with Google Maps"
+                            >
+                              <Navigation size={14} style={{ color: 'hsl(var(--primary))' }} />
+                              <span className="text-xs">Nav</span>
+                            </a>
+                          )}
                           <button
                             onClick={() => setSelectedBookingDetail(order)}
                             className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"

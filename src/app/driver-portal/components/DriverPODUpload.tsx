@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { AppOrder } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import {
   Upload, PenLine, Trash2, Image as ImageIcon, FileCheck,
-  CheckCircle2, RefreshCw, ZoomIn, X,
+  CheckCircle2, RefreshCw, ZoomIn, X, ScrollText, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 interface Props {
@@ -33,9 +33,37 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<UploadedPhoto | null>(null);
 
+  // Terms of hire state
+  const [termsText, setTermsText] = useState<string>('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [loadingTerms, setLoadingTerms] = useState(true);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Load terms of hire from system_config
+  useEffect(() => {
+    const loadTerms = async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from('system_config')
+          .select('config_value')
+          .eq('config_key', 'terms_of_hire')
+          .single();
+        if (data?.config_value) {
+          setTermsText(data.config_value);
+        }
+      } catch {
+        // silent — terms will just be empty
+      } finally {
+        setLoadingTerms(false);
+      }
+    };
+    loadTerms();
+  }, []);
 
   const getPos = (
     e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
@@ -148,6 +176,10 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
       toast.error('Customer signature is required');
       return;
     }
+    if (!termsAccepted) {
+      toast.error('Customer must agree to the terms of hire');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -208,6 +240,7 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
         images: photosPayload,
         completedAt: new Date().toISOString(),
         termsAccepted: true,
+        termsAcceptedAt: new Date().toISOString(),
       };
 
       await supabase
@@ -228,7 +261,7 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
     }
   };
 
-  const canSubmit = photos.length > 0 && signedBy.trim() && hasSignature;
+  const canSubmit = photos.length > 0 && signedBy.trim() && hasSignature && termsAccepted;
 
   if (isAlreadyComplete && order.pod) {
     return (
@@ -449,6 +482,80 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
         />
       </div>
 
+      {/* Terms of Hire */}
+      {!loadingTerms && (
+        <div
+          className="rounded-xl border p-4 space-y-3"
+          style={{
+            backgroundColor: termsAccepted ? 'hsl(142 69% 35% / 0.05)' : 'hsl(var(--card))',
+            borderColor: termsAccepted ? 'hsl(142 69% 35% / 0.3)' : 'hsl(var(--border))',
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <ScrollText size={15} style={{ color: 'hsl(var(--primary))' }} />
+            <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+              Terms of Hire
+            </h3>
+          </div>
+
+          {termsText && (
+            <div>
+              <button
+                onClick={() => setShowTerms((v) => !v)}
+                className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+                style={{ color: 'hsl(var(--primary))' }}
+              >
+                {showTerms ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                {showTerms ? 'Hide terms' : 'View terms of hire'}
+              </button>
+
+              {showTerms && (
+                <div
+                  className="mt-2 p-3 rounded-lg text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto"
+                  style={{
+                    backgroundColor: 'hsl(var(--secondary))',
+                    color: 'hsl(var(--muted-foreground))',
+                  }}
+                >
+                  {termsText}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <div className="relative mt-0.5 shrink-0">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="sr-only"
+              />
+              <div
+                className="w-5 h-5 rounded border-2 flex items-center justify-center transition-all"
+                style={{
+                  backgroundColor: termsAccepted ? 'hsl(var(--primary))' : 'transparent',
+                  borderColor: termsAccepted ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                }}
+              >
+                {termsAccepted && (
+                  <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                    <path d="M1 4L4 7L10 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+            </div>
+            <span className="text-sm font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>
+              I agree to the terms of hire
+              <span className="block text-xs font-normal mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                The customer confirms they have read and accepted the terms of hire
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {/* Submit */}
       <button
         onClick={handleSubmit}
@@ -493,6 +600,12 @@ export default function DriverPODUpload({ order, onComplete }: Props) {
             <p className="text-xs flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-current" />
               Collect customer signature
+            </p>
+          )}
+          {!termsAccepted && (
+            <p className="text-xs flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+              Customer must agree to the terms of hire
             </p>
           )}
         </div>
