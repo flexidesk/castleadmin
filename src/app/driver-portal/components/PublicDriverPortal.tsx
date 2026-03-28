@@ -195,7 +195,7 @@ function BookingDetailModal({ order, onClose }: BookingDetailModalProps) {
                   href={googleMapsDirectionsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
+                  className="flex items-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
                   style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
                 >
                   <Navigation size={15} />
@@ -241,14 +241,62 @@ function BookingDetailModal({ order, onClose }: BookingDetailModalProps) {
                       <Package size={12} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
                       <span className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</span>
                     </div>
-                    <span className="text-xs font-medium shrink-0 px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
-                      x{p.quantity}
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {(p.price != null || p.unit_price != null) && (
+                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          £{Number(p.price ?? p.unit_price ?? 0).toFixed(2)} ea
+                        </span>
+                      )}
+                      <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                        x{p.quantity}
+                      </span>
+                      {(p.price != null || p.unit_price != null) && (
+                        <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                          £{(Number(p.price ?? p.unit_price ?? 0) * Number(p.quantity ?? 1)).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {/* Costs */}
+          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Costs</p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Status</span>
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: order.payment.status === 'paid' || order.payment.status === 'Paid' ?'hsl(142 69% 35% / 0.12)'
+                      : order.payment.status === 'pending'|| order.payment.status === 'Pending' ?'hsl(38 92% 50% / 0.12)' :'hsl(var(--secondary))',
+                    color: order.payment.status === 'paid'|| order.payment.status === 'Paid' ?'hsl(142 69% 35%)'
+                      : order.payment.status === 'pending'|| order.payment.status === 'Pending' ?'hsl(38 92% 50%)' :'hsl(var(--muted-foreground))',
+                  }}
+                >
+                  {order.payment.status || 'N/A'}
+                </span>
+              </div>
+              {order.payment.method && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Method</span>
+                  <span className="text-xs font-medium capitalize" style={{ color: 'hsl(var(--foreground))' }}>{order.payment.method}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Order Total</span>
+                <span className="text-base font-bold" style={{ color: 'hsl(var(--primary))' }}>
+                  £{Number(order.payment.amount ?? 0).toFixed(2)}
+                </span>
+              </div>
+              {order.payment.notes && (
+                <p className="text-xs italic pt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.payment.notes}</p>
+              )}
+            </div>
+          </div>
 
           {/* Notes */}
           {order.notes && (
@@ -807,7 +855,7 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
-                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                  style={{ color: 'hsl(var(--foreground))' }}
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
@@ -993,7 +1041,7 @@ function ClockInOutCard({
           {activeShift && elapsed && (
             <div className="text-right">
               <p className="text-lg font-bold" style={{ color: 'hsl(142 69% 35%)' }}>{elapsed}</p>
-              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>elapsed</p>
+              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>elapsed</p>
             </div>
           )}
         </div>
@@ -1182,7 +1230,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfil
         >
           {driver.avatar || initials}
         </div>
-        <p className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
+        <p className="font-bold text-base leading-tight" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
         {email && (
           <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{email}</p>
         )}
@@ -1864,7 +1912,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
               style={{ backgroundColor: 'hsl(var(--secondary))' }}
             >
               <Calendar size={13} style={{ color: 'hsl(var(--primary))' }} />
-              <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+              <span className="text-xs" style={{ color: 'hsl(var(--foreground))' }}>
                 {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
             </div>
@@ -1911,7 +1959,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
                 <p className="text-2xl font-bold leading-none" style={{ color: 'hsl(var(--foreground))' }}>
                   {loading ? '—' : stat.value}
                 </p>
-                <p className="text-xs mt-1 leading-tight" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                   {stat.label}
                 </p>
               </div>
@@ -2137,30 +2185,61 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
                               <span className="text-xs">Nav</span>
                             </a>
                           )}
+                          <button
+                            onClick={() => setSelectedBookingDetail(order)}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                            title="View booking details"
+                          >
+                            <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs">Details</span>
+                          </button>
                         </div>
                       )}
 
                       {isComplete && (
-                        <div
-                          className="flex items-center gap-2 py-2 px-3 rounded-lg"
-                          style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)' }}
-                        >
-                          <CheckCircle2 size={15} style={{ color: 'hsl(142 69% 35%)' }} />
-                          <span className="text-sm font-medium" style={{ color: 'hsl(142 69% 35%)' }}>
-                            Delivery Complete
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="flex-1 flex items-center gap-2 py-2 px-3 rounded-lg"
+                            style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)' }}
+                          >
+                            <CheckCircle2 size={15} style={{ color: 'hsl(142 69% 35%)' }} />
+                            <span className="text-sm font-medium" style={{ color: 'hsl(142 69% 35%)' }}>
+                              Delivery Complete
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setSelectedBookingDetail(order)}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                            title="View booking details"
+                          >
+                            <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs">Details</span>
+                          </button>
                         </div>
                       )}
 
                       {isCancelled && (
-                        <div
-                          className="flex items-center gap-2 py-2 px-3 rounded-lg"
-                          style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}
-                        >
-                          <AlertCircle size={15} style={{ color: 'hsl(0 84% 60%)' }} />
-                          <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>
-                            Booking Cancelled
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="flex-1 flex items-center gap-2 py-2 px-3 rounded-lg"
+                            style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}
+                          >
+                            <AlertCircle size={15} style={{ color: 'hsl(0 84% 60%)' }} />
+                            <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>
+                              Booking Cancelled
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setSelectedBookingDetail(order)}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                            title="View booking details"
+                          >
+                            <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs">Details</span>
+                          </button>
                         </div>
                       )}
                     </div>
