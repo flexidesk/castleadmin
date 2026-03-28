@@ -988,7 +988,7 @@ function ClockInOutCard({
       const { error } = await supabase.from('driver_shifts').insert({
         driver_id: driverId,
         clock_in: new Date().toISOString(),
-        pay_type: null,
+pay_type: 'hourly',
         shift_type: shiftType,
         hourly_rate: null,
         fixed_amount: null,
