@@ -4,6 +4,9 @@ const PFX = 'sb_';
 
 const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
+// Capture the native fetch BEFORE any patching occurs
+const nativeFetch = typeof window !== 'undefined' ? window.fetch.bind(window) : fetch;
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
@@ -161,7 +164,8 @@ export function createClient() {
       },
       global: {
         fetch: (...args) => {
-          return fetch(...args).then(async (res) => {
+          // Use nativeFetch to avoid calling the patched window.fetch (circular issue)
+          return nativeFetch(...(args as Parameters<typeof fetch>)).then(async (res) => {
             if (res.status === 400) {
               const clone = res.clone();
               try {
