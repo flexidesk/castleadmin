@@ -46,7 +46,7 @@ const TRIGGER_LABELS: Record<TriggerType, string> = {
   daily_summary: 'Daily Summary Digest',
   booking_accepted: 'Booking Accepted',
   booking_assigned: 'Booking Assigned',
-  booking_out_for_delivery: 'Out For Delivery',
+  booking_out_for_delivery: 'In Transit',
   booking_complete: 'Booking Complete',
   custom: 'Custom',
 };

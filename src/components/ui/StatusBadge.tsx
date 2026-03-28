@@ -36,7 +36,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     'Booking Out For Delivery': {
       className: 'badge badge-outfordelivery',
       icon: Truck,
-      label: 'Out For Delivery',
+      label: 'In Transit',
     },
     'Booking Complete': {
       className: 'badge badge-complete',

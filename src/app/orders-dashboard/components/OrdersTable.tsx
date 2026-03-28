@@ -16,7 +16,7 @@ const STATUS_TABS: Array<{ label: string; value: BookingStatus | 'All' }> = [
   { label: 'All Bookings', value: 'All' },
   { label: 'Accepted', value: 'Booking Accepted' },
   { label: 'Assigned', value: 'Booking Assigned' },
-  { label: 'Out For Delivery', value: 'Booking Out For Delivery' },
+  { label: 'In Transit', value: 'Booking Out For Delivery' },
   { label: 'Complete', value: 'Booking Complete' },
 ];
 

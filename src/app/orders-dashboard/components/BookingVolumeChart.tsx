@@ -125,7 +125,7 @@ export default function BookingVolumeChart() {
             <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '12px', fontFamily: 'DM Sans' }} />
             <Bar dataKey="accepted" name="Accepted" fill="hsl(213 79% 65%)" radius={[3, 3, 0, 0]} />
             <Bar dataKey="assigned" name="Assigned" fill="hsl(38 92% 65%)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="outForDelivery" name="Out For Delivery" fill="hsl(24 95% 60%)" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="outForDelivery" name="In Transit" fill="hsl(24 95% 60%)" radius={[3, 3, 0, 0]} />
             <Bar dataKey="complete" name="Complete" fill="hsl(142 69% 50%)" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>

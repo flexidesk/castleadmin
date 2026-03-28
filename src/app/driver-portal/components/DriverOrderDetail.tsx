@@ -19,7 +19,7 @@ interface Props {
 const STATUS_FLOW = [
   { key: 'Booking Accepted', label: 'Accepted', icon: CheckCircle2 },
   { key: 'Booking Assigned', label: 'Assigned', icon: Truck },
-  { key: 'Booking Out For Delivery', label: 'Out for Delivery', icon: Navigation },
+  { key: 'Booking Out For Delivery', label: 'In Transit', icon: Navigation },
   { key: 'Booking Complete', label: 'Complete', icon: FileCheck },
 ];
 

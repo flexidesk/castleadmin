@@ -172,7 +172,7 @@ export default function KPIBentoGrid() {
         loading={loading}
       />
       <KPICard
-        label="Out For Delivery"
+        label="In Transit"
         value={outForDelivery}
         subtext="Active deliveries right now"
         icon={Truck}

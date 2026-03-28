@@ -36,6 +36,13 @@ const STATUS_ICONS: Record<BookingStatus, React.ElementType> = {
   'Booking Complete': CheckCircle2,
 };
 
+const STATUS_LABELS: Record<BookingStatus, string> = {
+  'Booking Accepted': 'Accepted',
+  'Booking Assigned': 'Assigned',
+  'Booking Out For Delivery': 'In Transit',
+  'Booking Complete': 'Complete',
+};
+
 interface Props {
   orderId: string | null;
 }
@@ -633,7 +640,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                             : 'hsl(var(--muted-foreground))',
                         }}
                       >
-                        {status.replace('Booking ', '')}
+                        {STATUS_LABELS[status]}
                       </span>
                     </div>
                     {!isLast && (
@@ -680,7 +687,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                           : 'hsl(var(--muted-foreground))',
                       }}
                     >
-                      {status.replace('Booking ', '')}
+                      {STATUS_LABELS[status]}
                     </span>
                     {isCurrent && (
                       <span

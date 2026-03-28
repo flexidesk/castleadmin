@@ -50,7 +50,7 @@ const STATUS_STEPS = [
 const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
   'Booking Accepted':        { label: 'Order Accepted',      color: '#f59e0b', bg: '#fef3c7', icon: Package },
   'Booking Assigned':        { label: 'Driver Assigned',     color: '#3b82f6', bg: '#dbeafe', icon: Truck },
-  'Booking Out For Delivery':{ label: 'Out for Delivery',    color: '#8b5cf6', bg: '#ede9fe', icon: Navigation },
+  'Booking Out For Delivery':{ label: 'In Transit',    color: '#8b5cf6', bg: '#ede9fe', icon: Navigation },
   'Booking Complete':        { label: 'Delivered',           color: '#22c55e', bg: '#dcfce7', icon: CheckCircle2 },
   'Booking Cancelled':       { label: 'Cancelled',           color: '#ef4444', bg: '#fee2e2', icon: XCircle },
 };
