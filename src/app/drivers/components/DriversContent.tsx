@@ -2,9 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import {
-  Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff, ToggleLeft, ToggleRight, ChevronDown, Download, FileSpreadsheet, Archive, ArchiveRestore, TrendingUp, CheckSquare, Square, Users, Zap, BarChart2,
-} from 'lucide-react';
+import { Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff, ToggleLeft, ToggleRight, ChevronDown, Download, FileSpreadsheet, Archive, ArchiveRestore, TrendingUp, CheckSquare, Square, Users, Zap, BarChart2, Bell, RotateCcw, CalendarCheck, AlertCircle,  } from 'lucide-react';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import VehicleManagementContent from './VehicleManagementContent';
@@ -232,13 +230,87 @@ function exportPDF(rows: ReturnType<typeof buildExportRows>, filterLabel: string
   if (win) { win.document.write(html); win.document.close(); }
 }
 
+// ─── Inspection Types ─────────────────────────────────────────────────────────
+
+type InspectionType = 'interim' | 'full' | 'licence' | 'vehicle' | 'medical';
+type ComplianceStatus = 'compliant' | 'due_soon' | 'overdue';
+
+interface InspectionSchedule {
+  id: string;
+  driver_id: string;
+  inspection_type: InspectionType;
+  frequency_days: number;
+  last_completed_at: string | null;
+  next_due_at: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface InspectionScheduleForm {
+  driver_id: string;
+  inspection_type: InspectionType;
+  frequency_days: number;
+  next_due_at: string;
+  notes: string;
+}
+
+const INSPECTION_TYPE_LABELS: Record<InspectionType, string> = {
+  interim: 'Interim Check',
+  full: 'Full Check',
+  licence: 'Licence Review',
+  vehicle: 'Vehicle Inspection',
+  medical: 'Medical Check',
+};
+
+const INSPECTION_TYPE_COLORS: Record<InspectionType, string> = {
+  interim: '#3b82f6',
+  full: '#8b5cf6',
+  licence: '#f59e0b',
+  vehicle: '#10b981',
+  medical: '#ec4899',
+};
+
+const EMPTY_SCHEDULE_FORM: InspectionScheduleForm = {
+  driver_id: '',
+  inspection_type: 'interim',
+  frequency_days: 90,
+  next_due_at: '',
+  notes: '',
+};
+
+function getComplianceStatus(nextDue: string): ComplianceStatus {
+  const now = new Date();
+  const due = new Date(nextDue);
+  const daysUntilDue = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  if (daysUntilDue < 0) return 'overdue';
+  if (daysUntilDue <= 14) return 'due_soon';
+  return 'compliant';
+}
+
+function getDaysLabel(nextDue: string): string {
+  const now = new Date();
+  const due = new Date(nextDue);
+  const days = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days === 0) return 'Due today';
+  if (days === 1) return 'Due tomorrow';
+  return `Due in ${days}d`;
+}
+
+const COMPLIANCE_CONFIG: Record<ComplianceStatus, { label: string; color: string; bg: string; border: string }> = {
+  compliant: { label: 'Compliant', color: '#16a34a', bg: '#dcfce7', border: '#bbf7d0' },
+  due_soon: { label: 'Due Soon', color: '#d97706', bg: '#fef3c7', border: '#fde68a' },
+  overdue: { label: 'Overdue', color: '#dc2626', bg: '#fee2e2', border: '#fecaca' },
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function DriversContent() {
   const supabase = createClient();
 
   // ─── Shared state ──────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'profiles' | 'management' | 'vehicles'>('profiles');
+  const [activeTab, setActiveTab] = useState<'profiles' | 'management' | 'vehicles' | 'inspections'>('profiles');
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [ratings, setRatings] = useState<Record<string, DriverRating>>({});
   const [zones, setZones] = useState<DriverZone[]>([]);
@@ -352,11 +424,46 @@ export default function DriversContent() {
     setDocuments(map);
   }, [supabase]);
 
+  // ─── Inspection tab state ──────────────────────────────────────────────────
+  const [inspectionSchedules, setInspectionSchedules] = useState<InspectionSchedule[]>([]);
+  const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [inspectionSearch, setInspectionSearch] = useState('');
+  const [inspectionTypeFilter, setInspectionTypeFilter] = useState<'all' | InspectionType>('all');
+  const [inspectionStatusFilter, setInspectionStatusFilter] = useState<'all' | ComplianceStatus>('all');
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<InspectionSchedule | null>(null);
+  const [scheduleForm, setScheduleForm] = useState<InspectionScheduleForm>(EMPTY_SCHEDULE_FORM);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState<InspectionSchedule | null>(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<string>>(new Set());
+  const [showBulkReschedule, setShowBulkReschedule] = useState(false);
+  const [bulkRescheduleDate, setBulkRescheduleDate] = useState('');
+  const [bulkRescheduling, setBulkRescheduling] = useState(false);
+  const [markingDone, setMarkingDone] = useState<string | null>(null);
+
+  // ─── Fetch Inspection Schedules ─────────────────────────────────────────────
+
+  const fetchInspectionSchedules = useCallback(async () => {
+    setInspectionLoading(true);
+    const { data, error } = await supabase
+      .from('driver_inspection_schedules')
+      .select('*')
+      .order('next_due_at', { ascending: true });
+    if (error) {
+      toast.error('Failed to load inspection schedules');
+    } else {
+      setInspectionSchedules(data ?? []);
+    }
+    setInspectionLoading(false);
+  }, [supabase]);
+
   useEffect(() => {
     fetchZones();
     fetchDrivers();
     fetchRatings();
     fetchDocuments();
+    fetchInspectionSchedules();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Real-time subscription ─────────────────────────────────────────────────
@@ -653,6 +760,128 @@ export default function DriversContent() {
   const selectedRating = selectedDriver ? ratings[selectedDriver.id] : null;
   const selectedDocs = selectedDriver ? (documents[selectedDriver.id] ?? []) : [];
 
+  // ─── Inspection schedule helpers ────────────────────────────────────────────
+
+  const overdueSchedules = inspectionSchedules.filter((s) => getComplianceStatus(s.next_due_at) === 'overdue');
+  const dueSoonSchedules = inspectionSchedules.filter((s) => getComplianceStatus(s.next_due_at) === 'due_soon');
+
+  const filteredSchedules = inspectionSchedules.filter((s) => {
+    const driver = drivers.find((d) => d.id === s.driver_id);
+    const driverName = driver?.name?.toLowerCase() ?? '';
+    const matchSearch = driverName.includes(inspectionSearch.toLowerCase()) || INSPECTION_TYPE_LABELS[s.inspection_type].toLowerCase().includes(inspectionSearch.toLowerCase());
+    const matchType = inspectionTypeFilter === 'all' || s.inspection_type === inspectionTypeFilter;
+    const matchStatus = inspectionStatusFilter === 'all' || getComplianceStatus(s.next_due_at) === inspectionStatusFilter;
+    return matchSearch && matchType && matchStatus;
+  });
+
+  const allScheduleIds = filteredSchedules.map((s) => s.id);
+  const allSchedulesSelected = allScheduleIds.length > 0 && allScheduleIds.every((id) => selectedScheduleIds.has(id));
+  const someSchedulesSelected = allScheduleIds.some((id) => selectedScheduleIds.has(id));
+
+  function toggleSelectAllSchedules() {
+    if (allSchedulesSelected) setSelectedScheduleIds(new Set());
+    else setSelectedScheduleIds(new Set(allScheduleIds));
+  }
+
+  function toggleSelectSchedule(id: string) {
+    setSelectedScheduleIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+
+  function openAddSchedule(driverId?: string) {
+    setEditingSchedule(null);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setScheduleForm({ ...EMPTY_SCHEDULE_FORM, driver_id: driverId ?? '', next_due_at: tomorrow.toISOString().slice(0, 10) });
+    setShowScheduleForm(true);
+  }
+
+  function openEditSchedule(schedule: InspectionSchedule) {
+    setEditingSchedule(schedule);
+    setScheduleForm({
+      driver_id: schedule.driver_id,
+      inspection_type: schedule.inspection_type,
+      frequency_days: schedule.frequency_days,
+      next_due_at: schedule.next_due_at.slice(0, 10),
+      notes: schedule.notes ?? '',
+    });
+    setShowScheduleForm(true);
+  }
+
+  async function handleSaveSchedule() {
+    if (!scheduleForm.driver_id) { toast.error('Please select a driver'); return; }
+    if (!scheduleForm.next_due_at) { toast.error('Please set a due date'); return; }
+    setSavingSchedule(true);
+    const payload = {
+      driver_id: scheduleForm.driver_id,
+      inspection_type: scheduleForm.inspection_type,
+      frequency_days: scheduleForm.frequency_days,
+      next_due_at: new Date(scheduleForm.next_due_at).toISOString(),
+      notes: scheduleForm.notes || null,
+    };
+    if (editingSchedule) {
+      const { error } = await supabase.from('driver_inspection_schedules').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingSchedule.id);
+      if (error) toast.error('Update failed: ' + error.message);
+      else { toast.success('Schedule updated'); setShowScheduleForm(false); fetchInspectionSchedules(); }
+    } else {
+      const { error } = await supabase.from('driver_inspection_schedules').insert(payload);
+      if (error) toast.error('Create failed: ' + error.message);
+      else { toast.success('Inspection scheduled'); setShowScheduleForm(false); fetchInspectionSchedules(); }
+    }
+    setSavingSchedule(false);
+  }
+
+  async function handleDeleteSchedule(schedule: InspectionSchedule) {
+    setDeletingSchedule(true);
+    const { error } = await supabase.from('driver_inspection_schedules').delete().eq('id', schedule.id);
+    if (error) toast.error('Delete failed: ' + error.message);
+    else { toast.success('Schedule removed'); setConfirmDeleteSchedule(null); fetchInspectionSchedules(); }
+    setDeletingSchedule(false);
+  }
+
+  async function handleMarkDone(schedule: InspectionSchedule) {
+    setMarkingDone(schedule.id);
+    const now = new Date();
+    const nextDue = new Date(now);
+    nextDue.setDate(nextDue.getDate() + schedule.frequency_days);
+    const { error } = await supabase.from('driver_inspection_schedules').update({
+      last_completed_at: now.toISOString(),
+      next_due_at: nextDue.toISOString(),
+      updated_at: now.toISOString(),
+    }).eq('id', schedule.id);
+    if (error) toast.error('Failed to mark done: ' + error.message);
+    else {
+      await supabase.from('driver_inspection_logs').insert({
+        schedule_id: schedule.id,
+        driver_id: schedule.driver_id,
+        inspection_type: schedule.inspection_type,
+        completed_at: now.toISOString(),
+        outcome: 'pass',
+      });
+      toast.success('Inspection marked as complete. Next due: ' + nextDue.toLocaleDateString('en-GB'));
+      fetchInspectionSchedules();
+    }
+    setMarkingDone(null);
+  }
+
+  async function handleBulkReschedule() {
+    if (!bulkRescheduleDate || selectedScheduleIds.size === 0) return;
+    setBulkRescheduling(true);
+    const ids = Array.from(selectedScheduleIds);
+    const { error } = await supabase.from('driver_inspection_schedules').update({
+      next_due_at: new Date(bulkRescheduleDate).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).in('id', ids);
+    if (error) toast.error('Bulk reschedule failed: ' + error.message);
+    else {
+      toast.success(`${ids.length} inspection${ids.length !== 1 ? 's' : ''} rescheduled to ${new Date(bulkRescheduleDate).toLocaleDateString('en-GB')}`);
+      setSelectedScheduleIds(new Set());
+      setShowBulkReschedule(false);
+      setBulkRescheduleDate('');
+      fetchInspectionSchedules();
+    }
+    setBulkRescheduling(false);
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -667,7 +896,7 @@ export default function DriversContent() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { fetchDrivers(); fetchRatings(); fetchZones(); fetchDocuments(); }}
+            onClick={() => { fetchDrivers(); fetchRatings(); fetchZones(); fetchDocuments(); fetchInspectionSchedules(); }}
             className="p-2 rounded-lg border transition-colors hover:bg-secondary"
             style={{ borderColor: 'hsl(var(--border))' }}
             title="Refresh"
@@ -684,6 +913,52 @@ export default function DriversContent() {
           </button>
         </div>
       </div>
+
+      {/* Overdue Alerts Banner */}
+      {(overdueSchedules.length > 0 || dueSoonSchedules.length > 0) && (
+        <div className="space-y-2">
+          {overdueSchedules.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca' }}>
+              <AlertCircle size={18} className="text-red-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-red-700">
+                  {overdueSchedules.length} overdue inspection{overdueSchedules.length !== 1 ? 's' : ''}
+                </p>
+                <p className="text-xs text-red-600 mt-0.5">
+                  {overdueSchedules.slice(0, 3).map((s) => {
+                    const driver = drivers.find((d) => d.id === s.driver_id);
+                    return driver ? `${driver.name} (${INSPECTION_TYPE_LABELS[s.inspection_type]})` : null;
+                  }).filter(Boolean).join(', ')}
+                  {overdueSchedules.length > 3 && ` +${overdueSchedules.length - 3} more`}
+                </p>
+              </div>
+              <button onClick={() => { setActiveTab('inspections'); setInspectionStatusFilter('overdue'); }} className="text-xs font-medium px-3 py-1.5 rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors shrink-0">
+                View All
+              </button>
+            </div>
+          )}
+          {dueSoonSchedules.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}>
+              <Bell size={18} className="text-amber-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-700">
+                  {dueSoonSchedules.length} inspection{dueSoonSchedules.length !== 1 ? 's' : ''} due within 14 days
+                </p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  {dueSoonSchedules.slice(0, 3).map((s) => {
+                    const driver = drivers.find((d) => d.id === s.driver_id);
+                    return driver ? `${driver.name} (${getDaysLabel(s.next_due_at)})` : null;
+                  }).filter(Boolean).join(', ')}
+                  {dueSoonSchedules.length > 3 && ` +${dueSoonSchedules.length - 3} more`}
+                </p>
+              </div>
+              <button onClick={() => { setActiveTab('inspections'); setInspectionStatusFilter('due_soon'); }} className="text-xs font-medium px-3 py-1.5 rounded-lg text-white bg-amber-500 hover:bg-amber-600 transition-colors shrink-0">
+                View All
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -706,16 +981,17 @@ export default function DriversContent() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl border" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', width: 'fit-content' }}>
+      <div className="flex gap-1 p-1 rounded-xl border flex-wrap" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', width: 'fit-content' }}>
         {([
           { key: 'profiles', label: 'Driver Profiles' },
           { key: 'management', label: 'Management' },
           { key: 'vehicles', label: 'Vehicle Management' },
+          { key: 'inspections', label: 'Inspections', badge: overdueSchedules.length > 0 ? overdueSchedules.length : undefined },
         ] as const).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5"
             style={{
               backgroundColor: activeTab === tab.key ? 'hsl(var(--card))' : 'transparent',
               color: activeTab === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
@@ -723,6 +999,9 @@ export default function DriversContent() {
             }}
           >
             {tab.label}
+            {'badge' in tab && tab.badge !== undefined && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold text-white bg-red-500">{tab.badge}</span>
+            )}
           </button>
         ))}
       </div>
@@ -1618,6 +1897,178 @@ export default function DriversContent() {
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2 text-sm rounded-lg border transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
               <button onClick={() => handleDelete(confirmDelete)} disabled={deleting} className="flex-1 py-2 text-sm rounded-lg font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2 bg-red-500">
                 {deleting && <Loader2 size={14} className="animate-spin" />}Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Inspection Modal */}
+      {showScheduleForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
+                  <CalendarCheck size={16} style={{ color: 'hsl(var(--primary))' }} />
+                </div>
+                <h2 className="text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                  {editingSchedule ? 'Edit Inspection Schedule' : 'Schedule Inspection'}
+                </h2>
+              </div>
+              <button onClick={() => setShowScheduleForm(false)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+                <X size={18} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Driver <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <select
+                    value={scheduleForm.driver_id}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, driver_id: e.target.value }))}
+                    className="w-full appearance-none px-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 pr-8"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <option value="">Select a driver…</option>
+                    {drivers.filter((d) => !d.is_archived && d.is_active).map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Inspection Type</label>
+                  <div className="relative">
+                    <select
+                      value={scheduleForm.inspection_type}
+                      onChange={(e) => setScheduleForm((f) => ({ ...f, inspection_type: e.target.value as InspectionType }))}
+                      className="w-full appearance-none px-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 pr-8"
+                      style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    >
+                      {(Object.keys(INSPECTION_TYPE_LABELS) as InspectionType[]).map((t) => (
+                        <option key={t} value={t}>{INSPECTION_TYPE_LABELS[t]}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Frequency (days)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={scheduleForm.frequency_days}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, frequency_days: parseInt(e.target.value) || 90 }))}
+                    className="w-full px-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Next Due Date <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <input
+                    type="date"
+                    value={scheduleForm.next_due_at}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, next_due_at: e.target.value }))}
+                    className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
+                <textarea
+                  value={scheduleForm.notes}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="Any additional notes about this inspection…"
+                  rows={2}
+                  className="w-full px-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2 resize-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+              <button onClick={() => setShowScheduleForm(false)} className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={handleSaveSchedule} disabled={savingSchedule} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                {savingSchedule ? <Loader2 size={14} className="animate-spin" /> : <CalendarCheck size={14} />}
+                {editingSchedule ? 'Save Changes' : 'Schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Reschedule Modal */}
+      {showBulkReschedule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-sm rounded-2xl border shadow-2xl overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
+                  <RotateCcw size={16} style={{ color: 'hsl(var(--primary))' }} />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Bulk Reschedule</h2>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{selectedScheduleIds.size} inspection{selectedScheduleIds.size !== 1 ? 's' : ''} selected</p>
+                </div>
+              </div>
+              <button onClick={() => setShowBulkReschedule(false)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+                <X size={18} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Set a new due date for all {selectedScheduleIds.size} selected inspection{selectedScheduleIds.size !== 1 ? 's' : ''}.
+              </p>
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>New Due Date <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <input
+                    type="date"
+                    value={bulkRescheduleDate}
+                    onChange={(e) => setBulkRescheduleDate(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border outline-none focus:ring-2"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+              <button onClick={() => setShowBulkReschedule(false)} className="px-4 py-2 rounded-lg border text-sm font-medium transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={handleBulkReschedule} disabled={bulkRescheduling || !bulkRescheduleDate} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                {bulkRescheduling ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                Reschedule All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Schedule Confirm Modal */}
+      {confirmDeleteSchedule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-sm rounded-2xl shadow-xl p-6 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-red-100"><Trash2 size={20} className="text-red-500" /></div>
+              <div>
+                <h3 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Remove Inspection Schedule</h3>
+                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Remove the {INSPECTION_TYPE_LABELS[confirmDeleteSchedule.inspection_type]} schedule? This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDeleteSchedule(null)} className="flex-1 py-2 text-sm rounded-lg border transition-colors hover:bg-secondary" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={() => handleDeleteSchedule(confirmDeleteSchedule)} disabled={deletingSchedule} className="flex-1 py-2 text-sm rounded-lg font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2 bg-red-500">
+                {deletingSchedule && <Loader2 size={14} className="animate-spin" />}Remove
               </button>
             </div>
           </div>
