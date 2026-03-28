@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { Eye, EyeOff, Lock, Mail, AlertCircle, Truck } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import AppLogo from '@/components/ui/AppLogo';
 
 interface DriverLoginFormData {
@@ -14,7 +13,6 @@ interface DriverLoginFormData {
 
 export default function DriverLoginPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -35,24 +33,16 @@ export default function DriverLoginPage() {
     setIsLoading(true);
     setAuthError(null);
     try {
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
+      const res = await fetch('/api/drivers/portal-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.trim(), password: data.password }),
       });
 
-      if (error) throw error;
+      const json = await res.json();
 
-      // Verify this user is linked to a driver record
-      const { data: driverData, error: driverError } = await supabase
-        .from('drivers')
-        .select('id, name')
-        .eq('auth_user_id', authData.user.id)
-        .single();
-
-      if (driverError || !driverData) {
-        // Sign out — not a driver account
-        await supabase.auth.signOut();
-        throw new Error('No driver account found for these credentials. Please contact your administrator.');
+      if (!res.ok) {
+        throw new Error(json.error || 'Invalid email or password');
       }
 
       setFailedAttempts(0);
@@ -61,48 +51,29 @@ export default function DriverLoginPage() {
     } catch (error: any) {
       setIsLoading(false);
       const rawMsg: string = error?.message || '';
-      const isRateLimit =
-        rawMsg.toLowerCase().includes('rate limit') ||
-        rawMsg.toLowerCase().includes('too many requests') ||
-        rawMsg.toLowerCase().includes('request rate limit');
 
       const newAttempts = failedAttempts + 1;
       setFailedAttempts(newAttempts);
 
-      if (isRateLimit) {
+      if (newAttempts >= MAX_ATTEMPTS) {
         setAuthError(
-          'Too many sign-in attempts. Please wait 60 seconds before trying again.'
+          'Too many failed attempts. Please wait before trying again, or contact your administrator if you need access.'
         );
-        let seconds = 60;
+        let seconds = 30;
         setRateLimitCooldown(seconds);
         const interval = setInterval(() => {
           seconds -= 1;
           setRateLimitCooldown(seconds);
-          if (seconds <= 0) clearInterval(interval);
+          if (seconds <= 0) {
+            clearInterval(interval);
+            setFailedAttempts(0);
+          }
         }, 1000);
-      } else if (rawMsg.includes('No driver account')) {
-        setAuthError(rawMsg);
       } else {
         const remaining = MAX_ATTEMPTS - newAttempts;
-        if (remaining > 0) {
-          setAuthError(
-            `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before temporary lockout.`
-          );
-        } else {
-          setAuthError(
-            'Too many failed attempts. Please wait before trying again, or contact your administrator if you need access.'
-          );
-          let seconds = 30;
-          setRateLimitCooldown(seconds);
-          const interval = setInterval(() => {
-            seconds -= 1;
-            setRateLimitCooldown(seconds);
-            if (seconds <= 0) {
-              clearInterval(interval);
-              setFailedAttempts(0);
-            }
-          }, 1000);
-        }
+        setAuthError(
+          rawMsg || `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+        );
       }
     }
   };

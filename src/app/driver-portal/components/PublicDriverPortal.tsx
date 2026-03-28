@@ -739,7 +739,6 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -747,35 +746,29 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
     setLoading(true);
     setError(null);
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const res = await fetch('/api/drivers/portal-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      if (authError) throw authError;
+      const json = await res.json();
 
-      const { data, error: dbError } = await supabase
-        .from('drivers')
-        .select('*')
-        .eq('auth_user_id', authData.user.id)
-        .eq('is_active', true)
-        .single();
-
-      if (dbError || !data) {
-        await supabase.auth.signOut();
-        setError('No driver account found for these credentials. Please contact your administrator.');
+      if (!res.ok) {
+        setError(json.error || 'Invalid email or password. Please try again.');
         return;
       }
 
+      const { driver: d } = json;
       onLogin({
-        id: data.id,
-        name: data.name,
-        phone: data.phone,
-        vehicle: data.vehicle,
-        plate: data.plate,
-        status: data.status,
-        avatar: data.avatar,
-        access_code: data.access_code ?? '',
+        id: d.id,
+        name: d.name,
+        phone: d.phone,
+        vehicle: d.vehicle,
+        plate: d.plate,
+        status: d.status,
+        avatar: d.avatar,
+        access_code: d.access_code ?? '',
       });
     } catch (err: any) {
       setError(err?.message || 'Invalid email or password. Please try again.');
@@ -2056,31 +2049,27 @@ export default function PublicDriverPortal() {
   const [driver, setDriver] = useState<(AppDriver & { access_code: string }) | null>(null);
   const supabase = createClient();
 
-  // Restore session from Supabase auth on mount
+  // Restore session from cookie-based driver session on mount
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data } = await supabase
-          .from('drivers')
-          .select('*')
-          .eq('auth_user_id', user.id)
-          .eq('is_active', true)
-          .single();
-
-        if (data) {
-          setDriver({
-            id: data.id,
-            name: data.name,
-            phone: data.phone,
-            vehicle: data.vehicle,
-            plate: data.plate,
-            status: data.status,
-            avatar: data.avatar,
-            access_code: data.access_code ?? '',
-          });
+        // Check for cookie-based driver session via a lightweight API call
+        const res = await fetch('/api/drivers/portal-login/session', { method: 'GET' });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.driver) {
+            setDriver({
+              id: json.driver.id,
+              name: json.driver.name,
+              phone: json.driver.phone,
+              vehicle: json.driver.vehicle,
+              plate: json.driver.plate,
+              status: json.driver.status,
+              avatar: json.driver.avatar,
+              access_code: json.driver.access_code ?? '',
+            });
+            return;
+          }
         }
       } catch {}
     };
@@ -2092,7 +2081,9 @@ export default function PublicDriverPortal() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await fetch('/api/drivers/portal-login', { method: 'DELETE' });
+    } catch {}
     setDriver(null);
   };
 
