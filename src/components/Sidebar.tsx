@@ -7,6 +7,8 @@ import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, 
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
+import { useEffect, useState } from 'react';
 
 interface NavItem {
   label: string;
@@ -20,7 +22,7 @@ const navItems: NavItem[] = [
   { label: 'Bookings Dashboard', href: '/orders-dashboard', icon: LayoutDashboard, group: 'Operations' },
   { label: 'Create Booking', href: '/create-order', icon: Plus, group: 'Operations' },
   { label: 'Booking Detail', href: '/order-detail', icon: PackageSearch, group: 'Operations' },
-  { label: 'Live Tracking', href: '/admin-live-tracking', icon: MapPin, badge: 3, group: 'Operations' },
+  { label: 'Live Tracking', href: '/admin-live-tracking', icon: MapPin, group: 'Operations' },
   { label: 'Driver Tracking', href: '/driver-tracking', icon: Radio, group: 'Operations' },
   { label: 'Customer Tracking', href: '/track', icon: Search, group: 'Operations' },
   { label: 'Driver Portal', href: '/driver-portal', icon: Smartphone, group: 'Fleet' },
@@ -54,6 +56,24 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const [liveDriverCount, setLiveDriverCount] = useState(0);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLiveDrivers = async () => {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from('driver_locations')
+        .select('*', { count: 'exact', head: true })
+        .gte('updated_at', fiveMinutesAgo);
+      setLiveDriverCount(count ?? 0);
+    };
+
+    fetchLiveDrivers();
+    const interval = setInterval(fetchLiveDrivers, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -126,6 +146,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || (item.href !== '/orders-dashboard' && pathname.startsWith(item.href));
                 const isExactActive = pathname === item.href;
+                const badge = item.href === '/admin-live-tracking' ? liveDriverCount : (item.badge ?? 0);
 
                 return (
                   <Link
@@ -139,7 +160,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     {!collapsed && (
                       <span className="flex-1 truncate">{item.label}</span>
                     )}
-                    {!collapsed && item.badge && (
+                    {!collapsed && badge > 0 && (
                       <span
                         className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                         style={{
@@ -147,10 +168,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                           color: 'hsl(var(--destructive))',
                         }}
                       >
-                        {item.badge}
+                        {badge}
                       </span>
                     )}
-                    {collapsed && item.badge && (
+                    {collapsed && badge > 0 && (
                       <span
                         className="absolute top-1 right-1 w-2 h-2 rounded-full"
                         style={{ backgroundColor: 'hsl(var(--destructive))' }}
@@ -166,7 +187,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         }}
                       >
                         {item.label}
-                        {item.badge ? ` (${item.badge})` : ''}
+                        {badge > 0 ? ` (${badge})` : ''}
                       </div>
                     )}
                   </Link>
