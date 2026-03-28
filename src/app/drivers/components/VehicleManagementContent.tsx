@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Car, Plus, Search, Edit2, Trash2, X, Loader2, Upload, FileText, Shield, AlertTriangle, Camera, Wrench, Fuel, Eye, ClipboardList, User, Hash, Palette, CalendarDays, FileCheck, Zap,  } from 'lucide-react';
+import { Car, Plus, Search, Edit2, Trash2, X, Loader2, Upload, FileText, Shield, AlertTriangle, Camera, Wrench, Fuel, Eye, ClipboardList, User, Hash, Palette, CalendarDays, FileCheck, Zap, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -68,6 +68,8 @@ interface VehicleInspection {
   overall_result: string | null;
   driver_signature: string | null;
   notes: string | null;
+  is_recurring: boolean;
+  recurrence_interval_days: number | null;
   created_at: string;
 }
 
@@ -230,6 +232,8 @@ export default function VehicleManagementContent() {
     scheduled_date: '',
     driver_id: '',
     notes: '',
+    is_recurring: false,
+    recurrence_interval_days: '30',
   });
   const [savingInspection, setSavingInspection] = useState(false);
   const [conductingInspection, setConductingInspection] = useState<VehicleInspection | null>(null);
@@ -455,6 +459,10 @@ export default function VehicleManagementContent() {
   async function scheduleInspection() {
     if (!selectedVehicle) return;
     if (!inspectionForm.scheduled_date) { toast.error('Scheduled date is required'); return; }
+    if (inspectionForm.is_recurring && (!inspectionForm.recurrence_interval_days || parseInt(inspectionForm.recurrence_interval_days) < 1)) {
+      toast.error('Please enter a valid recurrence interval');
+      return;
+    }
     setSavingInspection(true);
     const { error } = await supabase.from('vehicle_inspections').insert({
       vehicle_id: selectedVehicle.id,
@@ -463,12 +471,14 @@ export default function VehicleManagementContent() {
       scheduled_date: inspectionForm.scheduled_date,
       status: 'scheduled',
       notes: inspectionForm.notes || null,
+      is_recurring: inspectionForm.is_recurring,
+      recurrence_interval_days: inspectionForm.is_recurring ? parseInt(inspectionForm.recurrence_interval_days) : null,
     });
     if (error) { toast.error('Failed to schedule inspection'); setSavingInspection(false); return; }
-    toast.success('Inspection scheduled');
+    toast.success(inspectionForm.is_recurring ? `Recurring inspection scheduled every ${inspectionForm.recurrence_interval_days} days` : 'Inspection scheduled');
     setSavingInspection(false);
     setShowInspectionForm(false);
-    setInspectionForm({ inspection_type: 'interim', scheduled_date: '', driver_id: '', notes: '' });
+    setInspectionForm({ inspection_type: 'interim', scheduled_date: '', driver_id: '', notes: '', is_recurring: false, recurrence_interval_days: '30' });
     fetchInspections(selectedVehicle.id);
   }
 
@@ -543,7 +553,25 @@ export default function VehicleManagementContent() {
     const { error: itemsErr } = await supabase.from('vehicle_inspection_items').insert(items);
     if (itemsErr) { toast.error('Failed to save check items'); setSubmittingCheck(false); return; }
 
-    toast.success('Inspection completed successfully');
+    // Auto-schedule next recurring inspection
+    if (conductingInspection.is_recurring && conductingInspection.recurrence_interval_days) {
+      const nextDate = new Date(conductingInspection.scheduled_date);
+      nextDate.setDate(nextDate.getDate() + conductingInspection.recurrence_interval_days);
+      await supabase.from('vehicle_inspections').insert({
+        vehicle_id: selectedVehicle.id,
+        driver_id: conductingInspection.driver_id,
+        inspection_type: conductingInspection.inspection_type,
+        scheduled_date: nextDate.toISOString(),
+        status: 'scheduled',
+        notes: conductingInspection.notes,
+        is_recurring: true,
+        recurrence_interval_days: conductingInspection.recurrence_interval_days,
+      });
+      toast.success(`Inspection completed. Next recurring check scheduled for ${nextDate.toLocaleDateString('en-GB')}`);
+    } else {
+      toast.success('Inspection completed successfully');
+    }
+
     setSubmittingCheck(false);
     setConductingInspection(null);
     fetchInspections(selectedVehicle.id);
@@ -756,7 +784,7 @@ export default function VehicleManagementContent() {
                       { label: 'Assigned Driver', value: assignedDriver?.name ?? 'Unassigned', icon: User },
                     ].map((row) => (
                       <div key={row.label} className="flex items-start gap-2">
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
                           <row.icon size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
                         </div>
                         <div>
@@ -969,6 +997,56 @@ export default function VehicleManagementContent() {
                             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                           </select>
                         </div>
+                        <div className="col-span-2">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <div
+                              onClick={() => setInspectionForm((p) => ({ ...p, is_recurring: !p.is_recurring }))}
+                              className={`relative w-9 h-5 rounded-full transition-colors ${inspectionForm.is_recurring ? 'bg-primary' : 'bg-gray-300'}`}
+                              style={{ backgroundColor: inspectionForm.is_recurring ? 'hsl(var(--primary))' : undefined }}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${inspectionForm.is_recurring ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </div>
+                            <span className="text-xs font-medium flex items-center gap-1" style={{ color: 'hsl(var(--foreground))' }}>
+                              <RefreshCw size={12} /> Recurring Check
+                            </span>
+                          </label>
+                        </div>
+                        {inspectionForm.is_recurring && (
+                          <div className="col-span-2">
+                            <label className="text-xs font-medium block mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Repeat every (days) *</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="365"
+                                value={inspectionForm.recurrence_interval_days}
+                                onChange={(e) => setInspectionForm((p) => ({ ...p, recurrence_interval_days: e.target.value }))}
+                                className="w-28 px-3 py-2 text-sm rounded-lg border outline-none"
+                                style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              />
+                              <div className="flex gap-1.5">
+                                {[7, 14, 30, 90].map((d) => (
+                                  <button
+                                    key={d}
+                                    type="button"
+                                    onClick={() => setInspectionForm((p) => ({ ...p, recurrence_interval_days: String(d) }))}
+                                    className="px-2 py-1 text-xs rounded-lg border transition-colors"
+                                    style={{
+                                      borderColor: inspectionForm.recurrence_interval_days === String(d) ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                                      backgroundColor: inspectionForm.recurrence_interval_days === String(d) ? 'hsl(var(--primary) / 0.1)' : 'transparent',
+                                      color: inspectionForm.recurrence_interval_days === String(d) ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                                    }}
+                                  >
+                                    {d === 7 ? '1w' : d === 14 ? '2w' : d === 30 ? '30d' : '90d'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              Next check will be auto-scheduled {inspectionForm.recurrence_interval_days} days after each completed inspection.
+                            </p>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs font-medium block mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes</label>
@@ -993,11 +1071,16 @@ export default function VehicleManagementContent() {
                           <div key={insp.id} className="p-4 rounded-xl border" style={{ borderColor: 'hsl(var(--border))' }}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-sm font-semibold capitalize" style={{ color: 'hsl(var(--foreground))' }}>{insp.inspection_type} Check</span>
                                   <StatusPill status={insp.status} />
                                   {resultCfg && (
                                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${resultCfg.light}`}>{resultCfg.label}</span>
+                                  )}
+                                  {insp.is_recurring && (
+                                    <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                      <RefreshCw size={10} /> Every {insp.recurrence_interval_days}d
+                                    </span>
                                   )}
                                 </div>
                                 <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -1169,7 +1252,7 @@ export default function VehicleManagementContent() {
                       placeholder={field.placeholder}
                       value={(vehicleForm as Record<string, string>)[field.key]}
                       onChange={(e) => setVehicleForm((p) => ({ ...p, [field.key]: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm rounded-lg border outline-none focus:ring-2"
+                      className="w-full px-3 py-2 text-sm rounded-lg border outline-none"
                       style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                     />
                   </div>
