@@ -373,7 +373,7 @@ export default function DriversContent() {
     setLoading(true);
     const { data, error } = await supabase
       .from('drivers')
-      .select('id, name, phone, email, vehicle, plate, status, avatar, is_active, is_archived, archived_at, zone, created_at, verification_status, access_code')
+      .select('id, name, phone, email, vehicle, plate, status, avatar, is_active, is_archived, archived_at, zone, created_at, verification_status, access_code, auth_user_id')
       .order('name');
     if (error) {
       toast.error('Failed to load drivers: ' + error.message);
@@ -1032,7 +1032,7 @@ export default function DriversContent() {
                   <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
                 </div>
               ) : profileFiltered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 gap-2">
+                <div className="flex flex-col items-center justify-center h-40 gap-3">
                   <Truck size={32} style={{ color: 'hsl(var(--muted-foreground))' }} />
                   <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No drivers found</p>
                 </div>
@@ -1053,10 +1053,10 @@ export default function DriversContent() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold truncate" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
-                          {!driver.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium shrink-0">Inactive</span>}
+                          {!driver.is_active && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium shrink-0">Inactive</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLOURS[driver.status]}`}>{driver.status}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLOURS[driver.status]}`}>{driver.status}</span>
                           {r && r.avg_rating > 0 && (
                             <span className="text-[10px] flex items-center gap-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                               <Star size={10} className="text-yellow-400 fill-yellow-400" />{r.avg_rating.toFixed(1)}
@@ -1490,7 +1490,7 @@ export default function DriversContent() {
 
                     {/* Performance */}
                     {r && r.total_deliveries > 0 ? (
-                      <div className="rounded-lg p-2.5 space-y-2" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                      <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5"><TrendingUp size={12} style={{ color: 'hsl(var(--muted-foreground))' }} /><span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Performance</span></div>
                           <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{r.total_deliveries} deliveries</span>
@@ -1510,9 +1510,9 @@ export default function DriversContent() {
                         )}
                       </div>
                     ) : (
-                      <div className="rounded-lg p-2.5 flex items-center gap-2" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                        <TrendingUp size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
-                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>No performance data yet</span>
+                      <div className="flex flex-col items-center justify-center py-8 gap-3">
+                        <BarChart2 size={36} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                        <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No performance data available yet</p>
                       </div>
                     )}
 

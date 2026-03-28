@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
     }
 
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!serviceRoleKey) {
-      return NextResponse.json({ error: 'Server configuration error: service role key not set' }, { status: 500 });
+    if (!serviceRoleKey || serviceRoleKey.startsWith('your-') || serviceRoleKey === '') {
+      return NextResponse.json({ error: 'Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured. Please set a valid service role key in your environment variables.' }, { status: 500 });
     }
 
     // Create admin client with service role key
@@ -40,7 +40,14 @@ export async function POST(request: NextRequest) {
       .eq('id', driverId)
       .single();
 
-    if (driverError || !driver) {
+    if (driverError) {
+      if (driverError.message?.toLowerCase().includes('jwt') || driverError.message?.toLowerCase().includes('invalid') || driverError.message?.toLowerCase().includes('unauthorized')) {
+        return NextResponse.json({ error: 'Server configuration error: invalid SUPABASE_SERVICE_ROLE_KEY. Please set a valid service role key.' }, { status: 500 });
+      }
+      return NextResponse.json({ error: 'Driver not found: ' + driverError.message }, { status: 404 });
+    }
+
+    if (!driver) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
     }
 
