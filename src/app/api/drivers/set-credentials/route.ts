@@ -22,96 +22,127 @@ export async function POST(request: NextRequest) {
     }
 
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!serviceRoleKey || serviceRoleKey.startsWith('your-') || serviceRoleKey === '') {
-      return NextResponse.json({ error: 'Server configuration error: SUPABASE_SERVICE_ROLE_KEY is not configured. Please set a valid service role key in your environment variables.' }, { status: 500 });
-    }
+    const hasAdminKey = serviceRoleKey && !serviceRoleKey.startsWith('your-') && serviceRoleKey !== '';
 
-    // Create admin client with service role key
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceRoleKey,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
-
-    // Check if driver already has an auth_user_id
-    const { data: driver, error: driverError } = await supabaseAdmin
+    // Fetch driver record using server client (anon key is fine for reading)
+    const { data: driver, error: driverError } = await supabaseServer
       .from('drivers')
       .select('id, name, email, auth_user_id')
       .eq('id', driverId)
       .single();
 
-    if (driverError) {
-      if (driverError.message?.toLowerCase().includes('jwt') || driverError.message?.toLowerCase().includes('invalid') || driverError.message?.toLowerCase().includes('unauthorized')) {
-        return NextResponse.json({ error: 'Server configuration error: invalid SUPABASE_SERVICE_ROLE_KEY. Please set a valid service role key.' }, { status: 500 });
-      }
-      return NextResponse.json({ error: 'Driver not found: ' + driverError.message }, { status: 404 });
-    }
-
-    if (!driver) {
+    if (driverError || !driver) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
     }
 
     let authUserId: string;
 
-    if (driver.auth_user_id) {
-      // Update existing auth user's email and password
-      const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-        driver.auth_user_id,
-        { email, password, email_confirm: true }
+    if (hasAdminKey) {
+      // ── Admin path: full control via service role key ──────────────────────
+      const supabaseAdmin = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        serviceRoleKey!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
       );
 
-      if (updateError) {
-        return NextResponse.json({ error: 'Failed to update credentials: ' + updateError.message }, { status: 400 });
+      if (driver.auth_user_id) {
+        // Update existing auth user
+        const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+          driver.auth_user_id,
+          { email, password, email_confirm: true }
+        );
+        if (updateError) {
+          return NextResponse.json({ error: 'Failed to update credentials: ' + updateError.message }, { status: 400 });
+        }
+        authUserId = updatedUser.user.id;
+      } else {
+        // Check if email already exists
+        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+        const existingUser = existingUsers?.users?.find((u) => u.email === email);
+
+        if (existingUser) {
+          // Check if linked to another driver
+          const { data: linkedDriver } = await supabaseAdmin
+            .from('drivers')
+            .select('id, name')
+            .eq('auth_user_id', existingUser.id)
+            .maybeSingle();
+
+          if (linkedDriver && linkedDriver.id !== driverId) {
+            return NextResponse.json(
+              { error: `This email is already linked to driver: ${linkedDriver.name}` },
+              { status: 409 }
+            );
+          }
+
+          // Update password and link
+          const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+            existingUser.id,
+            { password, email_confirm: true }
+          );
+          if (updateError) {
+            return NextResponse.json({ error: 'Failed to update password: ' + updateError.message }, { status: 400 });
+          }
+          authUserId = existingUser.id;
+        } else {
+          // Create new auth user
+          const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+          });
+          if (createError) {
+            return NextResponse.json({ error: 'Failed to create auth user: ' + createError.message }, { status: 400 });
+          }
+          authUserId = newUser.user.id;
+        }
+      }
+    } else {
+      // ── Fallback path: use signUp (no service role key required) ──────────
+      // Create a temporary anon client for signUp
+      const supabaseAnon = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+
+      if (driver.auth_user_id) {
+        // Cannot update existing auth user without admin key
+        return NextResponse.json(
+          { error: 'Updating existing driver credentials requires SUPABASE_SERVICE_ROLE_KEY to be configured in environment variables.' },
+          { status: 500 }
+        );
       }
 
-      authUserId = updatedUser.user.id;
-    } else {
-      // Check if an auth user with this email already exists
-      const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-      const existingUser = existingUsers?.users?.find((u) => u.email === email);
+      // Sign up the driver — creates auth account
+      const { data: signUpData, error: signUpError } = await supabaseAnon.auth.signUp({
+        email,
+        password,
+        options: {
+          // Prevent auto sign-in of the admin session
+          emailRedirectTo: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/callback`,
+        },
+      });
 
-      if (existingUser) {
-        // Check if this auth user is already linked to another driver
-        const { data: linkedDriver } = await supabaseAdmin
-          .from('drivers')
-          .select('id, name')
-          .eq('auth_user_id', existingUser.id)
-          .maybeSingle();
-
-        if (linkedDriver && linkedDriver.id !== driverId) {
+      if (signUpError) {
+        if (signUpError.message?.toLowerCase().includes('already registered')) {
           return NextResponse.json(
-            { error: `This email is already linked to driver: ${linkedDriver.name}` },
+            { error: 'An account with this email already exists. To update credentials, please configure SUPABASE_SERVICE_ROLE_KEY in your environment variables.' },
             { status: 409 }
           );
         }
-
-        // Update password for existing user and link
-        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-          existingUser.id,
-          { password, email_confirm: true }
-        );
-        if (updateError) {
-          return NextResponse.json({ error: 'Failed to update password: ' + updateError.message }, { status: 400 });
-        }
-        authUserId = existingUser.id;
-      } else {
-        // Create a new auth user
-        const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: true,
-        });
-
-        if (createError) {
-          return NextResponse.json({ error: 'Failed to create auth user: ' + createError.message }, { status: 400 });
-        }
-
-        authUserId = newUser.user.id;
+        return NextResponse.json({ error: 'Failed to create driver account: ' + signUpError.message }, { status: 400 });
       }
+
+      if (!signUpData.user) {
+        return NextResponse.json({ error: 'Failed to create driver account — no user returned' }, { status: 400 });
+      }
+
+      authUserId = signUpData.user.id;
     }
 
-    // Update driver record with auth_user_id and email
-    const { error: linkError } = await supabaseAdmin
+    // Link auth_user_id and email to driver record
+    const { error: linkError } = await supabaseServer
       .from('drivers')
       .update({ auth_user_id: authUserId, email })
       .eq('id', driverId);
