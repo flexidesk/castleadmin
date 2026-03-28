@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, Clock, Truck, Coffee, X, Loader2, RefreshCw, LayoutTemplate, CalendarDays, List, Save, Repeat,  } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, Clock, Truck, Coffee, X, Loader2, RefreshCw, LayoutTemplate, CalendarDays, List, Save, Repeat, UserX, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -63,6 +63,17 @@ interface ShiftTemplate {
   is_active: boolean;
 }
 
+interface StaffUnavailability {
+  id: string;
+  driver_id: string;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
+  notes: string | null;
+  created_at: string;
+  driver?: Driver;
+}
+
 interface ShiftFormData {
   driver_id: string;
   vehicle_id: string;
@@ -92,6 +103,14 @@ interface BulkApplyData {
   start_date: string;
   end_date: string;
   vehicle_id: string;
+}
+
+interface UnavailabilityFormData {
+  driver_id: string;
+  start_date: string;
+  end_date: string;
+  reason: string;
+  notes: string;
 }
 
 const EMPTY_SHIFT: ShiftFormData = {
@@ -124,6 +143,24 @@ const EMPTY_BULK: BulkApplyData = {
   end_date: new Date().toISOString().split('T')[0],
   vehicle_id: '',
 };
+
+const EMPTY_UNAVAILABILITY: UnavailabilityFormData = {
+  driver_id: '',
+  start_date: new Date().toISOString().split('T')[0],
+  end_date: new Date().toISOString().split('T')[0],
+  reason: '',
+  notes: '',
+};
+
+const UNAVAILABILITY_REASONS = [
+  'Annual Leave',
+  'Sick Leave',
+  'Personal Leave',
+  'Training',
+  'Public Holiday',
+  'Suspension',
+  'Other',
+];
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const FULL_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -162,6 +199,7 @@ export default function DriverShiftContent() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [templates, setTemplates] = useState<ShiftTemplate[]>([]);
+  const [unavailabilities, setUnavailabilities] = useState<StaffUnavailability[]>([]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -176,6 +214,9 @@ export default function DriverShiftContent() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showUnavailabilityModal, setShowUnavailabilityModal] = useState(false);
+  const [showDeleteUnavailabilityConfirm, setShowDeleteUnavailabilityConfirm] = useState<string | null>(null);
+  const [editingUnavailability, setEditingUnavailability] = useState<StaffUnavailability | null>(null);
   const [editingShift, setEditingShift] = useState<DriverShift | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<ShiftTemplate | null>(null);
 
@@ -183,6 +224,7 @@ export default function DriverShiftContent() {
   const [shiftForm, setShiftForm] = useState<ShiftFormData>(EMPTY_SHIFT);
   const [templateForm, setTemplateForm] = useState<TemplateFormData>(EMPTY_TEMPLATE);
   const [bulkForm, setBulkForm] = useState<BulkApplyData>(EMPTY_BULK);
+  const [unavailabilityForm, setUnavailabilityForm] = useState<UnavailabilityFormData>(EMPTY_UNAVAILABILITY);
 
   // Filters
   const [filterDriver, setFilterDriver] = useState('');
@@ -198,7 +240,7 @@ export default function DriverShiftContent() {
       const firstDay = new Date(year, month, 1).toISOString().split('T')[0];
       const lastDay = new Date(year, month + 1, 0).toISOString().split('T')[0];
 
-      const [shiftsRes, driversRes, vehiclesRes, templatesRes] = await Promise.all([
+      const [shiftsRes, driversRes, vehiclesRes, templatesRes, unavailRes] = await Promise.all([
         supabase
           .from('driver_shifts')
           .select('*, driver:drivers(id,name,phone,vehicle,plate,status), vehicle:vehicles(id,registration,make,model,type,colour,assigned_driver_id)')
@@ -209,6 +251,12 @@ export default function DriverShiftContent() {
         supabase.from('drivers').select('id,name,phone,vehicle,plate,status').eq('is_active', true).eq('is_archived', false).order('name'),
         supabase.from('vehicles').select('id,registration,make,model,type,colour,assigned_driver_id').eq('is_active', true).order('registration'),
         supabase.from('shift_templates').select('*').eq('is_active', true).order('name'),
+        supabase
+          .from('staff_unavailability')
+          .select('*, driver:drivers(id,name,phone,vehicle,plate,status)')
+          .lte('start_date', lastDay)
+          .gte('end_date', firstDay)
+          .order('start_date', { ascending: true }),
       ]);
 
       if (shiftsRes.error) throw shiftsRes.error;
@@ -220,6 +268,7 @@ export default function DriverShiftContent() {
       setDrivers((driversRes.data as Driver[]) || []);
       setVehicles((vehiclesRes.data as Vehicle[]) || []);
       setTemplates((templatesRes.data as ShiftTemplate[]) || []);
+      setUnavailabilities((unavailRes.data as StaffUnavailability[]) || []);
     } catch (err: any) {
       toast.error('Failed to load shift data');
     } finally {
@@ -305,6 +354,75 @@ export default function DriverShiftContent() {
       fetchAll();
     } catch (err: any) {
       toast.error('Failed to delete shift');
+    }
+  };
+
+  // ─── Unavailability CRUD ────────────────────────────────────────────────────
+
+  const openCreateUnavailability = (date?: string) => {
+    setEditingUnavailability(null);
+    setUnavailabilityForm({
+      ...EMPTY_UNAVAILABILITY,
+      start_date: date || new Date().toISOString().split('T')[0],
+      end_date: date || new Date().toISOString().split('T')[0],
+    });
+    setShowUnavailabilityModal(true);
+  };
+
+  const openEditUnavailability = (u: StaffUnavailability) => {
+    setEditingUnavailability(u);
+    setUnavailabilityForm({
+      driver_id: u.driver_id,
+      start_date: u.start_date,
+      end_date: u.end_date,
+      reason: u.reason || '',
+      notes: u.notes || '',
+    });
+    setShowUnavailabilityModal(true);
+  };
+
+  const saveUnavailability = async () => {
+    if (!unavailabilityForm.driver_id) { toast.error('Please select a staff member'); return; }
+    if (!unavailabilityForm.start_date || !unavailabilityForm.end_date) { toast.error('Please select dates'); return; }
+    if (unavailabilityForm.end_date < unavailabilityForm.start_date) { toast.error('End date must be on or after start date'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        driver_id: unavailabilityForm.driver_id,
+        start_date: unavailabilityForm.start_date,
+        end_date: unavailabilityForm.end_date,
+        reason: unavailabilityForm.reason || null,
+        notes: unavailabilityForm.notes || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (editingUnavailability) {
+        const { error } = await supabase.from('staff_unavailability').update(payload).eq('id', editingUnavailability.id);
+        if (error) throw error;
+        toast.success('Unavailability updated');
+      } else {
+        const { error } = await supabase.from('staff_unavailability').insert({ ...payload, created_at: new Date().toISOString() });
+        if (error) throw error;
+        toast.success('Staff marked as unavailable');
+      }
+      setShowUnavailabilityModal(false);
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save unavailability');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteUnavailability = async (id: string) => {
+    try {
+      const { error } = await supabase.from('staff_unavailability').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Unavailability removed');
+      setShowDeleteUnavailabilityConfirm(null);
+      fetchAll();
+    } catch (err: any) {
+      toast.error('Failed to remove unavailability');
     }
   };
 
@@ -445,6 +563,11 @@ export default function DriverShiftContent() {
     return shifts.filter(s => s.shift_date === dateStr);
   };
 
+  const getUnavailabilitiesForDate = (day: number): StaffUnavailability[] => {
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return unavailabilities.filter(u => u.start_date <= dateStr && u.end_date >= dateStr);
+  };
+
   const formatDateStr = (day: number) =>
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
@@ -490,6 +613,14 @@ export default function DriverShiftContent() {
             >
               <LayoutTemplate size={15} />
               Templates
+            </button>
+            <button
+              onClick={() => openCreateUnavailability()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-secondary"
+              style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            >
+              <UserX size={15} />
+              Mark Unavailable
             </button>
             <button
               onClick={() => openCreateShift()}
@@ -608,8 +739,12 @@ export default function DriverShiftContent() {
                       (!filterDriver || s.driver_id === filterDriver) &&
                       (!filterStatus || s.status === filterStatus)
                     ) : [];
+                    const dayUnavailabilities = day ? getUnavailabilitiesForDate(day).filter(u =>
+                      !filterDriver || u.driver_id === filterDriver
+                    ) : [];
                     const dateStr = day ? formatDateStr(day) : '';
                     const isSelected = selectedDate === dateStr;
+                    const hasUnavailability = dayUnavailabilities.length > 0;
                     return (
                       <div
                         key={idx}
@@ -617,7 +752,11 @@ export default function DriverShiftContent() {
                         className={`min-h-[110px] border-b border-r p-1.5 cursor-pointer transition-colors ${day ? 'hover:bg-secondary/50' : ''} ${isSelected ? 'ring-2 ring-inset' : ''}`}
                         style={{
                           borderColor: 'hsl(var(--border))',
-                          backgroundColor: isSelected ? 'hsl(var(--primary) / 0.05)' : undefined,
+                          backgroundColor: isSelected
+                            ? 'hsl(var(--primary) / 0.05)'
+                            : hasUnavailability && !dayShifts.length
+                              ? 'rgba(239,68,68,0.03)'
+                              : undefined,
                           ...(isSelected ? { '--tw-ring-color': 'hsl(var(--primary))' } as any : {}),
                         }}
                       >
@@ -639,6 +778,25 @@ export default function DriverShiftContent() {
                               </button>
                             </div>
                             <div className="space-y-0.5">
+                              {/* Unavailability blocks */}
+                              {dayUnavailabilities.slice(0, 2).map(u => (
+                                <div
+                                  key={u.id}
+                                  onClick={e => { e.stopPropagation(); openEditUnavailability(u); }}
+                                  className="text-[10px] px-1.5 py-0.5 rounded border-l-2 border-l-red-400 truncate cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1"
+                                  style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}
+                                  title={`${u.driver?.name} — ${u.reason || 'Unavailable'}`}
+                                >
+                                  <UserX size={8} className="text-red-400 shrink-0" />
+                                  <span className="text-red-400 truncate">{u.driver?.name?.split(' ')[0]}</span>
+                                </div>
+                              ))}
+                              {dayUnavailabilities.length > 2 && (
+                                <div className="text-[10px] px-1 font-medium text-red-400">
+                                  +{dayUnavailabilities.length - 2} unavail.
+                                </div>
+                              )}
+                              {/* Shift blocks */}
                               {dayShifts.slice(0, 3).map(shift => (
                                 <div
                                   key={shift.id}
@@ -666,19 +824,82 @@ export default function DriverShiftContent() {
               </div>
             )}
 
+            {/* Calendar Legend */}
+            {viewMode === 'calendar' && (
+              <div className="flex items-center gap-4 mt-3 text-xs flex-wrap" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded border-l-2 border-l-blue-400" style={{ backgroundColor: 'hsl(var(--card))' }} />
+                  <span>Shift</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded border-l-2 border-l-red-400" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }} />
+                  <span>Unavailable</span>
+                </div>
+              </div>
+            )}
+
             {/* Selected Day Detail */}
             {viewMode === 'calendar' && selectedDate && (
               <div className="mt-4 rounded-xl border p-4" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--card))' }}>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <h3 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
-                    Shifts for {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
                   </h3>
-                  <button onClick={() => openCreateShift(selectedDate)}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg text-white"
-                    style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                    <Plus size={12} /> Add Shift
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => openCreateUnavailability(selectedDate)}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors hover:bg-secondary"
+                      style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+                      <UserX size={12} /> Mark Unavailable
+                    </button>
+                    <button onClick={() => openCreateShift(selectedDate)}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg text-white"
+                      style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                      <Plus size={12} /> Add Shift
+                    </button>
+                  </div>
                 </div>
+
+                {/* Unavailabilities for selected day */}
+                {unavailabilities.filter(u => u.start_date <= selectedDate && u.end_date >= selectedDate).length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 text-red-400">
+                      <UserX size={12} /> Unavailable Staff
+                    </p>
+                    <div className="space-y-1.5">
+                      {unavailabilities
+                        .filter(u => u.start_date <= selectedDate && u.end_date >= selectedDate)
+                        .map(u => (
+                          <div key={u.id} className="flex items-center justify-between px-3 py-2 rounded-lg border-l-2 border-l-red-400"
+                            style={{ backgroundColor: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-red-500">
+                                {u.driver?.name?.charAt(0) || '?'}
+                              </div>
+                              <div>
+                                <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{u.driver?.name}</span>
+                                {u.reason && <span className="text-[10px] ml-2 text-red-400">{u.reason}</span>}
+                                {u.start_date !== u.end_date && (
+                                  <div className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                                    {new Date(u.start_date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} –{' '}
+                                    {new Date(u.end_date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button onClick={() => openEditUnavailability(u)} className="p-1.5 rounded hover:bg-secondary transition-colors">
+                                <Edit2 size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                              </button>
+                              <button onClick={() => setShowDeleteUnavailabilityConfirm(u.id)} className="p-1.5 rounded hover:bg-secondary transition-colors">
+                                <Trash2 size={12} className="text-red-400" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
                 <ShiftList
                   shifts={shifts.filter(s => s.shift_date === selectedDate)}
                   onEdit={openEditShift}
@@ -942,6 +1163,72 @@ export default function DriverShiftContent() {
         </Modal>
       )}
 
+      {/* ── Unavailability Modal ─────────────────────────────────────────────── */}
+      {showUnavailabilityModal && (
+        <Modal
+          title={editingUnavailability ? 'Edit Unavailability' : 'Mark Staff Unavailable'}
+          onClose={() => setShowUnavailabilityModal(false)}
+        >
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <AlertCircle size={15} className="text-red-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-red-400">
+                Marking a staff member as unavailable will show a visual indicator on the shift calendar for the selected date range.
+              </p>
+            </div>
+            <FormField label="Staff Member *">
+              <select value={unavailabilityForm.driver_id} onChange={e => setUnavailabilityForm(f => ({ ...f, driver_id: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border text-sm bg-transparent"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+                <option value="">Select staff member</option>
+                {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </FormField>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Start Date *">
+                <input type="date" value={unavailabilityForm.start_date}
+                  onChange={e => setUnavailabilityForm(f => ({ ...f, start_date: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-transparent"
+                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              </FormField>
+              <FormField label="End Date *">
+                <input type="date" value={unavailabilityForm.end_date}
+                  onChange={e => setUnavailabilityForm(f => ({ ...f, end_date: e.target.value }))}
+                  min={unavailabilityForm.start_date}
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-transparent"
+                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              </FormField>
+            </div>
+            <FormField label="Reason">
+              <select value={unavailabilityForm.reason} onChange={e => setUnavailabilityForm(f => ({ ...f, reason: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border text-sm bg-transparent"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+                <option value="">Select reason (optional)</option>
+                {UNAVAILABILITY_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Notes">
+              <textarea value={unavailabilityForm.notes} onChange={e => setUnavailabilityForm(f => ({ ...f, notes: e.target.value }))}
+                rows={2} placeholder="Additional details..."
+                className="w-full px-3 py-2 rounded-lg border text-sm bg-transparent resize-none"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+            </FormField>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowUnavailabilityModal(false)}
+                className="px-4 py-2 rounded-lg text-sm border hover:bg-secondary transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+                Cancel
+              </button>
+              <button onClick={saveUnavailability} disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-60 bg-red-500 hover:bg-red-600 transition-colors">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <UserX size={14} />}
+                {editingUnavailability ? 'Update' : 'Mark Unavailable'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Template Modal ───────────────────────────────────────────────────── */}
       {showTemplateModal && (
         <Modal title={editingTemplate ? 'Edit Template' : 'New Shift Template'} onClose={() => setShowTemplateModal(false)}>
@@ -1106,7 +1393,7 @@ export default function DriverShiftContent() {
         </Modal>
       )}
 
-      {/* ── Delete Confirm ───────────────────────────────────────────────────── */}
+      {/* ── Delete Shift Confirm ─────────────────────────────────────────────── */}
       {showDeleteConfirm && (
         <Modal title="Delete Shift" onClose={() => setShowDeleteConfirm(null)}>
           <p className="text-sm mb-5" style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -1121,6 +1408,26 @@ export default function DriverShiftContent() {
             <button onClick={() => deleteShift(showDeleteConfirm)}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors">
               Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete Unavailability Confirm ────────────────────────────────────── */}
+      {showDeleteUnavailabilityConfirm && (
+        <Modal title="Remove Unavailability" onClose={() => setShowDeleteUnavailabilityConfirm(null)}>
+          <p className="text-sm mb-5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            Are you sure you want to remove this unavailability record? The staff member will appear as available again.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowDeleteUnavailabilityConfirm(null)}
+              className="px-4 py-2 rounded-lg text-sm border hover:bg-secondary transition-colors"
+              style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+              Cancel
+            </button>
+            <button onClick={() => deleteUnavailability(showDeleteUnavailabilityConfirm)}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors">
+              Remove
             </button>
           </div>
         </Modal>
