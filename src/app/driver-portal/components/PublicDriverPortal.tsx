@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff, Settings, Save } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, ChevronDown, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, LogOut, Wifi, WifiOff, Shield, Timer, ClipboardList, X, Mail, Lock, Eye, EyeOff, Settings, Save, History, Car, Wrench, Search, CheckSquare, XCircle, Info } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -96,6 +96,489 @@ function isUrgent(order: AppOrder): boolean {
   if (window.toLowerCase().includes('am') && h >= 10) return true;
   if (window.toLowerCase().includes('pm') && h >= 14) return true;
   return false;
+}
+
+// ─── Booking Detail Modal ─────────────────────────────────────────────────────
+
+interface BookingDetailModalProps {
+  order: AppOrder;
+  onClose: () => void;
+}
+
+function BookingDetailModal({ order, onClose }: BookingDetailModalProps) {
+  const mapAddress = order.deliveryAddress
+    ? encodeURIComponent(`${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}, UK`)
+    : null;
+
+  const googleMapsDirectionsUrl = order.deliveryAddress
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+        `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`
+      )}`
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      <div
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col"
+        style={{ backgroundColor: 'hsl(var(--card))', maxHeight: '90vh' }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: 'hsl(var(--border))' }}>
+          <div>
+            <h2 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {new Date(order.bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg transition-colors hover:bg-secondary">
+            <X size={18} style={{ color: 'hsl(var(--foreground))' }} />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Status:</span>
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full font-medium"
+              style={{
+                backgroundColor: STATUS_ACCENT[order.status] ? `${STATUS_ACCENT[order.status]}20` : 'hsl(var(--secondary))',
+                color: STATUS_ACCENT[order.status] ?? 'hsl(var(--foreground))',
+              }}
+            >
+              {order.status}
+            </span>
+            {(order as any).bookingType && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                {(order as any).bookingType}
+              </span>
+            )}
+          </div>
+
+          {/* Customer */}
+          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Customer</p>
+            <div className="flex items-center gap-2">
+              <User size={14} style={{ color: 'hsl(var(--primary))' }} />
+              <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.customer.name}</span>
+            </div>
+            {order.customer.email && (
+              <p className="text-xs pl-5" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.customer.email}</p>
+            )}
+            {order.customer.phone && (
+              <a href={`tel:${order.customer.phone}`} className="flex items-center gap-2 pl-1">
+                <Phone size={13} style={{ color: 'hsl(var(--primary))' }} />
+                <span className="text-sm font-medium" style={{ color: 'hsl(var(--primary))' }}>{order.customer.phone}</span>
+              </a>
+            )}
+          </div>
+
+          {/* Delivery Address + Navigate */}
+          {order.deliveryAddress && (
+            <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Address</p>
+              <div className="flex items-start gap-2">
+                <MapPin size={14} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--primary))' }} />
+                <div>
+                  <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.line1}</p>
+                  {order.deliveryAddress.line2 && <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.line2}</p>}
+                  <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.city}{order.deliveryAddress.county ? `, ${order.deliveryAddress.county}` : ''}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.postcode}</p>
+                  {order.deliveryAddress.notes && (
+                    <p className="text-xs mt-1 italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.deliveryAddress.notes}</p>
+                  )}
+                </div>
+              </div>
+              {googleMapsDirectionsUrl && (
+                <a
+                  href={googleMapsDirectionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
+                  style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                >
+                  <Navigation size={15} />
+                  Navigate with Google Maps
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Schedule */}
+          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Schedule</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Date</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Calendar size={12} style={{ color: 'hsl(var(--primary))' }} />
+                  <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                    {new Date(order.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+              {order.deliveryWindow && (
+                <div>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Window</p>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <Clock size={12} style={{ color: 'hsl(var(--primary))' }} />
+                    <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryWindow}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Items */}
+          {order.products?.length > 0 && (
+            <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Items ({order.products.length})</p>
+              <div className="space-y-1.5">
+                {order.products.map((p: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Package size={12} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                      <span className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</span>
+                    </div>
+                    <span className="text-xs font-medium shrink-0 px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                      x{p.quantity}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {order.notes && (
+            <div className="rounded-xl border p-3" style={{ borderColor: 'hsl(var(--border))' }}>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes</p>
+              <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.notes}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Safety Check Component ───────────────────────────────────────────────────
+
+const INTERIM_CHECKS = [
+  'Indicators Check', 'Headlights Check', 'Tyres Check',
+  'Driver Seatbelt', 'Fuel Check', 'Mirrors Check', 'Warning Lights',
+];
+
+const FULL_CHECKS = [
+  ...INTERIM_CHECKS,
+  'Oil Check', 'Screen Wash Check', 'Coolant Check', 'Braking Check',
+  'Fog Lights Check', 'Full Seatbelt Check', 'Wipers Check', 'Horn Check',
+  'Passenger Safety Equipment', 'Hazard Warning Lights', 'Bodywork Check',
+];
+
+type CheckResult = 'good' | 'needs_attention' | 'immediate' | null;
+
+interface SafetyCheckSectionProps {
+  driverId: string;
+}
+
+function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
+  const supabase = createClient();
+  const [vehicles, setVehicles] = useState<Array<{ id: string; registration: string; make: string; model: string }>>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
+  const [inspectionType, setInspectionType] = useState<'interim' | 'full'>('interim');
+  const [checkResults, setCheckResults] = useState<Record<string, CheckResult>>({});
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [pastInspections, setPastInspections] = useState<any[]>([]);
+  const [loadingInspections, setLoadingInspections] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+
+  const checks = inspectionType === 'interim' ? INTERIM_CHECKS : FULL_CHECKS;
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: vehiclesData } = await supabase
+        .from('vehicles')
+        .select('id, registration, make, model')
+        .eq('is_active', true)
+        .order('registration');
+      if (vehiclesData) setVehicles(vehiclesData);
+
+      const { data: inspData } = await supabase
+        .from('vehicle_inspections')
+        .select('*, vehicles(registration, make, model)')
+        .eq('driver_id', driverId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (inspData) setPastInspections(inspData);
+      setLoadingInspections(false);
+    };
+    load();
+  }, [driverId]);
+
+  const handleResultChange = (check: string, result: CheckResult) => {
+    setCheckResults((prev) => ({ ...prev, [check]: result }));
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedVehicleId) {
+      toast.error('Please select a vehicle');
+      return;
+    }
+    const incomplete = checks.filter((c) => !checkResults[c]);
+    if (incomplete.length > 0) {
+      toast.error(`Please complete all checks (${incomplete.length} remaining)`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const hasImmediate = checks.some((c) => checkResults[c] === 'immediate');
+      const hasAttention = checks.some((c) => checkResults[c] === 'needs_attention');
+      const overallResult = hasImmediate ? 'fail' : hasAttention ? 'advisory' : 'pass';
+
+      const { data: inspection, error: inspError } = await supabase
+        .from('vehicle_inspections')
+        .insert({
+          vehicle_id: selectedVehicleId,
+          driver_id: driverId,
+          inspection_type: inspectionType,
+          scheduled_date: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          status: 'completed',
+          overall_result: overallResult,
+          notes,
+        })
+        .select()
+        .single();
+
+      if (inspError) throw inspError;
+
+      // Insert check items
+      const items = checks.map((check, idx) => ({
+        inspection_id: inspection.id,
+        check_name: check,
+        result: checkResults[check],
+        notes: null,
+        image_url: null,
+        image_name: null,
+        sort_order: idx,
+      }));
+
+      await supabase.from('vehicle_inspection_items').insert(items);
+
+      toast.success('Safety check submitted successfully!');
+      setShowForm(false);
+      setCheckResults({});
+      setNotes('');
+      setSelectedVehicleId('');
+
+      // Reload inspections
+      const { data: inspData } = await supabase
+        .from('vehicle_inspections')
+        .select('*, vehicles(registration, make, model)')
+        .eq('driver_id', driverId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (inspData) setPastInspections(inspData);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to submit safety check');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resultConfig = {
+    good: { label: 'Good', bg: 'hsl(142 69% 35%)', light: 'hsl(142 69% 35% / 0.1)', text: 'hsl(142 69% 35%)' },
+    needs_attention: { label: 'Advisory', bg: 'hsl(38 92% 50%)', light: 'hsl(38 92% 50% / 0.1)', text: 'hsl(38 92% 50%)' },
+    immediate: { label: 'Fail', bg: 'hsl(0 84% 60%)', light: 'hsl(0 84% 60% / 0.1)', text: 'hsl(0 84% 60%)' },
+  };
+
+  const overallResultLabel = (result: string | null) => {
+    if (result === 'pass') return { label: 'Pass', color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)' };
+    if (result === 'advisory') return { label: 'Advisory', color: 'hsl(38 92% 50%)', bg: 'hsl(38 92% 50% / 0.1)' };
+    if (result === 'fail') return { label: 'Fail', color: 'hsl(0 84% 60%)', bg: 'hsl(0 84% 60% / 0.1)' };
+    return { label: result ?? '—', color: 'hsl(var(--muted-foreground))', bg: 'hsl(var(--secondary))' };
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Vehicle Safety Checks</h3>
+          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Complete pre-drive safety inspections</p>
+        </div>
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-all"
+          style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+        >
+          {showForm ? <X size={14} /> : <Wrench size={14} />}
+          {showForm ? 'Cancel' : 'New Check'}
+        </button>
+      </div>
+
+      {/* New Check Form */}
+      {showForm && (
+        <div className="rounded-xl border p-4 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+          {/* Vehicle Select */}
+          <div>
+            <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Vehicle</label>
+            <select
+              value={selectedVehicleId}
+              onChange={(e) => setSelectedVehicleId(e.target.value)}
+              className="w-full text-sm px-3 py-2 rounded-lg border outline-none"
+              style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            >
+              <option value="">Select vehicle...</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>{v.registration} — {v.make} {v.model}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Inspection Type */}
+          <div>
+            <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Check Type</label>
+            <div className="flex gap-2">
+              {(['interim', 'full'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { setInspectionType(t); setCheckResults({}); }}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize"
+                  style={{
+                    backgroundColor: inspectionType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                    color: inspectionType === t ? 'white' : 'hsl(var(--muted-foreground))',
+                  }}
+                >
+                  {t} ({t === 'interim' ? INTERIM_CHECKS.length : FULL_CHECKS.length} checks)
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Check Items */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Checks ({Object.keys(checkResults).length}/{checks.length} completed)
+            </p>
+            {checks.map((check) => {
+              const result = checkResults[check];
+              return (
+                <div
+                  key={check}
+                  className="rounded-lg p-3"
+                  style={{
+                    backgroundColor: result ? resultConfig[result].light : 'hsl(var(--secondary))',
+                    border: `1px solid ${result ? resultConfig[result].bg + '40' : 'transparent'}`,
+                  }}
+                >
+                  <p className="text-sm font-medium mb-2" style={{ color: 'hsl(var(--foreground))' }}>{check}</p>
+                  <div className="flex gap-2">
+                    {(['good', 'needs_attention', 'immediate'] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => handleResultChange(check, r)}
+                        className="flex-1 py-1.5 rounded-md text-xs font-semibold transition-all"
+                        style={{
+                          backgroundColor: result === r ? resultConfig[r].bg : 'hsl(var(--card))',
+                          color: result === r ? 'white' : 'hsl(var(--muted-foreground))',
+                          border: `1px solid ${result === r ? resultConfig[r].bg : 'hsl(var(--border))'}`,
+                        }}
+                      >
+                        {resultConfig[r].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Any additional notes..."
+              className="w-full text-sm px-3 py-2 rounded-lg border outline-none resize-none"
+              style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            />
+          </div>
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="w-full py-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2"
+            style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: submitting ? 0.7 : 1 }}
+          >
+            {submitting ? <Loader2 size={15} className="animate-spin" /> : <CheckSquare size={15} />}
+            {submitting ? 'Submitting...' : 'Submit Safety Check'}
+          </button>
+        </div>
+      )}
+
+      {/* Past Inspections */}
+      <div>
+        <p className="text-xs font-semibold mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>Recent Checks</p>
+        {loadingInspections ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="rounded-xl border p-4 animate-pulse" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                <div className="h-4 rounded w-1/2 mb-2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                <div className="h-3 rounded w-1/3" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+              </div>
+            ))}
+          </div>
+        ) : pastInspections.length === 0 ? (
+          <div className="rounded-xl border p-8 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <Shield size={32} className="mx-auto mb-2" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No safety checks yet</p>
+            <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Complete your first pre-drive check above.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pastInspections.map((insp) => {
+              const res = overallResultLabel(insp.overall_result);
+              return (
+                <div key={insp.id} className="rounded-xl border p-3 flex items-center gap-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: res.bg }}>
+                    {insp.overall_result === 'pass' ? (
+                      <CheckCircle2 size={18} style={{ color: res.color }} />
+                    ) : insp.overall_result === 'fail' ? (
+                      <XCircle size={18} style={{ color: res.color }} />
+                    ) : (
+                      <AlertCircle size={18} style={{ color: res.color }} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                        {(insp.vehicles as any)?.registration ?? 'Unknown Vehicle'}
+                      </p>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: res.bg, color: res.color }}>
+                        {res.label}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {insp.inspection_type === 'interim' ? 'Interim' : 'Full'} check ·{' '}
+                      {new Date(insp.completed_at ?? insp.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── Email/Password Login Screen ──────────────────────────────────────────────
@@ -947,13 +1430,19 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'today' | 'all'>('today');
-  const [activeSection, setActiveSection] = useState<'orders' | 'earnings' | 'map' | 'profile'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'earnings' | 'map' | 'profile' | 'past-bookings' | 'vehicle'>('orders');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [showMap, setShowMap] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [shiftRefreshKey, setShiftRefreshKey] = useState(0);
+  // Past bookings filters
+  const [pastBookingTypeFilter, setPastBookingTypeFilter] = useState<string>('all');
+  const [pastBookingDateFilter, setPastBookingDateFilter] = useState<string>('');
+  const [pastBookingSearch, setPastBookingSearch] = useState<string>('');
+  // Booking detail modal
+  const [selectedBookingDetail, setSelectedBookingDetail] = useState<AppOrder | null>(null);
 
   const supabase = createClient();
 
@@ -1355,11 +1844,13 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
 
         {/* Section Tabs */}
         <div
-          className="flex gap-1 p-1 rounded-xl"
+          className="flex gap-1 p-1 rounded-xl overflow-x-auto"
           style={{ backgroundColor: 'hsl(var(--secondary))' }}
         >
           {([
             { key: 'orders', label: 'Orders', icon: Package },
+            { key: 'past-bookings', label: 'History', icon: History },
+            { key: 'vehicle', label: 'Vehicle', icon: Car },
             { key: 'earnings', label: 'Earnings', icon: PoundSterling },
             { key: 'map', label: 'Map', icon: MapPin },
             { key: 'profile', label: 'Profile', icon: User },
@@ -1367,15 +1858,16 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
             <button
               key={tab.key}
               onClick={() => setActiveSection(tab.key)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all"
+              className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all shrink-0"
               style={{
                 backgroundColor: activeSection === tab.key ? 'hsl(var(--card))' : 'transparent',
                 color: activeSection === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
                 boxShadow: activeSection === tab.key ? '0 1px 3px hsl(var(--border))' : 'none',
+                minWidth: '52px',
               }}
             >
               <tab.icon size={13} />
-              {tab.label}
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -1602,6 +2094,195 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
           </div>
         )}
 
+        {/* ── PAST BOOKINGS SECTION ── */}
+        {activeSection === 'past-bookings' && (() => {
+          const completedOrders = allOrders.filter(
+            (o) => o.status === 'Booking Complete' || o.status === 'Booking Cancelled'
+          );
+
+          const bookingTypes = Array.from(new Set(
+            completedOrders.map((o) => (o as any).bookingType ?? (o as any).booking_type ?? 'Delivery').filter(Boolean)
+          ));
+
+          const filtered = completedOrders.filter((o) => {
+            const typeMatch = pastBookingTypeFilter === 'all' || ((o as any).bookingType ?? (o as any).booking_type ?? 'Delivery') === pastBookingTypeFilter;
+            const dateMatch = !pastBookingDateFilter || o.bookingDate === pastBookingDateFilter;
+            const searchMatch = !pastBookingSearch || 
+              o.id.toLowerCase().includes(pastBookingSearch.toLowerCase()) ||
+              o.customer.name.toLowerCase().includes(pastBookingSearch.toLowerCase()) ||
+              (o.deliveryAddress?.postcode ?? '').toLowerCase().includes(pastBookingSearch.toLowerCase());
+            return typeMatch && dateMatch && searchMatch;
+          });
+
+          return (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Past Bookings</h3>
+                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  {completedOrders.length} completed or cancelled booking{completedOrders.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+
+              {/* Filters */}
+              <div className="space-y-2">
+                {/* Search */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <input
+                    type="text"
+                    value={pastBookingSearch}
+                    onChange={(e) => setPastBookingSearch(e.target.value)}
+                    placeholder="Search by order ID, customer, postcode..."
+                    className="w-full text-sm pl-9 pr-3 py-2 rounded-lg border outline-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  {pastBookingSearch && (
+                    <button onClick={() => setPastBookingSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <X size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Date + Type row */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                    <input
+                      type="date"
+                      value={pastBookingDateFilter}
+                      onChange={(e) => setPastBookingDateFilter(e.target.value)}
+                      className="w-full text-xs pl-8 pr-2 py-2 rounded-lg border outline-none"
+                      style={{ backgroundColor: 'hsl(var(--card))', borderColor: pastBookingDateFilter ? 'hsl(var(--primary))' : 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <select
+                    value={pastBookingTypeFilter}
+                    onChange={(e) => setPastBookingTypeFilter(e.target.value)}
+                    className="flex-1 text-xs px-2 py-2 rounded-lg border outline-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: pastBookingTypeFilter !== 'all' ? 'hsl(var(--primary))' : 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <option value="all">All Types</option>
+                    {bookingTypes.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Active filter summary */}
+                {(pastBookingDateFilter || pastBookingTypeFilter !== 'all' || pastBookingSearch) && (
+                  <div className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(var(--primary) / 0.08)' }}>
+                    <span className="text-xs font-medium" style={{ color: 'hsl(var(--primary))' }}>
+                      {filtered.length} result{filtered.length !== 1 ? 's' : ''} found
+                    </span>
+                    <button
+                      onClick={() => { setPastBookingDateFilter(''); setPastBookingTypeFilter('all'); setPastBookingSearch(''); }}
+                      className="text-xs font-medium flex items-center gap-1"
+                      style={{ color: 'hsl(var(--primary))' }}
+                    >
+                      <X size={11} /> Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Results */}
+              {filtered.length === 0 ? (
+                <div className="rounded-xl border p-10 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                  <History size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>No past bookings found</p>
+                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {completedOrders.length === 0 ? 'Completed bookings will appear here.' : 'Try adjusting your filters.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filtered.map((order) => {
+                    const isComplete = order.status === 'Booking Complete';
+                    const bookingType = (order as any).bookingType ?? (order as any).booking_type ?? 'Delivery';
+                    return (
+                      <div
+                        key={order.id}
+                        className="rounded-xl border overflow-hidden cursor-pointer transition-all hover:shadow-sm"
+                        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+                        onClick={() => setSelectedBookingDetail(order)}
+                      >
+                        <div className="p-4">
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
+                                <span
+                                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                  style={{
+                                    backgroundColor: isComplete ? 'hsl(142 69% 35% / 0.1)' : 'hsl(0 84% 60% / 0.1)',
+                                    color: isComplete ? 'hsl(142 69% 35%)' : 'hsl(0 84% 60%)',
+                                  }}
+                                >
+                                  {isComplete ? '✓ Complete' : '✕ Cancelled'}
+                                </span>
+                                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                                  {bookingType}
+                                </span>
+                              </div>
+                              <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{order.customer.name}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {order.deliveryAddress && (
+                                <a
+                                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-1.5 rounded-lg transition-colors hover:bg-secondary border"
+                                  style={{ borderColor: 'hsl(var(--border))' }}
+                                  title="Navigate with Google Maps"
+                                >
+                                  <Navigation size={13} style={{ color: 'hsl(var(--primary))' }} />
+                                </a>
+                              )}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSelectedBookingDetail(order); }}
+                                className="p-1.5 rounded-lg transition-colors hover:bg-secondary border"
+                                style={{ borderColor: 'hsl(var(--border))' }}
+                                title="View details"
+                              >
+                                <Info size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            <div className="flex items-center gap-1">
+                              <Calendar size={11} />
+                              {new Date(order.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </div>
+                            {order.deliveryAddress && (
+                              <div className="flex items-center gap-1 min-w-0">
+                                <MapPin size={11} className="shrink-0" />
+                                <span className="truncate">{order.deliveryAddress.postcode}</span>
+                              </div>
+                            )}
+                            {order.deliveryWindow && (
+                              <div className="flex items-center gap-1">
+                                <Clock size={11} />
+                                {order.deliveryWindow}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ── VEHICLE / SAFETY CHECKS SECTION ── */}
+        {activeSection === 'vehicle' && (
+          <SafetyCheckSection driverId={driver.id} />
+        )}
+
         {/* ── EARNINGS SECTION ── */}
         {activeSection === 'earnings' && (
           <div className="space-y-4">
@@ -1807,6 +2488,14 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
             driver={driver}
             onDriverUpdate={(updated) => setDriver(updated)}
             onLogout={onLogout}
+          />
+        )}
+
+        {/* Booking Detail Modal */}
+        {selectedBookingDetail && (
+          <BookingDetailModal
+            order={selectedBookingDetail}
+            onClose={() => setSelectedBookingDetail(null)}
           />
         )}
       </div>
