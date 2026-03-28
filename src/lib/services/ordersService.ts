@@ -30,6 +30,7 @@ export interface DbOrder {
   payment_notes: string | null;
   deposit_paid: number | null;
   amount_due: number | null;
+  delivery_charge: number | null;
   products: any[];
   pod: any | null;
   notes: string | null;
@@ -74,12 +75,17 @@ export interface AppOrder {
   payment: {
     status: string;
     method: string;
-    amount: number;
+    deliveryCharge: number;
+    orderTotal: number;
     depositPaid: number;
-    amountDue: number;
+    totalDue: number;
     recordedAt?: string;
     recordedBy?: string;
     notes?: string;
+    /** @deprecated use orderTotal */
+    amount: number;
+    /** @deprecated use totalDue */
+    amountDue: number;
   };
   products: any[];
   pod?: any;
@@ -102,6 +108,11 @@ export interface AppDriver {
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 export function mapDbOrderToApp(row: DbOrder): AppOrder {
+  const deliveryCharge = row.delivery_charge ?? 0;
+  const orderTotal = row.payment_amount ?? 0;
+  const depositPaid = row.deposit_paid ?? 0;
+  const totalDue = row.amount_due ?? Math.max(0, orderTotal - depositPaid);
+
   return {
     id: row.id,
     wooOrderId: row.woo_order_id,
@@ -130,9 +141,13 @@ export function mapDbOrderToApp(row: DbOrder): AppOrder {
     payment: {
       status: row.payment_status,
       method: row.payment_method,
-      amount: row.payment_amount,
-      depositPaid: row.deposit_paid ?? 0,
-      amountDue: row.amount_due ?? 0,
+      deliveryCharge,
+      orderTotal,
+      depositPaid,
+      totalDue,
+      // legacy aliases
+      amount: orderTotal,
+      amountDue: totalDue,
       recordedAt: row.payment_recorded_at ?? undefined,
       recordedBy: row.payment_recorded_by ?? undefined,
       notes: row.payment_notes ?? undefined,

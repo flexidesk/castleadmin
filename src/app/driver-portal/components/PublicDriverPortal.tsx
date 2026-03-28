@@ -286,10 +286,31 @@ function BookingDetailModal({ order, onClose }: BookingDetailModalProps) {
                   <span className="text-xs font-medium capitalize" style={{ color: 'hsl(var(--foreground))' }}>{order.payment.method}</span>
                 </div>
               )}
+              <div className="flex items-center justify-between border-t pt-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Charge</span>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
+                  £{Number(order.payment.deliveryCharge ?? 0).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Order Total</span>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
+                  £{Number(order.payment.orderTotal ?? order.payment.amount ?? 0).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Deposit Paid</span>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 35%)' }}>
+                  £{Number(order.payment.depositPaid ?? 0).toFixed(2)}
+                </span>
+              </div>
               <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
-                <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Order Total</span>
-                <span className="text-base font-bold" style={{ color: 'hsl(var(--primary))' }}>
-                  £{Number(order.payment.amount ?? 0).toFixed(2)}
+                <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Total Due</span>
+                <span
+                  className="text-base font-bold"
+                  style={{ color: Number(order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 35%)' }}
+                >
+                  £{Number(order.payment.totalDue ?? order.payment.amountDue ?? 0).toFixed(2)}
                 </span>
               </div>
               {order.payment.notes && (
@@ -1983,7 +2004,7 @@ function DriverDashboard({ driver: initialDriver, onLogout }: DashboardProps) {
             <button
               key={tab.key}
               onClick={() => setActiveSection(tab.key)}
-              className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all shrink-0"
+              className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-lg text-sm font-medium transition-all shrink-0"
               style={{
                 backgroundColor: activeSection === tab.key ? 'hsl(var(--card))' : 'transparent',
                 color: activeSection === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',

@@ -290,7 +290,7 @@ export default function OrdersTable() {
         `"${o.status}"`,
         `"${o.payment.status}"`,
         `"${o.payment.method}"`,
-        o.payment.amount.toFixed(2),
+        (o.payment.orderTotal ?? o.payment.amount ?? 0).toFixed(2),
         `"${o.driver?.name ?? 'Unassigned'}"`,
         `"${o.deliveryAddress?.line1 ?? ''}"`,
         `"${o.deliveryAddress?.postcode ?? ''}"`,
@@ -328,7 +328,7 @@ export default function OrdersTable() {
         <td>${o.bookingDate}</td>
         <td>${o.status}</td>
         <td>${o.payment.status}</td>
-        <td>£${o.payment.amount.toFixed(2)}</td>
+        <td>£${(o.payment.orderTotal ?? o.payment.amount ?? 0).toFixed(2)}</td>
         <td>${o.driver?.name ?? 'Unassigned'}</td>
         <td>${o.deliveryAddress?.postcode ?? '—'}</td>
       </tr>`).join('');
@@ -786,17 +786,17 @@ export default function OrdersTable() {
                   {/* Payment */}
                   <td className="px-4 py-3">
                     <PaymentBadge status={order.payment.status as any} method={order.payment.method as any} />
-                    <p className="text-xs font-mono mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>£{order.payment.amount.toFixed(2)}</p>
-                    {(order.payment.depositPaid > 0 || order.payment.amountDue > 0) && (
+                    <p className="text-xs font-mono mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>£{(order.payment.orderTotal ?? order.payment.amount ?? 0).toFixed(2)}</p>
+                    {((order.payment.depositPaid ?? 0) > 0 || (order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0) && (
                       <div className="flex flex-col gap-0.5 mt-0.5">
-                        {order.payment.depositPaid > 0 && (
+                        {(order.payment.depositPaid ?? 0) > 0 && (
                           <p className="text-[10px] font-mono" style={{ color: 'hsl(142 69% 30%)' }}>
-                            Dep: £{order.payment.depositPaid.toFixed(2)}
+                            Dep: £{(order.payment.depositPaid ?? 0).toFixed(2)}
                           </p>
                         )}
-                        {order.payment.amountDue > 0 && (
+                        {(order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0 && (
                           <p className="text-[10px] font-mono" style={{ color: 'hsl(var(--destructive))' }}>
-                            Due: £{order.payment.amountDue.toFixed(2)}
+                            Due: £{(order.payment.totalDue ?? order.payment.amountDue ?? 0).toFixed(2)}
                           </p>
                         )}
                       </div>

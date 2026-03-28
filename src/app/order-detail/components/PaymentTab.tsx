@@ -13,6 +13,8 @@ import {
   Lock,
   PiggyBank,
   Receipt,
+  Truck,
+  ShoppingCart,
 } from 'lucide-react';
 import { AppOrder as Order } from '@/lib/services/ordersService';
 import { PaymentBadge } from '@/components/ui/StatusBadge';
@@ -24,9 +26,10 @@ interface Props {
 
 interface PaymentFormData {
   method: 'Card' | 'Cash';
-  amount: string;
+  deliveryCharge: string;
+  orderTotal: string;
   depositPaid: string;
-  amountDue: string;
+  totalDue: string;
   notes: string;
 }
 
@@ -44,41 +47,46 @@ export default function PaymentTab({ order }: Props) {
   } = useForm<PaymentFormData>({
     defaultValues: {
       method: order.payment.method === 'Unrecorded' ? 'Cash' : (order.payment.method as 'Card' | 'Cash'),
-      amount: order.payment.amount.toFixed(2),
+      deliveryCharge: (order.payment.deliveryCharge ?? 0).toFixed(2),
+      orderTotal: (order.payment.orderTotal ?? order.payment.amount ?? 0).toFixed(2),
       depositPaid: (order.payment.depositPaid ?? 0).toFixed(2),
-      amountDue: (order.payment.amountDue ?? 0).toFixed(2),
+      totalDue: (order.payment.totalDue ?? order.payment.amountDue ?? 0).toFixed(2),
       notes: order.payment.notes || '',
     },
   });
 
   const selectedMethod = watch('method');
-  const watchedAmount = watch('amount');
+  const watchedDeliveryCharge = watch('deliveryCharge');
+  const watchedOrderTotal = watch('orderTotal');
   const watchedDeposit = watch('depositPaid');
 
-  // Auto-calculate amount due when total or deposit changes
-  const handleAmountChange = (field: 'amount' | 'depositPaid', value: string) => {
-    const total = field === 'amount' ? parseFloat(value) || 0 : parseFloat(watchedAmount) || 0;
+  // Auto-calculate total due when relevant fields change
+  const recalcTotalDue = (field: 'deliveryCharge' | 'orderTotal' | 'depositPaid', value: string) => {
+    const deliveryCharge = field === 'deliveryCharge' ? parseFloat(value) || 0 : parseFloat(watchedDeliveryCharge) || 0;
+    const orderTotal = field === 'orderTotal' ? parseFloat(value) || 0 : parseFloat(watchedOrderTotal) || 0;
     const deposit = field === 'depositPaid' ? parseFloat(value) || 0 : parseFloat(watchedDeposit) || 0;
-    const due = Math.max(0, total - deposit);
-    setValue('amountDue', due.toFixed(2));
+    const due = Math.max(0, orderTotal - deposit);
+    setValue('totalDue', due.toFixed(2));
   };
 
   const onSubmit = async (data: PaymentFormData) => {
     setIsSaving(true);
     try {
       const supabase = createClient();
+      const deliveryChargeVal = parseFloat(data.deliveryCharge) || 0;
+      const orderTotalVal = parseFloat(data.orderTotal) || 0;
       const depositPaidVal = parseFloat(data.depositPaid) || 0;
-      const amountDueVal = parseFloat(data.amountDue) || 0;
+      const totalDueVal = parseFloat(data.totalDue) || 0;
 
-      // Update payment on the order
       const { error: orderError } = await supabase
         .from('orders')
         .update({
           payment_status: 'Paid',
           payment_method: data.method,
-          payment_amount: parseFloat(data.amount),
+          delivery_charge: deliveryChargeVal,
+          payment_amount: orderTotalVal,
           deposit_paid: depositPaidVal,
-          amount_due: amountDueVal,
+          amount_due: totalDueVal,
           payment_notes: data.notes || null,
           payment_recorded_at: new Date().toISOString(),
           payment_recorded_by: 'Admin',
@@ -94,7 +102,7 @@ export default function PaymentTab({ order }: Props) {
           .insert({
             driver_id: order.driver.id,
             order_id: order.id,
-            amount: parseFloat(data.amount),
+            amount: orderTotalVal,
             notes: data.notes || null,
             allocated_at: new Date().toISOString(),
           });
@@ -103,16 +111,20 @@ export default function PaymentTab({ order }: Props) {
           console.warn('Cash allocation failed:', cashError.message);
           toast.warning('Payment recorded but cash allocation to driver failed');
         } else {
-          toast.success(`£${parseFloat(data.amount).toFixed(2)} cash allocated to ${order.driver.name}'s pot`);
+          toast.success(`£${orderTotalVal.toFixed(2)} cash allocated to ${order.driver.name}'s pot`);
         }
       }
 
       setSavedPayment({
+        ...savedPayment,
         status: 'Paid',
         method: data.method,
-        amount: parseFloat(data.amount),
+        deliveryCharge: deliveryChargeVal,
+        orderTotal: orderTotalVal,
         depositPaid: depositPaidVal,
-        amountDue: amountDueVal,
+        totalDue: totalDueVal,
+        amount: orderTotalVal,
+        amountDue: totalDueVal,
         notes: data.notes,
         recordedAt: new Date().toISOString(),
         recordedBy: 'Admin',
@@ -154,35 +166,36 @@ export default function PaymentTab({ order }: Props) {
           <div className="flex items-center gap-2 mb-1">
             <PaymentBadge status={savedPayment.status} method={savedPayment.method} />
           </div>
-          <p className="text-2xl font-bold tabular-nums mt-1">
-            £{savedPayment.amount.toFixed(2)}
-          </p>
-          {/* Deposit & Amount Due summary row */}
-          <div className="flex items-center gap-4 mt-2">
+          {/* Payment summary row */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 mt-2">
             <div className="flex items-center gap-1.5">
-              <PiggyBank size={13} style={{ color: 'hsl(142 69% 35%)' }} />
-              <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Deposit Paid:
-              </span>
-              <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 30%)' }}>
-                £{(savedPayment.depositPaid ?? 0).toFixed(2)}
-              </span>
+              <Truck size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Charge:</span>
+              <span className="text-xs font-semibold tabular-nums">£{(savedPayment.deliveryCharge ?? 0).toFixed(2)}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Receipt size={13} style={{ color: (savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 35%)' }} />
-              <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Amount Due:
-              </span>
+              <ShoppingCart size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Order Total:</span>
+              <span className="text-xs font-semibold tabular-nums">£{(savedPayment.orderTotal ?? savedPayment.amount ?? 0).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <PiggyBank size={12} style={{ color: 'hsl(142 69% 35%)' }} />
+              <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Deposit Paid:</span>
+              <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 30%)' }}>£{(savedPayment.depositPaid ?? 0).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Receipt size={12} style={{ color: (savedPayment.totalDue ?? savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 35%)' }} />
+              <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Due:</span>
               <span
                 className="text-xs font-semibold tabular-nums"
-                style={{ color: (savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 30%)' }}
+                style={{ color: (savedPayment.totalDue ?? savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 30%)' }}
               >
-                £{(savedPayment.amountDue ?? 0).toFixed(2)}
+                £{(savedPayment.totalDue ?? savedPayment.amountDue ?? 0).toFixed(2)}
               </span>
             </div>
           </div>
           {savedPayment.status === 'Paid' && savedPayment.recordedAt && (
-            <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
               Recorded by {savedPayment.recordedBy} on{' '}
               {new Date(savedPayment.recordedAt).toLocaleDateString('en-GB', {
                 day: '2-digit',
@@ -284,34 +297,64 @@ export default function PaymentTab({ order }: Props) {
             </div>
           </div>
 
-          {/* Total Amount */}
-          <div>
-            <label htmlFor="amount" className="label">
-              Total Amount (£)
-            </label>
-            <p className="helper-text">Enter the total order amount</p>
-            <div className="relative mt-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                £
-              </span>
-              <input
-                id="amount"
-                type="number"
-                step="0.01"
-                min="0"
-                className={`input-base pl-8 font-mono ${errors.amount ? 'input-error' : ''}`}
-                {...register('amount', {
-                  required: 'Amount is required',
-                  min: { value: 0.01, message: 'Amount must be greater than £0' },
-                  validate: (v) => !isNaN(parseFloat(v)) || 'Must be a valid amount',
-                  onChange: (e) => handleAmountChange('amount', e.target.value),
-                })}
-              />
+          {/* Delivery Charge & Order Total — side by side */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Delivery Charge */}
+            <div>
+              <label htmlFor="deliveryCharge" className="label flex items-center gap-1.5">
+                <Truck size={13} style={{ color: 'hsl(var(--primary))' }} />
+                Delivery Charge (£)
+              </label>
+              <p className="helper-text">Charge for delivery service</p>
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="deliveryCharge"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={`input-base pl-8 font-mono ${errors.deliveryCharge ? 'input-error' : ''}`}
+                  {...register('deliveryCharge', {
+                    min: { value: 0, message: 'Cannot be negative' },
+                    onChange: (e) => recalcTotalDue('deliveryCharge', e.target.value),
+                  })}
+                />
+              </div>
+              {errors.deliveryCharge && <p className="error-text">{errors.deliveryCharge.message}</p>}
             </div>
-            {errors.amount && <p className="error-text">{errors.amount.message}</p>}
+
+            {/* Order Total */}
+            <div>
+              <label htmlFor="orderTotal" className="label flex items-center gap-1.5">
+                <ShoppingCart size={13} style={{ color: 'hsl(var(--primary))' }} />
+                Order Total (£)
+              </label>
+              <p className="helper-text">Total value of the order</p>
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="orderTotal"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={`input-base pl-8 font-mono ${errors.orderTotal ? 'input-error' : ''}`}
+                  {...register('orderTotal', {
+                    required: 'Order total is required',
+                    min: { value: 0.01, message: 'Amount must be greater than £0' },
+                    validate: (v) => !isNaN(parseFloat(v)) || 'Must be a valid amount',
+                    onChange: (e) => recalcTotalDue('orderTotal', e.target.value),
+                  })}
+                />
+              </div>
+              {errors.orderTotal && <p className="error-text">{errors.orderTotal.message}</p>}
+            </div>
           </div>
 
-          {/* Deposit Paid & Amount Due — side by side */}
+          {/* Deposit Paid & Total Due — side by side */}
           <div className="grid grid-cols-2 gap-4">
             {/* Deposit Paid */}
             <div>
@@ -332,18 +375,18 @@ export default function PaymentTab({ order }: Props) {
                   className="input-base pl-8 font-mono"
                   {...register('depositPaid', {
                     min: { value: 0, message: 'Cannot be negative' },
-                    onChange: (e) => handleAmountChange('depositPaid', e.target.value),
+                    onChange: (e) => recalcTotalDue('depositPaid', e.target.value),
                   })}
                 />
               </div>
               {errors.depositPaid && <p className="error-text">{errors.depositPaid.message}</p>}
             </div>
 
-            {/* Amount Due */}
+            {/* Total Due */}
             <div>
-              <label htmlFor="amountDue" className="label flex items-center gap-1.5">
+              <label htmlFor="totalDue" className="label flex items-center gap-1.5">
                 <Receipt size={13} style={{ color: 'hsl(var(--destructive))' }} />
-                Amount Due (£)
+                Total Due (£)
               </label>
               <p className="helper-text">Remaining balance to collect</p>
               <div className="relative mt-1">
@@ -351,17 +394,17 @@ export default function PaymentTab({ order }: Props) {
                   £
                 </span>
                 <input
-                  id="amountDue"
+                  id="totalDue"
                   type="number"
                   step="0.01"
                   min="0"
                   className="input-base pl-8 font-mono"
-                  {...register('amountDue', {
+                  {...register('totalDue', {
                     min: { value: 0, message: 'Cannot be negative' },
                   })}
                 />
               </div>
-              {errors.amountDue && <p className="error-text">{errors.amountDue.message}</p>}
+              {errors.totalDue && <p className="error-text">{errors.totalDue.message}</p>}
               <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
                 Auto-calculated from total − deposit
               </p>
@@ -410,12 +453,13 @@ export default function PaymentTab({ order }: Props) {
             <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
               {[
                 { label: 'Method', value: savedPayment.method },
-                { label: 'Total Amount', value: `£${savedPayment.amount.toFixed(2)}` },
+                { label: 'Delivery Charge', value: `£${(savedPayment.deliveryCharge ?? 0).toFixed(2)}` },
+                { label: 'Order Total', value: `£${(savedPayment.orderTotal ?? savedPayment.amount ?? 0).toFixed(2)}` },
                 { label: 'Deposit Paid', value: `£${(savedPayment.depositPaid ?? 0).toFixed(2)}` },
                 {
-                  label: 'Amount Due',
-                  value: `£${(savedPayment.amountDue ?? 0).toFixed(2)}`,
-                  highlight: (savedPayment.amountDue ?? 0) > 0,
+                  label: 'Total Due',
+                  value: `£${(savedPayment.totalDue ?? savedPayment.amountDue ?? 0).toFixed(2)}`,
+                  highlight: (savedPayment.totalDue ?? savedPayment.amountDue ?? 0) > 0,
                 },
                 {
                   label: 'Recorded At',
