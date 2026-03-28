@@ -27,6 +27,7 @@ interface FleetConfig {
   map_default_postcode?: string;
   app_logo_url?: string | null;
   app_favicon_url?: string | null;
+  delivery_fee_enabled?: boolean;
 }
 
 interface NotificationPrefs {
@@ -221,6 +222,7 @@ const DEFAULT_FLEET: FleetConfig = {
   auto_zone_allocation: false,
   map_default_zone_id: null,
   map_default_postcode: '',
+  delivery_fee_enabled: true,
 };
 
 const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
@@ -541,6 +543,7 @@ export default function SettingsContent() {
           company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
           map_default_zone_id: fleet.map_default_zone_id ?? null,
           map_default_postcode: fleet.map_default_postcode ?? '',
+          delivery_fee_enabled: fleet.delivery_fee_enabled ?? true,
           updated_at: new Date().toISOString(),
         }).eq('id', fleet.id);
         if (error) throw error;
@@ -1433,46 +1436,56 @@ export default function SettingsContent() {
 
           {/* Delivery Fee Structure */}
           <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Fee Structure</h2>
-            <div className="flex gap-3 mb-4">
-              {['flat', 'per_km', 'tiered'].map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setFleet((f) => ({ ...f, fee_structure: type }))}
-                  className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
-                    fleet.fee_structure === type ? 'border-primary' : ''
-                  }`}
-                  style={fleet.fee_structure === type ? {
-                    backgroundColor: 'hsl(var(--primary) / 0.1)',
-                    borderColor: 'hsl(var(--primary))',
-                    color: 'hsl(var(--primary))',
-                  } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                >
-                  {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per Mile' : 'Tiered'}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Fee Structure</h2>
+              <Toggle
+                checked={fleet.delivery_fee_enabled ?? true}
+                onChange={(v) => setFleet((f) => ({ ...f, delivery_fee_enabled: v }))}
+              />
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { key: 'base_delivery_fee', label: 'Base Fee (£)' },
-                { key: 'per_km_fee', label: 'Per Mile Fee (£)' },
-                { key: 'min_delivery_fee', label: 'Min Fee (£)' },
-                { key: 'max_delivery_fee', label: 'Max Fee (£)' },
-              ].map(({ key, label }) => (
-                <div key={key}>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={(fleet as any)[key] ?? 0}
-                    onChange={(e) => setFleet((f) => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                  />
+            {(fleet.delivery_fee_enabled ?? true) && (
+              <>
+                <div className="flex gap-3 mb-4">
+                  {['flat', 'per_km', 'tiered'].map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setFleet((f) => ({ ...f, fee_structure: type }))}
+                      className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        fleet.fee_structure === type ? 'border-primary' : ''
+                      }`}
+                      style={fleet.fee_structure === type ? {
+                        backgroundColor: 'hsl(var(--primary) / 0.1)',
+                        borderColor: 'hsl(var(--primary))',
+                        color: 'hsl(var(--primary))',
+                      } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                    >
+                      {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per Mile' : 'Tiered'}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { key: 'base_delivery_fee', label: 'Base Fee (£)' },
+                    { key: 'per_km_fee', label: 'Per Mile Fee (£)' },
+                    { key: 'min_delivery_fee', label: 'Min Fee (£)' },
+                    { key: 'max_delivery_fee', label: 'Max Fee (£)' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={(fleet as any)[key] ?? 0}
+                        onChange={(e) => setFleet((f) => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Auto Zone Allocation */}
