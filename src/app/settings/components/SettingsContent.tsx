@@ -471,6 +471,12 @@ export default function SettingsContent() {
   const [dbTableExporting, setDbTableExporting] = useState<string | null>(null);
   const [dbExportFormat, setDbExportFormat] = useState<'json' | 'csv'>('json');
 
+  // Import backup
+  const [importingBackup, setImportingBackup] = useState(false);
+  const [importBackupFile, setImportBackupFile] = useState<File | null>(null);
+  const [importBackupResult, setImportBackupResult] = useState<{ success: number; failed: number; tables: string[] } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
   // Terms of Hire
   const [termsOfHire, setTermsOfHire] = useState('');
   const [termsOfHireId, setTermsOfHireId] = useState<string | null>(null);
@@ -890,7 +896,7 @@ export default function SettingsContent() {
       }
       toast.success('Company profile saved');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to save company profile: ${msg}`);
     } finally {
       setSaving(false);
@@ -2028,7 +2034,7 @@ export default function SettingsContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${integration.status === 'connected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{integration.status}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${integration.status === 'connected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{integration.status}</span>
                       <Toggle checked={integration.is_enabled} onChange={(v) => toggleIntegration(integration.id, v)} />
                       <button onClick={() => { setEditingIntegration(integration.id === editingIntegration ? null : integration.id); setIntegrationApiKey(integration.api_key ?? ''); setIntegrationWebhook(integration.webhook_url ?? ''); }} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Configure</button>
                     </div>
@@ -2496,6 +2502,107 @@ export default function SettingsContent() {
                 Exports contain a snapshot of your data at the time of download. Sensitive fields such as API keys and passwords are included — store backup files securely. For scheduled automated backups, configure Supabase Point-in-Time Recovery (PITR) in your Supabase project dashboard.
               </p>
             </div>
+          </div>
+
+          {/* ── Import Backup ──────────────────────────────────────────────────────── */}
+          <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Upload size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Import Backup</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Restore data from a previously exported JSON backup file. Existing records with matching IDs will be updated; new records will be inserted. This operation cannot be undone.
+            </p>
+
+            {/* File picker */}
+            <div className="flex items-center gap-3 flex-wrap pt-1">
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setImportBackupFile(file);
+                  setImportBackupResult(null);
+                }}
+              />
+              <button
+                onClick={() => importFileRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+              >
+                <Upload size={14} />
+                {importBackupFile ? importBackupFile.name : 'Choose Backup File (.json)'}
+              </button>
+
+              {importBackupFile && (
+                <button
+                  onClick={async () => {
+                    if (!importBackupFile) return;
+                    setImportingBackup(true);
+                    setImportBackupResult(null);
+                    try {
+                      const text = await importBackupFile.text();
+                      const data = JSON.parse(text) as Record<string, unknown[]>;
+                      const supabaseClient = createClient();
+                      const tables = Object.keys(data);
+                      let success = 0;
+                      let failed = 0;
+                      const restoredTables: string[] = [];
+
+                      for (const table of tables) {
+                        const rows = data[table];
+                        if (!Array.isArray(rows) || rows.length === 0) continue;
+                        const { error } = await supabaseClient
+                          .from(table)
+                          .upsert(rows as Record<string, unknown>[], { onConflict: 'id' });
+                        if (error) {
+                          failed += rows.length;
+                        } else {
+                          success += rows.length;
+                          restoredTables.push(table);
+                        }
+                      }
+
+                      setImportBackupResult({ success, failed, tables: restoredTables });
+                      if (failed === 0) {
+                        toast.success(`Backup restored: ${success} records across ${restoredTables.length} table(s)`);
+                      } else {
+                        toast.warning(`Restored ${success} records; ${failed} failed`);
+                      }
+                      setImportBackupFile(null);
+                      if (importFileRef.current) importFileRef.current.value = '';
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : 'Import failed';
+                      toast.error(`Import failed: ${msg}`);
+                    } finally {
+                      setImportingBackup(false);
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
+                >
+                  {importingBackup ? (
+                    <><RefreshCw size={14} className="animate-spin" /> Importing…</>
+                  ) : (
+                    <><Upload size={14} /> Restore Backup</>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Result summary */}
+            {importBackupResult && (
+              <div className="rounded-lg p-3 text-xs space-y-1" style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--foreground))' }}>
+                <p className="font-semibold">Restore complete</p>
+                <p>✅ {importBackupResult.success} records restored across: {importBackupResult.tables.join(', ') || '—'}</p>
+                {importBackupResult.failed > 0 && (
+                  <p className="text-red-500">⚠️ {importBackupResult.failed} records failed to import</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
