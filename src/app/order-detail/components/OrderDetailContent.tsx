@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, ChevronRight, Edit3, Trash2, CheckCircle2, Truck, Clock, Circle,
   Package, CreditCard, FileImage, Calendar, AlertTriangle, RefreshCw, ExternalLink, ChevronDown,
-  Search,
+  Search, Save, X,
 } from 'lucide-react';
 import { StatusBadge, TypeBadge } from '@/components/ui/StatusBadge';
 import type { BookingStatus } from '@/components/ui/StatusBadge';
@@ -42,6 +42,13 @@ const STATUS_LABELS: Record<BookingStatus, string> = {
   'Booking Out For Delivery': 'In Transit',
   'Booking Complete': 'Complete',
 };
+
+const ALL_STATUSES: BookingStatus[] = [
+  'Booking Accepted',
+  'Booking Assigned',
+  'Booking Out For Delivery',
+  'Booking Complete',
+];
 
 interface Props {
   orderId: string | null;
@@ -185,6 +192,27 @@ export default function OrderDetailContent({ orderId }: Props) {
   const [podModalOpen, setPodModalOpen] = useState(false);
   const [wcActive, setWcActive] = useState(false);
 
+  // Edit modal state
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    customerName: '',
+    customerEmail: '',
+    customerPhone: '',
+    bookingType: 'Delivery\' as \'Delivery\' | \'Collection',
+    status: '',
+    bookingDate: '',
+    deliveryWindow: '',
+    collectionWindow: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    county: '',
+    postcode: '',
+    deliveryNotes: '',
+    notes: '',
+  });
+
   // Check if WooCommerce is configured and connected
   useEffect(() => {
     const supabase = createClient();
@@ -318,6 +346,58 @@ export default function OrderDetailContent({ orderId }: Props) {
   // ── Derived values ───────────────────────────────────────────────────────────
   const currentStatus = (order?.status ?? 'Booking Accepted') as BookingStatus;
   const currentStatusIndex = STATUS_FLOW.indexOf(currentStatus);
+
+  const openEditModal = () => {
+    if (!order) return;
+    setEditForm({
+      customerName: order.customer.name,
+      customerEmail: order.customer.email,
+      customerPhone: order.customer.phone ?? '',
+      bookingType: order.type,
+      status: order.status,
+      bookingDate: order.bookingDate ? order.bookingDate.slice(0, 10) : '',
+      deliveryWindow: order.deliveryWindow ?? '',
+      collectionWindow: order.collectionWindow ?? '',
+      addressLine1: order.deliveryAddress?.line1 ?? '',
+      addressLine2: order.deliveryAddress?.line2 ?? '',
+      city: order.deliveryAddress?.city ?? '',
+      county: order.deliveryAddress?.county ?? '',
+      postcode: order.deliveryAddress?.postcode ?? '',
+      deliveryNotes: order.deliveryAddress?.notes ?? '',
+      notes: order.notes ?? '',
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!order) return;
+    setIsSavingEdit(true);
+    const ok = await ordersService.updateOrder(order.id, {
+      customerName: editForm.customerName,
+      customerEmail: editForm.customerEmail,
+      customerPhone: editForm.customerPhone,
+      bookingType: editForm.bookingType,
+      status: editForm.status,
+      bookingDate: editForm.bookingDate,
+      deliveryWindow: editForm.deliveryWindow,
+      collectionWindow: editForm.collectionWindow,
+      addressLine1: editForm.addressLine1,
+      addressLine2: editForm.addressLine2,
+      city: editForm.city,
+      county: editForm.county,
+      postcode: editForm.postcode,
+      deliveryNotes: editForm.deliveryNotes,
+      notes: editForm.notes,
+    });
+    setIsSavingEdit(false);
+    if (ok) {
+      toast.success('Booking updated successfully');
+      setEditModalOpen(false);
+      loadOrder();
+    } else {
+      toast.error('Failed to save changes. Please try again.');
+    }
+  };
 
   const handleAdvanceStatus = () => {
     if (currentStatusIndex < STATUS_FLOW.length - 1) {
@@ -548,7 +628,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                 )}
                 <button
                   className="btn-secondary text-sm"
-                  onClick={() => toast.info('Edit mode — coming soon')}
+                  onClick={openEditModal}
                 >
                   <Edit3 size={14} />
                   Edit Booking
@@ -594,7 +674,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                   <button
                     className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
                     style={{ minHeight: '44px' }}
-                    onClick={() => toast.info('Edit mode — coming soon')}
+                    onClick={openEditModal}
                   >
                     <Edit3 size={14} />
                     Edit
@@ -765,6 +845,247 @@ export default function OrderDetailContent({ orderId }: Props) {
           {activeTab === 'pod' && <ProofOfDeliveryTab order={order} />}
         </div>
       </div>
+
+      {/* Edit Booking Modal */}
+      {order && (
+        <Modal
+          open={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          title={`Edit Booking ${order.id}`}
+          size="lg"
+        >
+          <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Status */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Status
+              </label>
+              <select
+                value={editForm.status}
+                onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+              >
+                {ALL_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+                {!ALL_STATUSES.includes(editForm.status as BookingStatus) && (
+                  <option value={editForm.status}>{editForm.status}</option>
+                )}
+              </select>
+            </div>
+
+            {/* Customer Info */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Customer Information
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Full Name</label>
+                  <input
+                    type="text"
+                    value={editForm.customerName}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Phone</label>
+                  <input
+                    type="text"
+                    value={editForm.customerPhone}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Email</label>
+                  <input
+                    type="email"
+                    value={editForm.customerEmail}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerEmail: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Booking Details */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Booking Details
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Type</label>
+                  <select
+                    value={editForm.bookingType}
+                    onChange={(e) => setEditForm((f) => ({ ...f, bookingType: e.target.value as 'Delivery' | 'Collection' }))}
+                    className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <option value="Delivery">Delivery</option>
+                    <option value="Collection">Collection</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Date</label>
+                  <input
+                    type="date"
+                    value={editForm.bookingDate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, bookingDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Window</label>
+                  <input
+                    type="text"
+                    value={editForm.deliveryWindow}
+                    onChange={(e) => setEditForm((f) => ({ ...f, deliveryWindow: e.target.value }))}
+                    placeholder="e.g. 09:00 - 12:00"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Collection Window</label>
+                  <input
+                    type="text"
+                    value={editForm.collectionWindow}
+                    onChange={(e) => setEditForm((f) => ({ ...f, collectionWindow: e.target.value }))}
+                    placeholder="e.g. 08:00 - 09:00"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Delivery Address */}
+            {editForm.bookingType === 'Delivery' && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Delivery Address
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Address Line 1</label>
+                    <input
+                      type="text"
+                      value={editForm.addressLine1}
+                      onChange={(e) => setEditForm((f) => ({ ...f, addressLine1: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Address Line 2</label>
+                    <input
+                      type="text"
+                      value={editForm.addressLine2}
+                      onChange={(e) => setEditForm((f) => ({ ...f, addressLine2: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>City</label>
+                    <input
+                      type="text"
+                      value={editForm.city}
+                      onChange={(e) => setEditForm((f) => ({ ...f, city: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>County</label>
+                    <input
+                      type="text"
+                      value={editForm.county}
+                      onChange={(e) => setEditForm((f) => ({ ...f, county: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Postcode</label>
+                    <input
+                      type="text"
+                      value={editForm.postcode}
+                      onChange={(e) => setEditForm((f) => ({ ...f, postcode: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Notes</label>
+                    <input
+                      type="text"
+                      value={editForm.deliveryNotes}
+                      onChange={(e) => setEditForm((f) => ({ ...f, deliveryNotes: e.target.value }))}
+                      placeholder="Access instructions, etc."
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Internal Notes */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Internal Notes
+              </label>
+              <textarea
+                value={editForm.notes}
+                onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                rows={3}
+                placeholder="Add internal notes about this booking..."
+                className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors resize-none"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end mt-5 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+            <button
+              className="btn-secondary touch-manipulation"
+              style={{ minHeight: '44px' }}
+              onClick={() => setEditModalOpen(false)}
+              disabled={isSavingEdit}
+            >
+              <X size={14} />
+              Cancel
+            </button>
+            <button
+              className="btn-primary touch-manipulation"
+              style={{ minHeight: '44px' }}
+              onClick={handleSaveEdit}
+              disabled={isSavingEdit}
+            >
+              {isSavingEdit ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Save Changes
+                </>
+              )}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* POD Modal — intercepts Mark as Complete */}
       {order && (

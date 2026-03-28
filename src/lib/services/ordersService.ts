@@ -256,6 +256,53 @@ export const ordersService = {
     return true;
   },
 
+  async updateOrder(
+    id: string,
+    payload: {
+      customerName?: string;
+      customerEmail?: string;
+      customerPhone?: string;
+      bookingType?: 'Delivery' | 'Collection';
+      status?: string;
+      bookingDate?: string;
+      deliveryWindow?: string;
+      collectionWindow?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      county?: string;
+      postcode?: string;
+      deliveryNotes?: string;
+      notes?: string;
+    }
+  ): Promise<boolean> {
+    const supabase = createClient();
+    const update: Record<string, any> = { updated_at: new Date().toISOString() };
+
+    if (payload.customerName !== undefined) update.customer_name = payload.customerName;
+    if (payload.customerEmail !== undefined) update.customer_email = payload.customerEmail;
+    if (payload.customerPhone !== undefined) update.customer_phone = payload.customerPhone;
+    if (payload.bookingType !== undefined) update.booking_type = payload.bookingType;
+    if (payload.status !== undefined) update.status = payload.status;
+    if (payload.bookingDate !== undefined) update.booking_date = payload.bookingDate;
+    if (payload.deliveryWindow !== undefined) update.delivery_window = payload.deliveryWindow;
+    if (payload.collectionWindow !== undefined) update.collection_window = payload.collectionWindow || null;
+    if (payload.addressLine1 !== undefined) update.delivery_address_line1 = payload.addressLine1 || null;
+    if (payload.addressLine2 !== undefined) update.delivery_address_line2 = payload.addressLine2 || null;
+    if (payload.city !== undefined) update.delivery_address_city = payload.city || null;
+    if (payload.county !== undefined) update.delivery_address_county = payload.county || null;
+    if (payload.postcode !== undefined) update.delivery_address_postcode = payload.postcode || null;
+    if (payload.deliveryNotes !== undefined) update.delivery_address_notes = payload.deliveryNotes || null;
+    if (payload.notes !== undefined) update.notes = payload.notes || null;
+
+    const { error } = await supabase.from('orders').update(update).eq('id', id);
+    if (error) {
+      console.error('updateOrder error:', error.message);
+      return false;
+    }
+    return true;
+  },
+
   async createOrder(payload: {
     id: string;
     wooOrderId: string;
