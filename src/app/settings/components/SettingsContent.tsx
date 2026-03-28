@@ -596,6 +596,48 @@ export default function SettingsContent() {
     }
   };
 
+  // ─── Reset App Data ──────────────────────────────────────────────────────────
+
+  const resetAppData = async () => {
+    setResetting(true);
+    try {
+      const tables = [
+        'orders',
+        'drivers',
+        'user_roles',
+        'vehicles',
+        'vehicle_inspections',
+        'vehicle_incidents',
+        'customers',
+        'activity_logs',
+        'notifications',
+        'alert_history',
+        'driver_locations',
+        'driver_shifts',
+        'driver_earnings',
+        'driver_payments',
+        'cash_management',
+        'sms_alert_logs',
+        'woocommerce_webhook_log',
+        'woocommerce_sync_log',
+        'webhook_event_logs',
+      ];
+
+      for (const table of tables) {
+        await supabase.from(table as any).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      }
+
+      setShowResetModal(false);
+      setResetConfirmText('');
+      toast.success('App data has been reset successfully');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to reset app data: ${msg}`);
+    } finally {
+      setResetting(false);
+    }
+  };
+
   // ─── Save Notification Prefs ─────────────────────────────────────────────────
 
   const saveNotifPrefs = async () => {
