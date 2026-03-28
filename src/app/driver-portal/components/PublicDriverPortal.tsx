@@ -934,15 +934,21 @@ function ClockInOutCard({
 }) {
   const supabase = createClient();
   const [activeShift, setActiveShift] = useState<ActiveShift | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingShift, setLoadingShift] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [elapsed, setElapsed] = useState('');
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [endNotes, setEndNotes] = useState('');
   const [deliveriesCount, setDeliveriesCount] = useState('0');
+  const [showPayTypeModal, setShowPayTypeModal] = useState(false);
+  const [payType, setPayType] = useState<'hourly' | 'fixed' | 'per_delivery'>('hourly');
+  const [shiftType, setShiftType] = useState<'regular' | 'overtime'>('regular');
+  const [hourlyRate, setHourlyRate] = useState('');
+  const [fixedAmount, setFixedAmount] = useState('');
+  const [perDeliveryRate, setPerDeliveryRate] = useState('');
 
   const loadActiveShift = useCallback(async () => {
-    setLoading(true);
+    setLoadingShift(true);
     try {
       const { data } = await supabase
         .from('driver_shifts')
@@ -956,11 +962,452 @@ function ClockInOutCard({
     } catch {
       // silent
     } finally {
-      setLoading(false);
+      setLoadingShift(false);
     }
-  }, [driverId]);
+  }, [driverId, supabase]);
 
   useEffect(() => { loadActiveShift(); }, [loadActiveShift]);
+
+  // Elapsed timer
+  useEffect(() => {
+    if (!activeShift) { setElapsed(''); return; }
+    const update = () => {
+      const ms = Date.now() - new Date(activeShift.clock_in).getTime();
+      const totalMins = Math.floor(ms / 60000) - (activeShift.break_minutes || 0);
+      const h = Math.floor(Math.max(0, totalMins) / 60);
+      const m = Math.max(0, totalMins) % 60;
+      setElapsed(`${h}h ${m.toString().padStart(2, '0')}m`);
+    };
+    update();
+    const id = setInterval(update, 60000);
+    return () => clearInterval(id);
+  }, [activeShift]);
+
+  const handleClockIn = async () => {
+    setProcessing(true);
+    try {
+      const { error } = await supabase.from('driver_shifts').insert({
+        driver_id: driverId,
+        clock_in: new Date().toISOString(),
+        pay_type: payType,
+        shift_type: shiftType,
+        hourly_rate: payType === 'hourly' ? Number(hourlyRate) || null : null,
+        fixed_amount: payType === 'fixed' ? Number(fixedAmount) || null : null,
+        per_delivery_rate: payType === 'per_delivery' ? Number(perDeliveryRate) || null : null,
+        break_minutes: 0,
+        status: 'active',
+      });
+      if (error) throw error;
+      toast.success('Clocked in successfully!');
+      setShowPayTypeModal(false);
+      await loadActiveShift();
+      onShiftChange();
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to clock in');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleClockOut = async () => {
+    if (!activeShift) return;
+    setProcessing(true);
+    try {
+      const clockIn = new Date(activeShift.clock_in);
+      const clockOut = new Date();
+      const durationMs = clockOut.getTime() - clockIn.getTime();
+      const durationHrs = Math.max(0, durationMs / 3600000 - (activeShift.break_minutes || 0) / 60);
+      let grossPay: number | null = null;
+      const { data: shiftFull } = await supabase
+        .from('driver_shifts')
+        .select('hourly_rate, fixed_amount, per_delivery_rate')
+        .eq('id', activeShift.id)
+        .single();
+      if (shiftFull) {
+        if (activeShift.pay_type === 'hourly' && shiftFull.hourly_rate) {
+          grossPay = durationHrs * Number(shiftFull.hourly_rate);
+        } else if (activeShift.pay_type === 'fixed' && shiftFull.fixed_amount) {
+          grossPay = Number(shiftFull.fixed_amount);
+        } else if (activeShift.pay_type === 'per_delivery' && shiftFull.per_delivery_rate) {
+          grossPay = Number(deliveriesCount || 0) * Number(shiftFull.per_delivery_rate);
+        }
+      }
+      const { error } = await supabase.from('driver_shifts').update({
+        clock_out: clockOut.toISOString(),
+        deliveries_completed: Number(deliveriesCount) || 0,
+        notes: endNotes || null,
+        gross_pay: grossPay,
+        status: 'completed',
+      }).eq('id', activeShift.id);
+      if (error) throw error;
+      toast.success('Clocked out successfully!');
+      setShowNotesModal(false);
+      setEndNotes('');
+      setDeliveriesCount('0');
+      await loadActiveShift();
+      onShiftChange();
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to clock out');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  if (loadingShift) {
+    return (
+      <div className="rounded-xl border p-4 animate-pulse" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <div className="h-4 rounded w-1/3 mb-2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+        <div className="h-8 rounded w-full" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Timer size={15} style={{ color: 'hsl(var(--primary))' }} />
+          <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Shift Tracker</span>
+        </div>
+        {activeShift && elapsed && (
+          <span className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>{elapsed}</span>
+        )}
+      </div>
+
+      {activeShift ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)' }}>
+            <CheckCircle2 size={14} style={{ color: 'hsl(142 69% 35%)' }} />
+            <span className="text-xs font-medium" style={{ color: 'hsl(142 69% 35%)' }}>
+              On shift since {new Date(activeShift.clock_in).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowNotesModal(true)}
+            disabled={processing}
+            className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2"
+            style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white', opacity: processing ? 0.7 : 1 }}
+          >
+            {processing ? <Loader2 size={14} className="animate-spin" /> : <Timer size={14} />}
+            Clock Out
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowPayTypeModal(true)}
+          disabled={processing}
+          className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2"
+          style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: processing ? 0.7 : 1 }}
+        >
+          {processing ? <Loader2 size={14} className="animate-spin" /> : <Timer size={14} />}
+          Clock In
+        </button>
+      )}
+
+      {/* Clock Out Modal */}
+      {showNotesModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full sm:max-w-sm rounded-2xl p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
+            <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Clock Out</h3>
+            <div>
+              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Deliveries completed</label>
+              <input
+                type="number"
+                min="0"
+                value={deliveriesCount}
+                onChange={(e) => setDeliveriesCount(e.target.value)}
+                className="w-full text-sm px-3 py-2 rounded-lg border outline-none"
+                style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
+              <textarea
+                value={endNotes}
+                onChange={(e) => setEndNotes(e.target.value)}
+                rows={3}
+                placeholder="Any notes for this shift..."
+                className="w-full text-sm px-3 py-2 rounded-lg border outline-none resize-none"
+                style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowNotesModal(false)} className="flex-1 py-2 rounded-lg font-medium text-sm" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={handleClockOut} disabled={processing} className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2" style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white', opacity: processing ? 0.7 : 1 }}>
+                {processing ? <Loader2 size={14} className="animate-spin" /> : null}
+                Confirm Clock Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clock In Modal */}
+      {showPayTypeModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full sm:max-w-sm rounded-2xl p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
+            <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Clock In</h3>
+            <div>
+              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Pay Type</label>
+              <div className="flex gap-2">
+                {(['hourly', 'fixed', 'per_delivery'] as const).map((t) => (
+                  <button key={t} onClick={() => setPayType(t)} className="flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-all"
+                    style={{ backgroundColor: payType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))', color: payType === t ? 'white' : 'hsl(var(--muted-foreground))' }}>
+                    {t.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {payType === 'hourly' && (
+              <div>
+                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Hourly Rate (£)</label>
+                <input type="number" min="0" step="0.01" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="0.00"
+                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              </div>
+            )}
+            {payType === 'fixed' && (
+              <div>
+                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Fixed Amount (£)</label>
+                <input type="number" min="0" step="0.01" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} placeholder="0.00"
+                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              </div>
+            )}
+            {payType === 'per_delivery' && (
+              <div>
+                <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Rate per Delivery (£)</label>
+                <input type="number" min="0" step="0.01" value={perDeliveryRate} onChange={(e) => setPerDeliveryRate(e.target.value)} placeholder="0.00"
+                  className="w-full text-sm px-3 py-2 rounded-lg border outline-none" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Shift Type</label>
+              <div className="flex gap-2">
+                {(['regular', 'overtime'] as const).map((t) => (
+                  <button key={t} onClick={() => setShiftType(t)} className="flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-all"
+                    style={{ backgroundColor: shiftType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))', color: shiftType === t ? 'white' : 'hsl(var(--muted-foreground))' }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowPayTypeModal(false)} className="flex-1 py-2 rounded-lg font-medium text-sm" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={handleClockIn} disabled={processing} className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: processing ? 0.7 : 1 }}>
+                {processing ? <Loader2 size={14} className="animate-spin" /> : null}
+                Clock In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Driver Profile Section ───────────────────────────────────────────────────
+
+interface DriverProfileSectionProps {
+  driver: AppDriver & { access_code: string };
+  onDriverUpdate: (updated: AppDriver & { access_code: string }) => void;
+  onLogout: () => void;
+}
+
+function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfileSectionProps) {
+  const supabase = createClient();
+  const [editing, setEditing] = useState(false);
+  const [phone, setPhone] = useState(driver.phone ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('drivers').update({ phone, updated_at: new Date().toISOString() }).eq('id', driver.id);
+      if (error) throw error;
+      onDriverUpdate({ ...driver, phone });
+      setEditing(false);
+      toast.success('Profile updated');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold shrink-0" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}>
+            {driver.avatar || driver.name.slice(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <p className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{driver.vehicle} · {driver.plate}</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+            <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Status</span>
+            <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{driver.status}</span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+            <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Phone</span>
+            {editing ? (
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="text-xs font-semibold text-right bg-transparent outline-none border-b"
+                style={{ color: 'hsl(var(--foreground))', borderColor: 'hsl(var(--primary))' }}
+              />
+            ) : (
+              <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{driver.phone || '—'}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-4">
+          {editing ? (
+            <>
+              <button onClick={() => setEditing(false)} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="flex-1 py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white', opacity: saving ? 0.7 : 1 }}>
+                {saving ? <Loader2 size={13} className="animate-spin" /> : null}
+                Save
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>
+              Edit Profile
+            </button>
+          )}
+        </div>
+      </div>
+
+      <button
+        onClick={onLogout}
+        className="w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2"
+        style={{ backgroundColor: 'hsl(0 84% 60% / 0.1)', color: 'hsl(0 84% 60%)', border: '1px solid hsl(0 84% 60% / 0.2)' }}
+      >
+        Sign Out
+      </button>
+    </div>
+  );
+}
+
+// ─── Driver Dashboard ─────────────────────────────────────────────────────────
+
+function DriverDashboard({
+  driver: initialDriver,
+  onLogout,
+}: {
+  driver: AppDriver & { access_code: string };
+  onLogout: () => void;
+}) {
+  const supabase = createClient();
+  const [driver, setDriver] = useState(initialDriver);
+  const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'earnings' | 'map' | 'profile'>('orders');
+  const [activeTab, setActiveTab] = useState<'today' | 'all'>('today');
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [selectedBookingDetail, setSelectedBookingDetail] = useState<AppOrder | null>(null);
+  const [pastBookingSearch, setPastBookingSearch] = useState('');
+  const [pastBookingDateFilter, setPastBookingDateFilter] = useState('');
+  const [pastBookingTypeFilter, setPastBookingTypeFilter] = useState('all');
+  const [shiftRefreshKey, setShiftRefreshKey] = useState(0);
+  const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const [pastShifts, setPastShifts] = useState<any[]>([]);
+  const [driverPayments, setDriverPayments] = useState<any[]>([]);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .order('booking_date', { ascending: false });
+
+      if (ordersData) {
+        const mapped: AppOrder[] = ordersData.map((o: any) => ({
+          id: o.id,
+          bookingDate: o.booking_date ?? o.bookingDate ?? '',
+          deliveryWindow: o.delivery_window ?? o.deliveryWindow ?? '',
+          status: o.status ?? '',
+          bookingType: o.booking_type ?? o.bookingType ?? 'Delivery',
+          customer: {
+            name: o.customer_name ?? o.customer?.name ?? '',
+            email: o.customer_email ?? o.customer?.email ?? '',
+            phone: o.customer_phone ?? o.customer?.phone ?? '',
+          },
+          deliveryAddress: o.delivery_address ?? o.deliveryAddress ?? null,
+          products: o.products ?? o.line_items ?? [],
+          payment: {
+            status: o.payment_status ?? o.payment?.status ?? '',
+            method: o.payment_method ?? o.payment?.method ?? '',
+            amount: Number(o.total ?? o.payment?.amount ?? 0),
+            orderTotal: Number(o.total ?? o.payment?.orderTotal ?? 0),
+            depositPaid: Number(o.deposit_paid ?? o.payment?.depositPaid ?? 0),
+            totalDue: Number(o.amount_due ?? o.payment?.totalDue ?? 0),
+            deliveryCharge: Number(o.delivery_charge ?? o.payment?.deliveryCharge ?? 0),
+            notes: o.payment_notes ?? o.payment?.notes ?? '',
+          },
+          notes: o.notes ?? '',
+          driverId: o.driver_id ?? '',
+        }));
+        setAllOrders(mapped);
+
+        // Compute earnings
+        const today = getTodayStr();
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const completed = mapped.filter((o) => o.status === 'Booking Complete');
+        const todayDeliveries = completed.filter((o) => o.bookingDate === today).length;
+        const weekDeliveries = completed.filter((o) => o.bookingDate >= weekAgo).length;
+        const monthDeliveries = completed.filter((o) => o.bookingDate >= monthAgo).length;
+        const bonusPerDelivery = 2.5;
+        setEarnings({
+          todayDeliveries,
+          weekDeliveries,
+          monthDeliveries,
+          todayEarnings: todayDeliveries * bonusPerDelivery,
+          weekEarnings: weekDeliveries * bonusPerDelivery,
+          monthEarnings: monthDeliveries * bonusPerDelivery,
+          avgRating: 4.8,
+          completionRate: mapped.length > 0 ? Math.round((completed.length / mapped.length) * 100) : 100,
+          bonusPerDelivery,
+        });
+      }
+
+      // Load past shifts
+      const { data: shiftsData } = await supabase
+        .from('driver_shifts')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .not('clock_out', 'is', null)
+        .order('clock_in', { ascending: false })
+        .limit(20);
+      if (shiftsData) setPastShifts(shiftsData);
+
+      // Load driver payments
+      const { data: paymentsData } = await supabase
+        .from('driver_payments')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .order('payment_date', { ascending: false })
+        .limit(20);
+      if (paymentsData) setDriverPayments(paymentsData);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, [driver.id, supabase]);
+
+  useEffect(() => { loadData(); }, [loadData, shiftRefreshKey]);
 
   // Real-time subscriptions
   useEffect(() => {
@@ -971,7 +1418,7 @@ function ClockInOutCard({
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [loadData]);
+  }, [loadData, supabase]);
 
   useEffect(() => {
     const channel = supabase
@@ -985,7 +1432,7 @@ function ClockInOutCard({
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [driver.id]);
+  }, [driver.id, supabase]);
 
   // ─── Availability Update ───────────────────────────────────────────────────
 
@@ -1080,21 +1527,11 @@ function ClockInOutCard({
             </div>
             <div>
               <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                Shift Tracker
+                Driver Portal
               </p>
-              {activeShift && (
-                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  Started {new Date(activeShift.clock_in).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              )}
             </div>
           </div>
-          {activeShift && elapsed && (
-            <div className="text-right">
-              <p className="text-lg font-bold" style={{ color: 'hsl(142 69% 35%)' }}>{elapsed}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>elapsed</p>
-            </div>
-          )}
+          <AppLogo size={28} />
         </div>
       </div>
 
@@ -1157,7 +1594,6 @@ function ClockInOutCard({
           </div>
         </div>
 
-        {/* Clock In/Out Card — shown above KPI grid */}
         <ClockInOutCard driverId={driver.id} onShiftChange={() => setShiftRefreshKey((k) => k + 1)} />
 
         {/* KPI Grid */}
@@ -1901,13 +2337,8 @@ function ClockInOutCard({
                                 {durationHrs !== null && ` · ${durationHrs.toFixed(1)}h`}
                                 {shift.break_minutes > 0 && ` (${shift.break_minutes}m break)`}
                               </p>
-                              {shift.deliveries_completed > 0 && (
-                                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                  {shift.deliveries_completed} deliveries
-                                </p>
-                              )}
                               {shift.notes && (
-                                <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                                   {shift.notes}
                                 </p>
                               )}
