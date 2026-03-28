@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2 } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
 
 const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false });
+import DriverPODUpload from './DriverPODUpload';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,229 +103,447 @@ function isUrgent(order: AppOrder): boolean {
 
 interface BookingDetailModalProps {
   order: AppOrder;
+  driverId: string;
   onClose: () => void;
+  onOrderUpdate?: (updated: AppOrder) => void;
 }
 
-function BookingDetailModal({ order, onClose }: BookingDetailModalProps) {
-  const mapAddress = order.deliveryAddress
-    ? encodeURIComponent(`${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}, UK`)
+function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: BookingDetailModalProps) {
+  const supabase = createClient();
+  const [activeTab, setActiveTab] = useState<'details' | 'payment' | 'pod'>('details');
+  const [currentOrder, setCurrentOrder] = useState<AppOrder>(order);
+
+  // Payment recording state
+  const [payMethod, setPayMethod] = useState<'Cash' | 'Card'>('Cash');
+  const [payAmount, setPayAmount] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentRecorded, setPaymentRecorded] = useState(
+    currentOrder.payment.status === 'Paid' || currentOrder.payment.status === 'paid'
+  );
+
+  const mapAddress = currentOrder.deliveryAddress
+    ? encodeURIComponent(`${currentOrder.deliveryAddress.line1}, ${currentOrder.deliveryAddress.city}, ${currentOrder.deliveryAddress.postcode}, UK`)
     : null;
 
-  const googleMapsDirectionsUrl = order.deliveryAddress
+  const googleMapsDirectionsUrl = currentOrder.deliveryAddress
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-        `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`
+        `${currentOrder.deliveryAddress.line1}, ${currentOrder.deliveryAddress.city}, ${currentOrder.deliveryAddress.postcode}`
       )}`
     : null;
+
+  const amountDue = Number(currentOrder.payment.totalDue ?? currentOrder.payment.amountDue ?? 0);
+
+  const handleRecordPayment = async () => {
+    const amount = parseFloat(payAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
+    }
+    setSavingPayment(true);
+    try {
+      const newStatus = amount >= amountDue ? 'Paid' : 'Partial';
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_status: newStatus,
+          payment_method: payMethod,
+          payment_amount: amount,
+          payment_recorded_at: new Date().toISOString(),
+          payment_recorded_by: driverId,
+          payment_notes: payNotes.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', currentOrder.id);
+
+      if (error) throw error;
+
+      const updated: AppOrder = {
+        ...currentOrder,
+        payment: {
+          ...currentOrder.payment,
+          status: newStatus,
+          method: payMethod,
+          amount,
+        },
+      };
+      setCurrentOrder(updated);
+      setPaymentRecorded(true);
+      onOrderUpdate?.(updated);
+      toast.success(`Payment of £${amount.toFixed(2)} recorded (${payMethod})`);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to record payment');
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const handlePODComplete = () => {
+    const updated: AppOrder = { ...currentOrder, status: 'Booking Complete' };
+    setCurrentOrder(updated);
+    onOrderUpdate?.(updated);
+    toast.success('Proof of delivery submitted');
+  };
+
+  const modalTabs = [
+    { key: 'details' as const, label: 'Details' },
+    { key: 'payment' as const, label: 'Payment' },
+    { key: 'pod' as const, label: 'POD' },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div
         className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col"
-        style={{ backgroundColor: 'hsl(var(--card))', maxHeight: '90vh' }}
+        style={{ backgroundColor: 'hsl(var(--card))', maxHeight: '92vh' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: 'hsl(var(--border))' }}>
           <div>
-            <h2 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</h2>
+            <h2 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.id}</h2>
             <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {new Date(order.bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+              {new Date(currentOrder.bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg transition-colors hover:bg-secondary">
-            <X size={18} style={{ color: 'hsl(var(--foreground))' }} />
-          </button>
+          <div className="flex items-center gap-2">
+            {googleMapsDirectionsUrl && (
+              <a
+                href={googleMapsDirectionsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                title="Navigate with Google Maps"
+              >
+                <Navigation size={13} />
+                Navigate
+              </a>
+            )}
+            <button onClick={onClose} className="p-2 rounded-lg transition-colors hover:bg-secondary">
+              <X size={18} style={{ color: 'hsl(var(--foreground))' }} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 p-2 border-b shrink-0" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--card))' }}>
+          {modalTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className="flex-1 py-2 rounded-lg text-xs font-semibold transition-all"
+              style={{
+                backgroundColor: activeTab === tab.key ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                color: activeTab === tab.key ? 'white' : 'hsl(var(--muted-foreground))',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Scrollable Content */}
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
-          {/* Status */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Status:</span>
-            <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full font-medium"
-              style={{
-                backgroundColor: STATUS_ACCENT[order.status] ? `${STATUS_ACCENT[order.status]}20` : 'hsl(var(--secondary))',
-                color: STATUS_ACCENT[order.status] ?? 'hsl(var(--foreground))',
-              }}
-            >
-              {order.status}
-            </span>
-            {(order as any).bookingType && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
-                {(order as any).bookingType}
-              </span>
-            )}
-          </div>
 
-          {/* Customer */}
-          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Customer</p>
-            <div className="flex items-center gap-2">
-              <User size={14} style={{ color: 'hsl(var(--primary))' }} />
-              <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.customer.name}</span>
-            </div>
-            {order.customer.email && (
-              <p className="text-xs pl-5" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.customer.email}</p>
-            )}
-            {order.customer.phone && (
-              <a href={`tel:${order.customer.phone}`} className="flex items-center gap-2 pl-1">
-                <Phone size={13} style={{ color: 'hsl(var(--primary))' }} />
-                <span className="text-sm font-medium" style={{ color: 'hsl(var(--primary))' }}>{order.customer.phone}</span>
-              </a>
-            )}
-          </div>
-
-          {/* Delivery Address + Navigate */}
-          {order.deliveryAddress && (
-            <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Address</p>
-              <div className="flex items-start gap-2">
-                <MapPin size={14} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--primary))' }} />
-                <div>
-                  <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.line1}</p>
-                  {order.deliveryAddress.line2 && <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.line2}</p>}
-                  <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.city}{order.deliveryAddress.county ? `, ${order.deliveryAddress.county}` : ''}</p>
-                  <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryAddress.postcode}</p>
-                  {order.deliveryAddress.notes && (
-                    <p className="text-xs mt-1 italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.deliveryAddress.notes}</p>
-                  )}
-                </div>
-              </div>
-              {googleMapsDirectionsUrl && (
-                <a
-                  href={googleMapsDirectionsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
-                  style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
-                >
-                  <Navigation size={15} />
-                  Navigate with Google Maps
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* Schedule */}
-          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Schedule</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Date</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Calendar size={12} style={{ color: 'hsl(var(--primary))' }} />
-                  <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                    {new Date(order.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </p>
-                </div>
-              </div>
-              {order.deliveryWindow && (
-                <div>
-                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Window</p>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Clock size={12} style={{ color: 'hsl(var(--primary))' }} />
-                    <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.deliveryWindow}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Items */}
-          {order.products?.length > 0 && (
-            <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Items ({order.products.length})</p>
-              <div className="space-y-1.5">
-                {order.products.map((p: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Package size={12} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                      <span className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {(p.price != null || p.unit_price != null) && (
-                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                          £{Number(p.price ?? p.unit_price ?? 0).toFixed(2)} ea
-                        </span>
-                      )}
-                      <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
-                        x{p.quantity}
-                      </span>
-                      {(p.price != null || p.unit_price != null) && (
-                        <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                          £{(Number(p.price ?? p.unit_price ?? 0) * Number(p.quantity ?? 1)).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Costs */}
-          <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Costs</p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Status</span>
+          {/* ── DETAILS TAB ── */}
+          {activeTab === 'details' && (
+            <>
+              {/* Status */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Status:</span>
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded-full"
                   style={{
-                    backgroundColor: order.payment.status === 'paid' || order.payment.status === 'Paid' ?'hsl(142 69% 35% / 0.12)'
-                      : order.payment.status === 'pending'|| order.payment.status === 'Pending' ?'hsl(38 92% 50% / 0.12)' :'hsl(var(--secondary))',
-                    color: order.payment.status === 'paid'|| order.payment.status === 'Paid' ?'hsl(142 69% 35%)'
-                      : order.payment.status === 'pending'|| order.payment.status === 'Pending' ?'hsl(38 92% 50%)' :'hsl(var(--muted-foreground))',
+                    backgroundColor: STATUS_ACCENT[currentOrder.status] ? `${STATUS_ACCENT[currentOrder.status]}20` : 'hsl(var(--secondary))',
+                    color: STATUS_ACCENT[currentOrder.status] ?? 'hsl(var(--foreground))',
                   }}
                 >
-                  {order.payment.status || 'N/A'}
+                  {currentOrder.status}
                 </span>
+                {(currentOrder as any).bookingType && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                    {(currentOrder as any).bookingType}
+                  </span>
+                )}
               </div>
-              {order.payment.method && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Method</span>
-                  <span className="text-xs font-medium capitalize" style={{ color: 'hsl(var(--foreground))' }}>{order.payment.method}</span>
+
+              {/* Customer */}
+              <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Customer</p>
+                <div className="flex items-center gap-2">
+                  <User size={14} style={{ color: 'hsl(var(--primary))' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.customer.name}</span>
+                </div>
+                {currentOrder.customer.email && (
+                  <p className="text-xs pl-5" style={{ color: 'hsl(var(--muted-foreground))' }}>{currentOrder.customer.email}</p>
+                )}
+                {currentOrder.customer.phone && (
+                  <a href={`tel:${currentOrder.customer.phone}`} className="flex items-center gap-2 pl-1">
+                    <Phone size={13} style={{ color: 'hsl(var(--primary))' }} />
+                    <span className="text-sm font-medium" style={{ color: 'hsl(var(--primary))' }}>{currentOrder.customer.phone}</span>
+                  </a>
+                )}
+              </div>
+
+              {/* Delivery Address */}
+              {currentOrder.deliveryAddress && (
+                <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Address</p>
+                  <div className="flex items-start gap-2">
+                    <MapPin size={14} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--primary))' }} />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.deliveryAddress.line1}</p>
+                      {currentOrder.deliveryAddress.line2 && <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.deliveryAddress.line2}</p>}
+                      <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.deliveryAddress.city}{currentOrder.deliveryAddress.county ? `, ${currentOrder.deliveryAddress.county}` : ''}</p>
+                      <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.deliveryAddress.postcode}</p>
+                      {currentOrder.deliveryAddress.notes && (
+                        <p className="text-xs mt-1 italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{currentOrder.deliveryAddress.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                  {googleMapsDirectionsUrl && (
+                    <a
+                      href={googleMapsDirectionsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-semibold text-sm transition-all"
+                      style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                    >
+                      <Navigation size={15} />
+                      Navigate with Google Maps
+                    </a>
+                  )}
                 </div>
               )}
-              <div className="flex items-center justify-between border-t pt-2" style={{ borderColor: 'hsl(var(--border))' }}>
-                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Charge</span>
-                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
-                  £{Number(order.payment.deliveryCharge ?? 0).toFixed(2)}
-                </span>
+
+              {/* Schedule */}
+              <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Schedule</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Date</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Calendar size={12} style={{ color: 'hsl(var(--primary))' }} />
+                      <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                        {new Date(currentOrder.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                  {currentOrder.deliveryWindow && (
+                    <div>
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Window</p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Clock size={12} style={{ color: 'hsl(var(--primary))' }} />
+                        <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.deliveryWindow}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Order Total</span>
-                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
-                  £{Number(order.payment.orderTotal ?? order.payment.amount ?? 0).toFixed(2)}
-                </span>
+
+              {/* Items */}
+              {currentOrder.products?.length > 0 && (
+                <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Items ({currentOrder.products.length})</p>
+                  <div className="space-y-1.5">
+                    {currentOrder.products.map((p: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Package size={12} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                          <span className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {(p.price != null || p.unit_price != null) && (
+                            <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              £{Number(p.price ?? p.unit_price ?? 0).toFixed(2)} ea
+                            </span>
+                          )}
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                            x{p.quantity}
+                          </span>
+                          {(p.price != null || p.unit_price != null) && (
+                            <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                              £{(Number(p.price ?? p.unit_price ?? 0) * Number(p.quantity ?? 1)).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              {currentOrder.notes && (
+                <div className="rounded-xl border p-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes</p>
+                  <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.notes}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── PAYMENT TAB ── */}
+          {activeTab === 'payment' && (
+            <div className="space-y-4">
+              {/* Current Payment Status */}
+              <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Summary</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Status</span>
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: (currentOrder.payment.status === 'paid' || currentOrder.payment.status === 'Paid') ? 'hsl(142 69% 35% / 0.12)'
+                          : (currentOrder.payment.status === 'pending' || currentOrder.payment.status === 'Pending' || currentOrder.payment.status === 'Unpaid') ? 'hsl(38 92% 50% / 0.12)'
+                          : 'hsl(var(--secondary))',
+                        color: (currentOrder.payment.status === 'paid' || currentOrder.payment.status === 'Paid') ? 'hsl(142 69% 35%)'
+                          : (currentOrder.payment.status === 'pending' || currentOrder.payment.status === 'Pending' || currentOrder.payment.status === 'Unpaid') ? 'hsl(38 92% 50%)'
+                          : 'hsl(var(--muted-foreground))',
+                      }}
+                    >
+                      {currentOrder.payment.status || 'Unpaid'}
+                    </span>
+                  </div>
+                  {currentOrder.payment.method && currentOrder.payment.method !== 'Unrecorded' && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</span>
+                      <span className="text-xs font-medium capitalize" style={{ color: 'hsl(var(--foreground))' }}>{currentOrder.payment.method}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Order Total</span>
+                    <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
+                      £{Number(currentOrder.payment.orderTotal ?? currentOrder.payment.amount ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {Number(currentOrder.payment.depositPaid ?? 0) > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Deposit Paid</span>
+                      <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 35%)' }}>
+                        -£{Number(currentOrder.payment.depositPaid ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                    <span className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>Amount Due</span>
+                    <span
+                      className="text-base font-bold tabular-nums"
+                      style={{ color: amountDue > 0 ? 'hsl(0 84% 60%)' : 'hsl(142 69% 35%)' }}
+                    >
+                      £{amountDue.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Deposit Paid</span>
-                <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 35%)' }}>
-                  £{Number(order.payment.depositPaid ?? 0).toFixed(2)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
-                <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Total Due</span>
-                <span
-                  className="text-base font-bold"
-                  style={{ color: Number(order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 35%)' }}
+
+              {/* Record Payment Form */}
+              {paymentRecorded ? (
+                <div
+                  className="rounded-xl border p-5 text-center space-y-2"
+                  style={{ borderColor: 'hsl(142 69% 35% / 0.3)', backgroundColor: 'hsl(142 69% 35% / 0.06)' }}
                 >
-                  £{Number(order.payment.totalDue ?? order.payment.amountDue ?? 0).toFixed(2)}
-                </span>
-              </div>
-              {order.payment.notes && (
-                <p className="text-xs italic pt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>{order.payment.notes}</p>
+                  <CheckCircle2 size={32} className="mx-auto" style={{ color: 'hsl(142 69% 35%)' }} />
+                  <p className="font-semibold text-sm" style={{ color: 'hsl(142 69% 28%)' }}>Payment Recorded</p>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {currentOrder.payment.method && currentOrder.payment.method !== 'Unrecorded' ? `${currentOrder.payment.method} · ` : ''}
+                    £{Number(currentOrder.payment.amount ?? 0).toFixed(2)}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border p-4 space-y-4" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>Record Payment Collected</p>
+
+                  {/* Payment Method */}
+                  <div>
+                    <label className="text-xs font-medium block mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>Payment Method</label>
+                    <div className="flex gap-2">
+                      {(['Cash', 'Card'] as const).map((method) => (
+                        <button
+                          key={method}
+                          onClick={() => setPayMethod(method)}
+                          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                          style={{
+                            backgroundColor: payMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                            color: payMethod === method ? 'white' : 'hsl(var(--muted-foreground))',
+                          }}
+                        >
+                          {method === 'Cash' ? <PoundSterling size={14} /> : <CreditCard size={14} />}
+                          {method}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Amount */}
+                  <div>
+                    <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Amount Collected (£)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>£</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        placeholder={amountDue > 0 ? amountDue.toFixed(2) : '0.00'}
+                        className="w-full text-sm pl-7 pr-3 py-2.5 rounded-lg border outline-none"
+                        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                      />
+                    </div>
+                    {amountDue > 0 && (
+                      <button
+                        onClick={() => setPayAmount(amountDue.toFixed(2))}
+                        className="mt-1.5 text-xs font-medium"
+                        style={{ color: 'hsl(var(--primary))' }}
+                      >
+                        Use full amount due (£{amountDue.toFixed(2)})
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  <div>
+                    <label className="text-xs font-medium block mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes (optional)</label>
+                    <input
+                      type="text"
+                      value={payNotes}
+                      onChange={(e) => setPayNotes(e.target.value)}
+                      placeholder="e.g. Customer paid exact change"
+                      className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none"
+                      style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleRecordPayment}
+                    disabled={savingPayment || !payAmount}
+                    className="w-full py-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2"
+                    style={{
+                      backgroundColor: 'hsl(var(--primary))',
+                      color: 'white',
+                      opacity: savingPayment || !payAmount ? 0.6 : 1,
+                    }}
+                  >
+                    {savingPayment ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <CheckSquare size={15} />
+                    )}
+                    {savingPayment ? 'Recording...' : 'Record Payment'}
+                  </button>
+                </div>
               )}
             </div>
-          </div>
+          )}
 
-          {/* Notes */}
-          {order.notes && (
-            <div className="rounded-xl border p-3" style={{ borderColor: 'hsl(var(--border))' }}>
-              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes</p>
-              <p className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.notes}</p>
-            </div>
+          {/* ── POD TAB ── */}
+          {activeTab === 'pod' && (
+            <DriverPODUpload
+              order={currentOrder}
+              onComplete={handlePODComplete}
+            />
           )}
         </div>
       </div>
@@ -1115,7 +1334,7 @@ pay_type: 'hourly',
                 min="0"
                 value={deliveriesCount}
                 onChange={(e) => setDeliveriesCount(e.target.value)}
-                className="w-full text-sm px-3 py-2 rounded-lg border outline-none"
+                className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none"
                 style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
               />
             </div>
@@ -1126,7 +1345,7 @@ pay_type: 'hourly',
                 onChange={(e) => setEndNotes(e.target.value)}
                 rows={3}
                 placeholder="Any notes for this shift..."
-                className="w-full text-sm px-3 py-2 rounded-lg border outline-none resize-none"
+                className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none resize-none"
                 style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
               />
             </div>
@@ -1850,6 +2069,15 @@ function DriverDashboard({
                             <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
                             <span className="text-xs">Details</span>
                           </button>
+                          <button
+                            onClick={() => setSelectedBookingDetail(order)}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                            title="Submit POD"
+                          >
+                            <FileCheck size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs">POD</span>
+                          </button>
                         </div>
                       )}
 
@@ -2037,6 +2265,16 @@ function DriverDashboard({
                               >
                                 <Info size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
                               </button>
+                              {isComplete && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedBookingDetail(order); }}
+                                  className="p-1.5 rounded-lg transition-colors hover:bg-secondary border"
+                                  style={{ borderColor: 'hsl(var(--border))' }}
+                                  title="Submit POD"
+                                >
+                                  <FileCheck size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                                </button>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-3 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -2429,7 +2667,12 @@ function DriverDashboard({
         {selectedBookingDetail && (
           <BookingDetailModal
             order={selectedBookingDetail}
+            driverId={driver.id}
             onClose={() => setSelectedBookingDetail(null)}
+            onOrderUpdate={(updated) => {
+              setAllOrders(allOrders.map(o => o.id === updated.id ? updated : o));
+              setSelectedBookingDetail(updated);
+            }}
           />
         )}
       </div>
