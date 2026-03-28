@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Bell, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { useNotifications } from '@/contexts/NotificationContext';
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
@@ -11,8 +13,11 @@ interface TopbarProps {
 }
 
 export default function Topbar({ sidebarCollapsed, title, subtitle, notificationCount = 0 }: TopbarProps) {
-  const [searchFocused, setSearchFocused] = useState(false);
   const [dateStr, setDateStr] = useState('');
+  const { unreadCount, markAllRead } = useNotifications();
+
+  // Use live context count; fall back to prop
+  const badgeCount = unreadCount > 0 ? unreadCount : notificationCount;
 
   useEffect(() => {
     setDateStr(
@@ -74,18 +79,20 @@ export default function Topbar({ sidebarCollapsed, title, subtitle, notification
           <RefreshCw size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
         </button>
 
-        {/* Notifications */}
-        <button
+        {/* Notifications bell — links to notification centre and clears badge */}
+        <Link
+          href="/notifications"
+          onClick={markAllRead}
           className="relative p-2 rounded-lg hover:bg-secondary transition-all duration-150"
           title="Notifications"
         >
           <Bell size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
-          {notificationCount > 0 ? (
+          {badgeCount > 0 ? (
             <span
-              className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold leading-none px-1"
+              className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold leading-none px-1 animate-pulse"
               style={{ backgroundColor: 'hsl(0 84% 45%)', color: '#fff' }}
             >
-              {notificationCount > 99 ? '99+' : notificationCount}
+              {badgeCount > 99 ? '99+' : badgeCount}
             </span>
           ) : (
             <span
@@ -93,7 +100,7 @@ export default function Topbar({ sidebarCollapsed, title, subtitle, notification
               style={{ backgroundColor: 'hsl(var(--destructive))' }}
             />
           )}
-        </button>
+        </Link>
       </div>
     </header>
   );

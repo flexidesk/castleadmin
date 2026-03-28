@@ -7,6 +7,7 @@ import Topbar from './Topbar';
 import ToastNotificationProvider from './ToastNotificationProvider';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useAuth } from '@/contexts/AuthContext';
+import { NotificationProvider } from '@/contexts/NotificationContext';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -62,19 +63,21 @@ export default function AppLayout({ children, title, subtitle, notificationCount
   if (!user) return null;
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'hsl(var(--background))' }}>
-      <ToastNotificationProvider />
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-      <Topbar sidebarCollapsed={collapsed} title={title} subtitle={subtitle} notificationCount={notificationCount} />
+    <NotificationProvider>
+      <div className="min-h-screen" style={{ backgroundColor: 'hsl(var(--background))' }}>
+        <ToastNotificationProvider />
+        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+        <Topbar sidebarCollapsed={collapsed} title={title} subtitle={subtitle} notificationCount={notificationCount} />
 
-      <main
-        className="transition-all duration-300 pt-[65px]"
-        style={{ marginLeft: collapsed ? '64px' : '240px' }}
-      >
-        <div className="px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 max-w-screen-2xl mx-auto">
-          {children}
-        </div>
-      </main>
-    </div>
+        <main
+          className="transition-all duration-300 pt-[65px]"
+          style={{ marginLeft: collapsed ? '64px' : '240px' }}
+        >
+          <div className="px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 max-w-screen-2xl mx-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+    </NotificationProvider>
   );
 }
