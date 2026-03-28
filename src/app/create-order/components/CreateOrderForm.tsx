@@ -7,13 +7,11 @@ import { toast } from 'sonner';
 import {
   Truck,
   PackageCheck,
-  Download,
   RefreshCw,
   Plus,
   Trash2,
   ChevronRight,
   CheckCircle2,
-  Hash,
   User,
   Phone,
   Mail,
@@ -24,10 +22,8 @@ import {
   CreditCard,
   Banknote,
   AlertTriangle,
-  Search,
   X,
   ArrowLeft,
-  Info,
   ShieldCheck,
 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
@@ -47,7 +43,6 @@ interface ProductLineItem {
 
 interface CreateOrderFormData {
   bookingType: BookingType;
-  wooOrderId: string;
   // Customer
   customerName: string;
   customerEmail: string;
@@ -118,10 +113,6 @@ function pointInPolygon(lng: number, lat: number, coords: number[][][]): boolean
 export default function CreateOrderForm() {
   const router = useRouter();
   const [bookingType, setBookingType] = useState<BookingType>('Delivery');
-  const [wooImportId, setWooImportId] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [importSuccess, setImportSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -258,62 +249,6 @@ export default function CreateOrderForm() {
     return () => clearTimeout(timer);
   }, [watchedPostcode, bookingType, checkZoneForPostcode]);
 
-  const handleWooImport = async () => {
-    if (!wooImportId.trim()) {
-      setImportError('Please enter a WooCommerce Order ID');
-      return;
-    }
-    setImportError('');
-    setImportSuccess('');
-    setIsImporting(true);
-
-    try {
-      const res = await fetch(`/api/woocommerce/order/${encodeURIComponent(wooImportId.trim())}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        setImportError(data.error ?? `Failed to fetch order #${wooImportId} (status ${res.status})`);
-        setIsImporting(false);
-        return;
-      }
-
-      setValue('wooOrderId', data.wooOrderId ?? wooImportId);
-      if (data.customerName) setValue('customerName', data.customerName);
-      if (data.customerEmail) setValue('customerEmail', data.customerEmail);
-      if (data.customerPhone) setValue('customerPhone', data.customerPhone);
-      if (data.addressLine1) setValue('addressLine1', data.addressLine1);
-      if (data.addressLine2) setValue('addressLine2', data.addressLine2);
-      if (data.city) setValue('city', data.city);
-      if (data.county) setValue('county', data.county);
-      if (data.postcode) setValue('postcode', data.postcode);
-      if (data.paymentMethod) setValue('paymentMethod', data.paymentMethod as PaymentMethod);
-      if (data.paymentAmount) setValue('paymentAmount', data.paymentAmount);
-
-      if (Array.isArray(data.products) && data.products.length > 0) {
-        const currentLength = productFields.length;
-        for (let i = currentLength - 1; i >= 0; i--) {
-          removeProduct(i);
-        }
-        data.products.forEach((p: ProductLineItem, i: number) => {
-          if (i === 0) {
-            setValue('products.0', p);
-          } else {
-            appendProduct(p);
-          }
-        });
-      }
-
-      setHasUnsavedChanges(true);
-      setImportSuccess(`WooCommerce order #${data.wooOrderId ?? wooImportId} imported — ${data.products?.length ?? 0} line item(s) loaded`);
-      toast.success(`Order #${data.wooOrderId ?? wooImportId} imported successfully`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unexpected error';
-      setImportError(`Could not import order: ${message}`);
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   const onSubmit = async (data: CreateOrderFormData) => {
     setIsSubmitting(true);
     setSubmitError('');
@@ -341,7 +276,6 @@ export default function CreateOrderForm() {
 
       const result = await ordersService.createOrder({
         id: generateOrderId(),
-        wooOrderId: data.wooOrderId || '',
         customerName: data.customerName,
         customerEmail: data.customerEmail,
         customerPhone: data.customerPhone,
@@ -454,118 +388,6 @@ export default function CreateOrderForm() {
             ))}
           </div>
           <input type="hidden" {...register('bookingType')} value={bookingType} />
-        </div>
-
-        {/* ─── SECTION 2: WooCommerce Import ─── */}
-        <div className="card p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-              style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
-            >
-              <Download size={16} style={{ color: 'hsl(var(--primary))' }} />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                Import from WooCommerce
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Enter a WooCommerce Order ID to automatically populate customer details, address, and products
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 max-w-md">
-            <div className="relative flex-1">
-              <Hash
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2"
-                style={{ color: 'hsl(var(--muted-foreground))' }}
-              />
-              <input
-                type="text"
-                placeholder="e.g. 8850"
-                value={wooImportId}
-                onChange={(e) => { setWooImportId(e.target.value); setImportError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleWooImport())}
-                className={`input-base pl-9 ${importError ? 'input-error' : ''}`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleWooImport}
-              disabled={isImporting}
-              className="btn-primary shrink-0"
-            >
-              {isImporting ? (
-                <>
-                  <RefreshCw size={14} className="animate-spin" />
-                  Importing…
-                </>
-              ) : (
-                <>
-                  <Search size={14} />
-                  Import Order
-                </>
-              )}
-            </button>
-          </div>
-
-          {importError && (
-            <div
-              className="flex items-start gap-2 mt-3 p-3 rounded-lg border text-xs"
-              style={{
-                borderColor: 'hsl(var(--destructive) / 0.25)',
-                backgroundColor: 'hsl(var(--destructive) / 0.05)',
-                color: 'hsl(var(--destructive))',
-              }}
-            >
-              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-              {importError}
-            </div>
-          )}
-
-          {importSuccess && (
-            <div
-              className="flex items-start gap-2 mt-3 p-3 rounded-lg border text-xs"
-              style={{
-                borderColor: 'hsl(var(--primary) / 0.25)',
-                backgroundColor: 'hsl(var(--primary) / 0.05)',
-                color: 'hsl(var(--primary))',
-              }}
-            >
-              <CheckCircle2 size={13} className="shrink-0 mt-0.5" />
-              {importSuccess}
-            </div>
-          )}
-
-          <div
-            className="flex items-center gap-2 mt-3 text-xs p-3 rounded-lg border"
-            style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary) / 0.4)' }}
-          >
-            <Info size={12} style={{ color: 'hsl(var(--primary))' }} />
-            <span style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Enter any WooCommerce order ID to auto-populate customer, address, and product line items from your store
-            </span>
-          </div>
-
-          {/* WooCommerce Order ID field (manual) */}
-          <div className="mt-4 max-w-md">
-            <label htmlFor="wooOrderId" className="label">
-              WooCommerce Order ID <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
-            </label>
-            <p className="helper-text">Link this booking to a WooCommerce order for reference</p>
-            <div className="relative mt-1">
-              <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
-              <input
-                id="wooOrderId"
-                type="text"
-                placeholder="e.g. 8850"
-                className="input-base pl-9"
-                {...register('wooOrderId')}
-              />
-            </div>
-          </div>
         </div>
 
         {/* ─── SECTION 3: Customer Details ─── */}
@@ -1260,7 +1082,7 @@ export default function CreateOrderForm() {
             Custom Fields
           </h2>
           <p className="text-xs mb-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            Additional information imported from WooCommerce or entered manually
+            Additional information entered manually
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
