@@ -213,7 +213,7 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
               display:flex;align-items:center;justify-content:center;
               font-size:11px;font-weight:700;color:white;cursor:pointer;
             ">${initials}</div>
-            ${speed > 0 ? `<div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;">${speed} km/h</div>` : ''}
+            ${speed > 0 ? `<div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;white-space:nowrap;">${speed} mph</div>` : ''}
             <div style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:${shiftColor};border:2px solid white;"></div>
           </div>
         `;
@@ -237,7 +237,7 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
                 <strong>${driver.name}</strong><br/>
                 <span style="color:#6b7280;">${driver.vehicle} · ${driver.plate}</span><br/>
                 <span style="color:${driverColor};">● ${driver.status}</span><br/>
-                ${speed > 0 ? `<span style="color:#374151;">🚗 ${speed} km/h</span>` : ''}
+                ${speed > 0 ? `<span style="color:#374151;">🚗 ${speed} mph</span>` : ''}
               </div>
             `)
             .on('click', () => onSelectDriver(driver.id));
@@ -329,7 +329,7 @@ function DriverCard({
         <div className="flex items-center gap-1">
           <Gauge size={11} style={{ color: '#f97316' }} />
           <span className="text-[10px] font-mono font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-            {speed} km/h
+            {speed} mph
           </span>
         </div>
         {location && (
@@ -480,7 +480,7 @@ function DriverDetailPanel({ row }: { row: DriverRow }) {
           <div className="rounded p-2 text-center" style={{ backgroundColor: 'hsl(var(--card))' }}>
             <Gauge size={16} className="mx-auto mb-1" style={{ color: '#f97316' }} />
             <p className="text-lg font-bold font-mono" style={{ color: 'hsl(var(--foreground))' }}>{speed}</p>
-            <p className="text-[9px]" style={{ color: 'hsl(var(--muted-foreground))' }}>km/h</p>
+            <p className="text-[9px]" style={{ color: 'hsl(var(--muted-foreground))' }}>mph</p>
           </div>
           <div className="rounded p-2 text-center" style={{ backgroundColor: 'hsl(var(--card))' }}>
             <Navigation size={16} className="mx-auto mb-1" style={{ color: '#3b82f6' }} />

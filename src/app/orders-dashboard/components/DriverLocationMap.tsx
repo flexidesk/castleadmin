@@ -647,7 +647,7 @@ export default function DriverLocationMap() {
           </span>
           {selectedDriver.speed != null && (
             <span style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {Math.round(selectedDriver.speed)} km/h
+              {Math.round(selectedDriver.speed)} mph
             </span>
           )}
           {selectedDriver.heading != null && (

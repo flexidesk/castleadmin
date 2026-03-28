@@ -1353,14 +1353,14 @@ export default function SettingsContent() {
                     color: 'hsl(var(--primary))',
                   } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
                 >
-                  {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per KM' : 'Tiered'}
+                  {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per Mile' : 'Tiered'}
                 </button>
               ))}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 { key: 'base_delivery_fee', label: 'Base Fee (£)' },
-                { key: 'per_km_fee', label: 'Per KM Fee (£)' },
+                { key: 'per_km_fee', label: 'Per Mile Fee (£)' },
                 { key: 'min_delivery_fee', label: 'Min Fee (£)' },
                 { key: 'max_delivery_fee', label: 'Max Fee (£)' },
               ].map(({ key, label }) => (
@@ -2122,12 +2122,12 @@ export default function SettingsContent() {
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <NumInput label="Base Rate / Hour (£)" value={driverRates.base_rate_per_hour} onChange={(v) => setDriverRates((d) => ({ ...d, base_rate_per_hour: v }))} step="0.01" min="0" />
-              <NumInput label="Rate / KM (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, rate_per_km: v }))} step="0.01" min="0" />
+              <NumInput label="Rate / Mile (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, rate_per_km: v }))} step="0.01" min="0" />
               <NumInput label="Overtime Multiplier" value={driverRates.overtime_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, overtime_multiplier: v }))} step="0.01" min="1" />
               <NumInput label="Weekend Multiplier" value={driverRates.weekend_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, weekend_multiplier: v }))} step="0.01" min="1" />
               <NumInput label="Night Shift Multiplier" value={driverRates.night_shift_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, night_shift_multiplier: v }))} step="0.01" min="1" />
               <NumInput label="Bonus / Delivery (£)" value={driverRates.bonus_per_delivery} onChange={(v) => setDriverRates((d) => ({ ...d, bonus_per_delivery: v }))} step="0.01" min="0" />
-              <NumInput label="Fuel Allowance / KM (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, fuel_allowance_per_km: v }))} step="0.01" min="0" />
+              <NumInput label="Fuel Allowance / Mile (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, fuel_allowance_per_km: v }))} step="0.01" min="0" />
               <NumInput label="Min Guaranteed Hours" value={driverRates.min_guaranteed_hours} onChange={(v) => setDriverRates((d) => ({ ...d, min_guaranteed_hours: v }))} step="1" min="0" />
               <NumInput label="Max Hours / Day" value={driverRates.max_hours_per_day} onChange={(v) => setDriverRates((d) => ({ ...d, max_hours_per_day: v }))} step="1" min="1" />
             </div>
