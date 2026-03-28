@@ -28,6 +28,8 @@ export interface DbOrder {
   payment_recorded_at: string | null;
   payment_recorded_by: string | null;
   payment_notes: string | null;
+  deposit_paid: number | null;
+  amount_due: number | null;
   products: any[];
   pod: any | null;
   notes: string | null;
@@ -73,6 +75,8 @@ export interface AppOrder {
     status: string;
     method: string;
     amount: number;
+    depositPaid: number;
+    amountDue: number;
     recordedAt?: string;
     recordedBy?: string;
     notes?: string;
@@ -127,6 +131,8 @@ export function mapDbOrderToApp(row: DbOrder): AppOrder {
       status: row.payment_status,
       method: row.payment_method,
       amount: row.payment_amount,
+      depositPaid: row.deposit_paid ?? 0,
+      amountDue: row.amount_due ?? 0,
       recordedAt: row.payment_recorded_at ?? undefined,
       recordedBy: row.payment_recorded_by ?? undefined,
       notes: row.payment_notes ?? undefined,

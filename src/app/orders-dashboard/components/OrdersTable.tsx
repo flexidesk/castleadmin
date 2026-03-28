@@ -787,6 +787,20 @@ export default function OrdersTable() {
                   <td className="px-4 py-3">
                     <PaymentBadge status={order.payment.status as any} method={order.payment.method as any} />
                     <p className="text-xs font-mono mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>£{order.payment.amount.toFixed(2)}</p>
+                    {(order.payment.depositPaid > 0 || order.payment.amountDue > 0) && (
+                      <div className="flex flex-col gap-0.5 mt-0.5">
+                        {order.payment.depositPaid > 0 && (
+                          <p className="text-[10px] font-mono" style={{ color: 'hsl(142 69% 30%)' }}>
+                            Dep: £{order.payment.depositPaid.toFixed(2)}
+                          </p>
+                        )}
+                        {order.payment.amountDue > 0 && (
+                          <p className="text-[10px] font-mono" style={{ color: 'hsl(var(--destructive))' }}>
+                            Due: £{order.payment.amountDue.toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   {/* Actions */}

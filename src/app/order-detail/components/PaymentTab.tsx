@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Edit3,
   Lock,
+  PiggyBank,
+  Receipt,
 } from 'lucide-react';
 import { AppOrder as Order } from '@/lib/services/ordersService';
 import { PaymentBadge } from '@/components/ui/StatusBadge';
@@ -23,6 +25,8 @@ interface Props {
 interface PaymentFormData {
   method: 'Card' | 'Cash';
   amount: string;
+  depositPaid: string;
+  amountDue: string;
   notes: string;
 }
 
@@ -35,21 +39,36 @@ export default function PaymentTab({ order }: Props) {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<PaymentFormData>({
     defaultValues: {
       method: order.payment.method === 'Unrecorded' ? 'Cash' : (order.payment.method as 'Card' | 'Cash'),
       amount: order.payment.amount.toFixed(2),
+      depositPaid: (order.payment.depositPaid ?? 0).toFixed(2),
+      amountDue: (order.payment.amountDue ?? 0).toFixed(2),
       notes: order.payment.notes || '',
     },
   });
 
   const selectedMethod = watch('method');
+  const watchedAmount = watch('amount');
+  const watchedDeposit = watch('depositPaid');
+
+  // Auto-calculate amount due when total or deposit changes
+  const handleAmountChange = (field: 'amount' | 'depositPaid', value: string) => {
+    const total = field === 'amount' ? parseFloat(value) || 0 : parseFloat(watchedAmount) || 0;
+    const deposit = field === 'depositPaid' ? parseFloat(value) || 0 : parseFloat(watchedDeposit) || 0;
+    const due = Math.max(0, total - deposit);
+    setValue('amountDue', due.toFixed(2));
+  };
 
   const onSubmit = async (data: PaymentFormData) => {
     setIsSaving(true);
     try {
       const supabase = createClient();
+      const depositPaidVal = parseFloat(data.depositPaid) || 0;
+      const amountDueVal = parseFloat(data.amountDue) || 0;
 
       // Update payment on the order
       const { error: orderError } = await supabase
@@ -58,6 +77,8 @@ export default function PaymentTab({ order }: Props) {
           payment_status: 'Paid',
           payment_method: data.method,
           payment_amount: parseFloat(data.amount),
+          deposit_paid: depositPaidVal,
+          amount_due: amountDueVal,
           payment_notes: data.notes || null,
           payment_recorded_at: new Date().toISOString(),
           payment_recorded_by: 'Admin',
@@ -90,6 +111,8 @@ export default function PaymentTab({ order }: Props) {
         status: 'Paid',
         method: data.method,
         amount: parseFloat(data.amount),
+        depositPaid: depositPaidVal,
+        amountDue: amountDueVal,
         notes: data.notes,
         recordedAt: new Date().toISOString(),
         recordedBy: 'Admin',
@@ -111,14 +134,14 @@ export default function PaymentTab({ order }: Props) {
       <div
         className="flex items-start gap-4 p-5 rounded-xl border"
         style={{
-          borderColor: savedPayment.status === 'Paid' ?'hsl(142 69% 35% / 0.25)' :'hsl(var(--destructive) / 0.25)',
-          backgroundColor: savedPayment.status === 'Paid' ?'hsl(142 69% 35% / 0.04)' :'hsl(var(--destructive) / 0.04)',
+          borderColor: savedPayment.status === 'Paid' ? 'hsl(142 69% 35% / 0.25)' : 'hsl(var(--destructive) / 0.25)',
+          backgroundColor: savedPayment.status === 'Paid' ? 'hsl(142 69% 35% / 0.04)' : 'hsl(var(--destructive) / 0.04)',
         }}
       >
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
           style={{
-            backgroundColor: savedPayment.status === 'Paid' ?'hsl(142 69% 35% / 0.12)' :'hsl(var(--destructive) / 0.1)',
+            backgroundColor: savedPayment.status === 'Paid' ? 'hsl(142 69% 35% / 0.12)' : 'hsl(var(--destructive) / 0.1)',
           }}
         >
           {savedPayment.status === 'Paid' ? (
@@ -134,6 +157,30 @@ export default function PaymentTab({ order }: Props) {
           <p className="text-2xl font-bold tabular-nums mt-1">
             £{savedPayment.amount.toFixed(2)}
           </p>
+          {/* Deposit & Amount Due summary row */}
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex items-center gap-1.5">
+              <PiggyBank size={13} style={{ color: 'hsl(142 69% 35%)' }} />
+              <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Deposit Paid:
+              </span>
+              <span className="text-xs font-semibold tabular-nums" style={{ color: 'hsl(142 69% 30%)' }}>
+                £{(savedPayment.depositPaid ?? 0).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Receipt size={13} style={{ color: (savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 35%)' }} />
+              <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Amount Due:
+              </span>
+              <span
+                className="text-xs font-semibold tabular-nums"
+                style={{ color: (savedPayment.amountDue ?? 0) > 0 ? 'hsl(var(--destructive))' : 'hsl(142 69% 30%)' }}
+              >
+                £{(savedPayment.amountDue ?? 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
           {savedPayment.status === 'Paid' && savedPayment.recordedAt && (
             <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
               Recorded by {savedPayment.recordedBy} on{' '}
@@ -196,10 +243,7 @@ export default function PaymentTab({ order }: Props) {
             <p className="helper-text mb-3">Select how the customer is paying for this booking</p>
             <div className="grid grid-cols-2 gap-3">
               {(['Card', 'Cash'] as const).map((method) => (
-                <label
-                  key={method}
-                  className="relative cursor-pointer"
-                >
+                <label key={method} className="relative cursor-pointer">
                   <input
                     type="radio"
                     value={method}
@@ -209,20 +253,14 @@ export default function PaymentTab({ order }: Props) {
                   <div
                     className="flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-150"
                     style={{
-                      borderColor: selectedMethod === method
-                        ? 'hsl(var(--primary))'
-                        : 'hsl(var(--border))',
-                      backgroundColor: selectedMethod === method
-                        ? 'hsl(var(--primary) / 0.05)'
-                        : 'hsl(var(--card))',
+                      borderColor: selectedMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                      backgroundColor: selectedMethod === method ? 'hsl(var(--primary) / 0.05)' : 'hsl(var(--card))',
                     }}
                   >
                     <div
                       className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
                       style={{
-                        backgroundColor: selectedMethod === method
-                          ? 'hsl(var(--primary) / 0.1)'
-                          : 'hsl(var(--secondary))',
+                        backgroundColor: selectedMethod === method ? 'hsl(var(--primary) / 0.1)' : 'hsl(var(--secondary))',
                       }}
                     >
                       {method === 'Card' ? (
@@ -238,11 +276,7 @@ export default function PaymentTab({ order }: Props) {
                       </p>
                     </div>
                     {selectedMethod === method && (
-                      <CheckCircle2
-                        size={16}
-                        className="ml-auto shrink-0"
-                        style={{ color: 'hsl(var(--primary))' }}
-                      />
+                      <CheckCircle2 size={16} className="ml-auto shrink-0" style={{ color: 'hsl(var(--primary))' }} />
                     )}
                   </div>
                 </label>
@@ -250,17 +284,14 @@ export default function PaymentTab({ order }: Props) {
             </div>
           </div>
 
-          {/* Amount */}
+          {/* Total Amount */}
           <div>
             <label htmlFor="amount" className="label">
-              Amount Received (£)
+              Total Amount (£)
             </label>
-            <p className="helper-text">Enter the exact amount received from the customer</p>
+            <p className="helper-text">Enter the total order amount</p>
             <div className="relative mt-1">
-              <span
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold"
-                style={{ color: 'hsl(var(--muted-foreground))' }}
-              >
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
                 £
               </span>
               <input
@@ -273,12 +304,68 @@ export default function PaymentTab({ order }: Props) {
                   required: 'Amount is required',
                   min: { value: 0.01, message: 'Amount must be greater than £0' },
                   validate: (v) => !isNaN(parseFloat(v)) || 'Must be a valid amount',
+                  onChange: (e) => handleAmountChange('amount', e.target.value),
                 })}
               />
             </div>
-            {errors.amount && (
-              <p className="error-text">{errors.amount.message}</p>
-            )}
+            {errors.amount && <p className="error-text">{errors.amount.message}</p>}
+          </div>
+
+          {/* Deposit Paid & Amount Due — side by side */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Deposit Paid */}
+            <div>
+              <label htmlFor="depositPaid" className="label flex items-center gap-1.5">
+                <PiggyBank size={13} style={{ color: 'hsl(142 69% 35%)' }} />
+                Deposit Paid (£)
+              </label>
+              <p className="helper-text">Amount already paid as deposit</p>
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="depositPaid"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="input-base pl-8 font-mono"
+                  {...register('depositPaid', {
+                    min: { value: 0, message: 'Cannot be negative' },
+                    onChange: (e) => handleAmountChange('depositPaid', e.target.value),
+                  })}
+                />
+              </div>
+              {errors.depositPaid && <p className="error-text">{errors.depositPaid.message}</p>}
+            </div>
+
+            {/* Amount Due */}
+            <div>
+              <label htmlFor="amountDue" className="label flex items-center gap-1.5">
+                <Receipt size={13} style={{ color: 'hsl(var(--destructive))' }} />
+                Amount Due (£)
+              </label>
+              <p className="helper-text">Remaining balance to collect</p>
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="amountDue"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="input-base pl-8 font-mono"
+                  {...register('amountDue', {
+                    min: { value: 0, message: 'Cannot be negative' },
+                  })}
+                />
+              </div>
+              {errors.amountDue && <p className="error-text">{errors.amountDue.message}</p>}
+              <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Auto-calculated from total − deposit
+              </p>
+            </div>
           </div>
 
           {/* Notes */}
@@ -289,18 +376,14 @@ export default function PaymentTab({ order }: Props) {
             <textarea
               id="payment-notes"
               rows={3}
-              placeholder="e.g. Customer paid in full. Receipt issued."
+              placeholder="e.g. Customer paid deposit online. Balance due on delivery."
               className="input-base resize-none"
               {...register('notes')}
             />
           </div>
 
           <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isSaving}
-            >
+            <button type="submit" className="btn-primary" disabled={isSaving}>
               {isSaving ? (
                 <>
                   <RefreshCw size={14} className="animate-spin" />
@@ -313,12 +396,7 @@ export default function PaymentTab({ order }: Props) {
                 </>
               )}
             </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setIsEditing(false)}
-              disabled={isSaving}
-            >
+            <button type="button" className="btn-secondary" onClick={() => setIsEditing(false)} disabled={isSaving}>
               Cancel
             </button>
           </div>
@@ -329,13 +407,16 @@ export default function PaymentTab({ order }: Props) {
             <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
               Payment Details
             </h3>
-            <div
-              className="rounded-xl border overflow-hidden"
-              style={{ borderColor: 'hsl(var(--border))' }}
-            >
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
               {[
                 { label: 'Method', value: savedPayment.method },
-                { label: 'Amount', value: `£${savedPayment.amount.toFixed(2)}` },
+                { label: 'Total Amount', value: `£${savedPayment.amount.toFixed(2)}` },
+                { label: 'Deposit Paid', value: `£${(savedPayment.depositPaid ?? 0).toFixed(2)}` },
+                {
+                  label: 'Amount Due',
+                  value: `£${(savedPayment.amountDue ?? 0).toFixed(2)}`,
+                  highlight: (savedPayment.amountDue ?? 0) > 0,
+                },
                 {
                   label: 'Recorded At',
                   value: savedPayment.recordedAt
@@ -350,7 +431,7 @@ export default function PaymentTab({ order }: Props) {
                 },
                 { label: 'Recorded By', value: savedPayment.recordedBy || '—' },
                 { label: 'Notes', value: savedPayment.notes || 'No notes recorded' },
-              ].map(({ label, value }) => (
+              ].map(({ label, value, highlight }) => (
                 <div
                   key={label}
                   className="flex items-start justify-between px-4 py-3 border-b last:border-0"
@@ -359,7 +440,12 @@ export default function PaymentTab({ order }: Props) {
                   <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
                     {label}
                   </span>
-                  <span className="text-sm font-medium text-right max-w-[60%]">{value}</span>
+                  <span
+                    className="text-sm font-medium text-right max-w-[60%]"
+                    style={{ color: highlight ? 'hsl(var(--destructive))' : undefined }}
+                  >
+                    {value}
+                  </span>
                 </div>
               ))}
             </div>
