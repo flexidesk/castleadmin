@@ -387,6 +387,11 @@ export default function SettingsContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Reset App state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+
   // Fleet config
   const [fleet, setFleet] = useState<FleetConfig>(DEFAULT_FLEET);
 
@@ -1946,6 +1951,98 @@ export default function SettingsContent() {
             <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
               <Save size={15} /> {saving ? 'Saving…' : 'Save Thresholds'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
+      <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-6" style={{ backgroundColor: 'hsl(var(--card))' }}>
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={16} className="text-red-500" />
+          <h2 className="font-semibold text-sm text-red-600">Danger Zone</h2>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-red-50 border border-red-100">
+          <div>
+            <p className="text-sm font-medium text-red-700">Reset App Data</p>
+            <p className="text-xs text-red-500 mt-0.5">Permanently removes all demo data — bookings, drivers, staff, vehicles, customers, and logs. Your admin account will be preserved.</p>
+          </div>
+          <button
+            onClick={() => { setShowResetModal(true); setResetConfirmText(''); }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
+          >
+            <Trash2 size={14} /> Reset App
+          </button>
+        </div>
+      </div>
+
+      {/* ── Reset Confirmation Modal ───────────────────────────────────────────── */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))' }}>
+            {/* Header */}
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-red-100 flex-shrink-0">
+                <AlertTriangle size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Reset App Data</h3>
+                <p className="text-sm mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>This action is <strong>irreversible</strong>. The following data will be permanently deleted:</p>
+              </div>
+            </div>
+
+            {/* What will be deleted */}
+            <ul className="text-sm space-y-1 pl-4 list-disc" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <li>All bookings &amp; orders</li>
+              <li>All drivers &amp; driver data</li>
+              <li>All staff / team roles (except your admin account)</li>
+              <li>All vehicles, inspections &amp; incidents</li>
+              <li>All customers</li>
+              <li>All activity logs, notifications &amp; alerts</li>
+            </ul>
+
+            {/* What is preserved */}
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
+              <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+              <p className="text-xs text-green-700 font-medium">Your admin account and all settings will be preserved.</p>
+            </div>
+
+            {/* Confirm input */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                Type <span className="font-bold text-red-600">RESET</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="Type RESET here"
+                className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-red-300"
+                style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => { setShowResetModal(false); setResetConfirmText(''); }}
+                disabled={resetting}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={resetAppData}
+                disabled={resetConfirmText !== 'RESET' || resetting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {resetting ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Resetting…</>
+                ) : (
+                  <><Trash2 size={14} /> Confirm Reset</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
