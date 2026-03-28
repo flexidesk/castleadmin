@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -187,7 +187,7 @@ interface WebhookConfig {
   last_status?: string | null;
 }
 
-type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company';
+type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'database';
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
@@ -462,6 +462,11 @@ export default function SettingsContent() {
     name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true,
   });
   const [testingWebhook, setTestingWebhook] = useState<string | null>(null);
+
+  // Database backup/export
+  const [dbExporting, setDbExporting] = useState(false);
+  const [dbTableExporting, setDbTableExporting] = useState<string | null>(null);
+  const [dbExportFormat, setDbExportFormat] = useState<'json' | 'csv'>('json');
 
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
@@ -980,6 +985,7 @@ export default function SettingsContent() {
     { id: 'driver_rates', label: 'Driver Rates', icon: Car },
     { id: 'alert_thresholds', label: 'Alert Thresholds', icon: AlertTriangle },
     { id: 'integrations', label: 'Integrations', icon: Plug },
+    { id: 'database', label: 'Database', icon: Database },
   ];
 
   if (loading) {
@@ -2159,6 +2165,164 @@ export default function SettingsContent() {
             <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
               <Save size={15} /> {saving ? 'Saving…' : 'Save Thresholds'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Database Backup & Export ───────────────────────────────────────────── */}
+      {activeTab === 'database' && (
+        <div className="space-y-5">
+          {/* Full Backup */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <HardDrive size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Full Database Backup</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Download a complete backup of all database tables as a single JSON file. This includes orders, drivers, customers, vehicles, settings, and all other data.
+            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={async () => {
+                  setDbExporting(true);
+                  try {
+                    const res = await fetch('/api/database/export');
+                    if (!res.ok) throw new Error('Export failed');
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `castle_admin_backup_${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success('Full backup downloaded successfully');
+                  } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : 'Export failed';
+                    toast.error(`Backup failed: ${msg}`);
+                  } finally {
+                    setDbExporting(false);
+                  }
+                }}
+                disabled={dbExporting}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {dbExporting ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Exporting…</>
+                ) : (
+                  <><Download size={14} /> Download Full Backup</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Export Individual Tables */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <Download size={15} style={{ color: 'hsl(var(--primary))' }} />
+                <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</span>
+                <div className="flex rounded-lg border overflow-hidden text-xs" style={{ borderColor: 'hsl(var(--border))' }}>
+                  {(['json', 'csv'] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => setDbExportFormat(fmt)}
+                      className="px-3 py-1.5 font-medium transition-colors uppercase"
+                      style={{
+                        backgroundColor: dbExportFormat === fmt ? 'hsl(var(--primary))' : 'hsl(var(--background))',
+                        color: dbExportFormat === fmt ? 'white' : 'hsl(var(--foreground))',
+                      }}
+                    >
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Export any individual table as JSON or CSV. Click the download button next to the table you want to export.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {[
+                { key: 'orders', label: 'Orders', icon: '📦' },
+                { key: 'drivers', label: 'Drivers', icon: '🚗' },
+                { key: 'customers', label: 'Customers', icon: '👥' },
+                { key: 'vehicles', label: 'Vehicles', icon: '🚐' },
+                { key: 'driver_shifts', label: 'Driver Shifts', icon: '🕐' },
+                { key: 'driver_performance_logs', label: 'Performance Logs', icon: '📊' },
+                { key: 'driver_documents', label: 'Driver Documents', icon: '📄' },
+                { key: 'driver_cash_allocations', label: 'Cash Allocations', icon: '💵' },
+                { key: 'driver_cash_collections', label: 'Cash Collections', icon: '💰' },
+                { key: 'vehicle_inspections', label: 'Vehicle Inspections', icon: '🔧' },
+                { key: 'vehicle_incidents', label: 'Vehicle Incidents', icon: '⚠️' },
+                { key: 'delivery_zones', label: 'Delivery Zones', icon: '🗺️' },
+                { key: 'message_templates', label: 'Message Templates', icon: '✉️' },
+                { key: 'notifications', label: 'Notifications', icon: '🔔' },
+                { key: 'activity_logs', label: 'Activity Logs', icon: '📋' },
+                { key: 'email_alert_logs', label: 'Email Alert Logs', icon: '📧' },
+                { key: 'sms_alert_logs', label: 'SMS Alert Logs', icon: '📱' },
+                { key: 'woocommerce_sync_log', label: 'WooCommerce Sync Log', icon: '🛒' },
+                { key: 'fleet_config', label: 'Fleet Config', icon: '⚙️' },
+                { key: 'user_roles', label: 'User Roles', icon: '👤' },
+                { key: 'company_profile', label: 'Company Profile', icon: '🏢' },
+              ].map(({ key, label, icon }) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg border"
+                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                >
+                  <span className="text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                    <span>{icon}</span> {label}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      setDbTableExporting(key);
+                      try {
+                        const res = await fetch(`/api/database/export?table=${key}&format=${dbExportFormat}`);
+                        if (!res.ok) throw new Error('Export failed');
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${key}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast.success(`${label} exported successfully`);
+                      } catch (err: unknown) {
+                        const msg = err instanceof Error ? err.message : 'Export failed';
+                        toast.error(`Export failed: ${msg}`);
+                      } finally {
+                        setDbTableExporting(null);
+                      }
+                    }}
+                    disabled={dbTableExporting === key}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                    style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
+                  >
+                    {dbTableExporting === key ? (
+                      <RefreshCw size={11} className="animate-spin" />
+                    ) : (
+                      <Download size={11} />
+                    )}
+                    Export
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Info note */}
+          <div className="flex items-start gap-3 p-4 rounded-xl border" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
+            <Database size={15} className="mt-0.5 flex-shrink-0" style={{ color: 'hsl(var(--primary))' }} />
+            <div className="space-y-1">
+              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>About Database Exports</p>
+              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Exports contain a snapshot of your data at the time of download. Sensitive fields such as API keys and passwords are included — store backup files securely. For scheduled automated backups, configure Supabase Point-in-Time Recovery (PITR) in your Supabase project dashboard.
+              </p>
+            </div>
           </div>
         </div>
       )}
