@@ -12,6 +12,8 @@ import type { BookingStatus } from '@/components/ui/StatusBadge';
 type SortKey = 'wooOrderId' | 'customer' | 'bookingDate' | 'status' | 'payment';
 type SortDir = 'asc' | 'desc';
 
+type DateFilterTab = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'delayed' | 'pending-payment';
+
 const STATUS_TABS: Array<{ label: string; value: BookingStatus | 'All' }> = [
   { label: 'All Bookings', value: 'All' },
   { label: 'Accepted', value: 'Booking Accepted' },
@@ -26,6 +28,7 @@ export default function OrdersTable() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeStatus, setActiveStatus] = useState<BookingStatus | 'All'>('All');
+  const [activeDateTab, setActiveDateTab] = useState<DateFilterTab>('all');
   const [sortKey, setSortKey] = useState<SortKey>('bookingDate');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
@@ -198,6 +201,27 @@ export default function OrdersTable() {
   const filtered = useMemo(() => {
     let result = [...orders];
     if (activeStatus !== 'All') result = result.filter((o) => o.status === activeStatus);
+
+    // Date-based tab filtering
+    if (activeDateTab !== 'all') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+      if (activeDateTab === 'today') {
+        result = result.filter((o) => o.bookingDate === todayStr);
+      } else if (activeDateTab === 'tomorrow') {
+        result = result.filter((o) => o.bookingDate === tomorrowStr);
+      } else if (activeDateTab === 'upcoming') {
+        result = result.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
+      } else if (activeDateTab === 'delayed') {
+        result = result.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
+      } else if (activeDateTab === 'pending-payment') {
+        result = result.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending');
+      }
+    }
+
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -230,7 +254,7 @@ export default function OrdersTable() {
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
     return result;
-  }, [orders, activeStatus, search, sortKey, sortDir, dateFrom, dateTo, driverFilter]);
+  }, [orders, activeStatus, search, sortKey, sortDir, dateFrom, dateTo, driverFilter, activeDateTab]);
 
   const totalPages = Math.ceil(filtered.length / perPage);
   const paged = filtered.slice((page - 1) * perPage, page * perPage);
@@ -579,6 +603,59 @@ export default function OrdersTable() {
           </button>
         </div>
       )}
+
+      {/* Date filter tabs */}
+      {(() => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+        const dateTabs: Array<{ label: string; value: DateFilterTab; count: number; accent?: string }> = [
+          { label: 'All Orders', value: 'all', count: orders.length },
+          { label: 'Today', value: 'today', count: orders.filter((o) => o.bookingDate === todayStr).length, accent: 'hsl(217 91% 60%)' },
+          { label: 'Tomorrow', value: 'tomorrow', count: orders.filter((o) => o.bookingDate === tomorrowStr).length, accent: 'hsl(262 83% 58%)' },
+          { label: 'Upcoming', value: 'upcoming', count: orders.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled').length, accent: 'hsl(142 69% 35%)' },
+          { label: 'Delayed', value: 'delayed', count: orders.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled').length, accent: 'hsl(0 84% 60%)' },
+          { label: 'Pending Payment', value: 'pending-payment', count: orders.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending').length, accent: 'hsl(38 92% 50%)' },
+        ];
+
+        return (
+          <div className="flex items-center gap-0 border-b overflow-x-auto scrollbar-thin px-4" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--primary) / 0.01)' }}>
+            {dateTabs.map((tab) => {
+              const isActive = activeDateTab === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => { setActiveDateTab(tab.value); setPage(1); }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all"
+                  style={{
+                    borderBottomColor: isActive ? (tab.accent ?? 'hsl(var(--primary))') : 'transparent',
+                    color: isActive ? (tab.accent ?? 'hsl(var(--primary))') : 'hsl(var(--muted-foreground))',
+                  }}
+                >
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                      style={{
+                        backgroundColor: isActive
+                          ? `${tab.accent ?? 'hsl(var(--primary))'}1a`
+                          : 'hsl(var(--secondary))',
+                        color: isActive
+                          ? (tab.accent ?? 'hsl(var(--primary))')
+                          : 'hsl(var(--muted-foreground))',
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Status filter tabs */}
       <div className="flex items-center gap-0 border-b overflow-x-auto scrollbar-thin px-4" style={{ borderColor: 'hsl(var(--border))' }}>
