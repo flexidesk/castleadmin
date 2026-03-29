@@ -648,11 +648,12 @@ export default function DriverTrackingContent() {
 
       if (dErr) throw dErr;
 
-      // Fetch latest location per driver (most recent)
+      // Fetch latest location per driver — limit to recent 500 rows to avoid large payloads
       const { data: locationRows } = await supabase
         .from('driver_locations')
         .select('driver_id, latitude, longitude, heading, speed, recorded_at')
-        .order('recorded_at', { ascending: false });
+        .order('recorded_at', { ascending: false })
+        .limit(500);
 
       // Fetch today's shifts
       const { data: shiftRows } = await supabase
@@ -701,15 +702,16 @@ export default function DriverTrackingContent() {
 
       setDrivers(rows);
       setLastUpdated(new Date());
-      if (rows.length > 0 && !selectedDriverId) {
-        setSelectedDriverId(rows[0].driver.id);
-      }
+      setSelectedDriverId((prev) => {
+        if (prev) return prev;
+        return rows.length > 0 ? rows[0].driver.id : null;
+      });
     } catch (err) {
       console.error('Driver tracking fetch error:', err);
     } finally {
       setLoading(false);
     }
-  }, [supabase, selectedDriverId]);
+  }, [supabase]);
 
   useEffect(() => {
     fetchData();
