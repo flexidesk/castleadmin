@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MapPin, Plus, Trash2, Edit3, Save, X, User, CheckCircle2, Map as MapIcon, Layers } from 'lucide-react';
 import { toast } from 'sonner';
+import { useMapsConfig, getTileLayerConfig } from '@/hooks/useMapsConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
   useEffect(() => { onZoneClickRef.current = onZoneClick; }, [onZoneClick]);
 
+  const mapsConfig = useMapsConfig();
+
   // ── Inject Leaflet CSS once ────────────────────────────────────────────────
   useEffect(() => {
     const id = 'leaflet-css';
@@ -80,6 +83,7 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
   // ── Init map once ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+    if (mapsConfig.loading) return;
     let destroyed = false;
 
     import('leaflet').then((mod) => {
@@ -101,9 +105,11 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
         preferCanvas: false,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
 
       mapRef.current = map;
@@ -123,7 +129,7 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
         mapRef.current = null;
       }
     };
-  }, []);
+  }, [mapsConfig.loading]);
 
   // ── Drawing click handler ──────────────────────────────────────────────────
   useEffect(() => {

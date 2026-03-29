@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import AppLayout from '@/components/AppLayout';
 import { MapPin, Navigation, Clock, Wifi, WifiOff, Truck, RefreshCw, Gauge, Route, User, Calendar, Coffee, CheckCircle2, Timer,  } from 'lucide-react';
+import { useMapsConfig, getTileLayerConfig } from '@/hooks/useMapsConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -152,9 +153,11 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
+  const mapsConfig = useMapsConfig();
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+    if (mapsConfig.loading) return;
 
     import('leaflet').then((leafletModule) => {
       const L = leafletModule.default;
@@ -170,9 +173,11 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
         zoom: 10,
         zoomControl: true,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
       mapInstanceRef.current = map;
     });
@@ -184,7 +189,7 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
         markersRef.current.clear();
       }
     };
-  }, []);
+  }, [mapsConfig.loading]);
 
   useEffect(() => {
     if (!mapInstanceRef.current) return;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import AppLayout from '@/components/AppLayout';
 import { MapPin, Navigation, Clock, Wifi, WifiOff, Package, RefreshCw, Truck, CheckCircle2, XCircle, Search, Filter,  } from 'lucide-react';
+import { useMapsConfig, getTileLayerConfig, geocodeAddress } from '@/hooks/useMapsConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -149,10 +150,12 @@ function LiveMap({ bookings, selectedBookingId, onSelectBooking }: LiveMapProps)
   const driverMarkersRef = useRef<Map<string, any>>(new Map());
   const destMarkersRef = useRef<Map<string, any>>(new Map());
   const geocodedRef = useRef<Set<string>>(new Set());
+  const mapsConfig = useMapsConfig();
 
   // Init map
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+    if (mapsConfig.loading) return;
 
     import('leaflet').then((leafletModule) => {
       const L = leafletModule.default;
@@ -172,9 +175,11 @@ function LiveMap({ bookings, selectedBookingId, onSelectBooking }: LiveMapProps)
         attributionControl: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
 
       mapInstanceRef.current = map;
@@ -189,7 +194,7 @@ function LiveMap({ bookings, selectedBookingId, onSelectBooking }: LiveMapProps)
         geocodedRef.current.clear();
       }
     };
-  }, []);
+  }, [mapsConfig.loading]);
 
   // Update markers when bookings change
   useEffect(() => {
@@ -260,14 +265,10 @@ function LiveMap({ bookings, selectedBookingId, onSelectBooking }: LiveMapProps)
           geocodedRef.current.add(booking.id);
           const query = booking.delivery_address_postcode || booking.delivery_address_city || address;
 
-          fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
-            headers: { 'User-Agent': 'CastleAdminTracking/1.0' },
-          })
-            .then((r) => r.json())
-            .then((results: any[]) => {
-              if (!results?.length || !mapInstanceRef.current) return;
-              const destLat = parseFloat(results[0].lat);
-              const destLon = parseFloat(results[0].lon);
+          geocodeAddress(query, mapsConfig, { 'User-Agent': 'CastleAdminTracking/1.0' })
+            .then((coords) => {
+              if (!coords || !mapInstanceRef.current) return;
+              const [destLat, destLon] = coords;
 
               const destIcon = L.divIcon({
                 html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#3b82f6;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-size:12px;">📦</span></div>`,
