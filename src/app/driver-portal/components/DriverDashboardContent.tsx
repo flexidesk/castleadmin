@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
 import {
   Truck, Package, CheckCircle2, Clock, MapPin, Phone, ChevronRight,
   RefreshCw, Loader2, ChevronDown, Camera, Navigation, AlertCircle,
-  Calendar, User, ArrowRight, Filter, X, PackageCheck, PackageOpen,
+  Calendar, User, ArrowRight, Filter, X, PackageCheck, PackageOpen, XOctagon,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import DriverOrderDetail from './DriverOrderDetail';
@@ -108,6 +108,16 @@ export default function DriverDashboardContent() {
   const [dateFilter, setDateFilter] = useState<string>('');
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // ── Delivery Failed state ──────────────────────────────────────────────────
+  const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState('');
+  const [failureNotes, setFailureNotes] = useState('');
+  const [submittingFailure, setSubmittingFailure] = useState(false);
+
+  // ── Live Location Tracking refs ────────────────────────────────────────────
+  const locationWatchRef = useRef<number | null>(null);
+  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const supabase = createClient();
 
   // ─── Data Loading ──────────────────────────────────────────────────────────
@@ -166,6 +176,63 @@ export default function DriverDashboardContent() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Live GPS Tracking ──────────────────────────────────────────────────────
+  const broadcastLocation = useCallback(async (lat: number, lng: number, heading: number | null, speed: number | null, accuracy: number | null) => {
+    if (!driver?.id) return;
+    try {
+      await supabase.from('driver_locations').insert({
+        driver_id: driver.id,
+        latitude: lat,
+        longitude: lng,
+        heading: heading ?? null,
+        speed: speed ?? null,
+        accuracy: accuracy ?? null,
+        recorded_at: new Date().toISOString(),
+      });
+    } catch {
+      // silent
+    }
+  }, [driver?.id, supabase]);
+
+  useEffect(() => {
+    if (!driver?.id || !navigator.geolocation) return;
+
+    const handlePosition = (pos: GeolocationPosition) => {
+      broadcastLocation(
+        pos.coords.latitude,
+        pos.coords.longitude,
+        pos.coords.heading,
+        pos.coords.speed,
+        pos.coords.accuracy,
+      );
+    };
+
+    locationWatchRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      () => { /* silent */ },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+
+    locationIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        handlePosition,
+        () => { /* silent */ },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      );
+    }, 30000);
+
+    return () => {
+      if (locationWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+      if (locationIntervalRef.current !== null) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [driver?.id, broadcastLocation]);
 
   useEffect(() => {
     const channel = supabase
@@ -244,6 +311,46 @@ export default function DriverDashboardContent() {
       toast.error(err.message ?? 'Failed to update order status');
     } finally {
       setUpdatingOrderId(null);
+    }
+  };
+
+  // ─── Delivery Failed Handler ───────────────────────────────────────────────
+
+  const handleDeliveryFailed = async () => {
+    if (!failedOrderId) return;
+    if (!failureReason.trim()) {
+      toast.error('Please provide a reason for the delivery failure');
+      return;
+    }
+    setSubmittingFailure(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'Booking Failed',
+          failure_reason: failureReason.trim(),
+          failure_notes: failureNotes.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', failedOrderId);
+
+      if (error) throw error;
+
+      setAllOrders((prev) =>
+        prev.map((o) =>
+          o.id === failedOrderId
+            ? { ...o, status: 'Booking Failed' } as any
+            : o
+        )
+      );
+      toast.success('Delivery marked as failed');
+      setFailedOrderId(null);
+      setFailureReason('');
+      setFailureNotes('');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update order');
+    } finally {
+      setSubmittingFailure(false);
     }
   };
 
@@ -652,6 +759,7 @@ export default function DriverDashboardContent() {
               const nextStatusLabel = NEXT_STATUS_LABEL[order.status];
               const isComplete = order.status === 'Booking Complete';
               const isCancelled = order.status === 'Booking Cancelled';
+              const isFailed = order.status === 'Booking Failed';
               const isUpdating = updatingOrderId === order.id;
               const urgent = isUrgent(order);
               const accentColor = STATUS_ACCENT[order.status] ?? 'hsl(var(--primary))';
@@ -684,7 +792,6 @@ export default function DriverDashboardContent() {
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
                           <StatusBadge status={order.status} />
-                          {/* Booking type badge */}
                           <span
                             className="text-xs px-2 py-0.5 rounded-full font-medium"
                             style={{
@@ -753,8 +860,8 @@ export default function DriverDashboardContent() {
                     </div>
 
                     {/* Action Buttons */}
-                    {!isComplete && !isCancelled && (
-                      <div className="flex gap-2">
+                    {!isComplete && !isCancelled && !isFailed && (
+                      <div className="flex gap-2 flex-wrap">
                         {nextStatusLabel && (
                           <button
                             onClick={(e) => handleAdvanceOrderStatus(order, e)}
@@ -787,6 +894,17 @@ export default function DriverDashboardContent() {
                             <span className="text-xs">Navigate</span>
                           </a>
                         )}
+                        {/* Delivery Failed Button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setFailedOrderId(order.id); setFailureReason(''); setFailureNotes(''); }}
+                          disabled={isUpdating}
+                          className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors border"
+                          style={{ borderColor: 'hsl(0 84% 60% / 0.4)', color: 'hsl(0 84% 60%)', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+                          title="Mark delivery as failed"
+                        >
+                          <XOctagon size={14} />
+                          <span className="text-xs">Failed</span>
+                        </button>
                       </div>
                     )}
 
@@ -810,16 +928,133 @@ export default function DriverDashboardContent() {
                         <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Booking Cancelled</span>
                       </div>
                     )}
-                    {order.status === 'Booking Failed' && (
+
+                    {isFailed && (
                       <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
-                        <AlertCircle size={15} style={{ color: 'hsl(0 84% 60%)' }} />
-                        <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Booking Failed</span>
+                        <XOctagon size={15} style={{ color: 'hsl(0 84% 60%)' }} />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</span>
+                          {(order as any).failure_reason && (
+                            <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {(order as any).failure_reason}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── Delivery Failed Modal ── */}
+        {failedOrderId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div
+              className="w-full sm:max-w-sm rounded-2xl overflow-hidden"
+              style={{ backgroundColor: 'hsl(var(--card))' }}
+            >
+              {/* Header */}
+              <div
+                className="flex items-center justify-between px-4 py-3 border-b"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <XOctagon size={18} style={{ color: 'hsl(0 84% 60%)' }} />
+                  <h3 className="font-bold text-base" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</h3>
+                </div>
+                <button
+                  onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                  className="p-1.5 rounded-lg transition-colors hover:bg-secondary"
+                >
+                  <X size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-4 space-y-4">
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Order <strong style={{ color: 'hsl(var(--foreground))' }}>{failedOrderId}</strong> will be marked as <strong style={{ color: 'hsl(0 84% 60%)' }}>Booking Failed</strong>. Please provide a reason.
+                </p>
+
+                {/* Quick Reason Buttons */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>
+                    Reason <span style={{ color: 'hsl(0 84% 60%)' }}>*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {[
+                      'Not home / No answer',
+                      'Access issue',
+                      'Wrong address',
+                      'Customer refused',
+                      'Item damaged',
+                      'Other',
+                    ].map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setFailureReason(r)}
+                        className="py-2 px-3 rounded-lg text-xs font-medium text-left transition-all"
+                        style={{
+                          backgroundColor: failureReason === r ? 'hsl(0 84% 60%)' : 'hsl(var(--secondary))',
+                          color: failureReason === r ? 'white' : 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={failureReason}
+                    onChange={(e) => setFailureReason(e.target.value)}
+                    placeholder="Or type a custom reason…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: failureReason ? 'hsl(0 84% 60% / 0.5)' : 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Additional Notes */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>Additional Notes (optional)</label>
+                  <textarea
+                    value={failureNotes}
+                    onChange={(e) => setFailureNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Any extra details for dispatch…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none resize-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                    disabled={submittingFailure}
+                    className="flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeliveryFailed}
+                    disabled={submittingFailure || !failureReason.trim()}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-semibold text-sm transition-all"
+                    style={{
+                      backgroundColor: 'hsl(0 84% 60%)',
+                      color: 'white',
+                      opacity: submittingFailure || !failureReason.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    {submittingFailure ? <Loader2 size={14} className="animate-spin" /> : <XOctagon size={14} />}
+                    {submittingFailure ? 'Saving…' : 'Confirm Failed'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

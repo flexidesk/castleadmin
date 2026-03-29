@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -121,6 +121,8 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
   const [paymentRecorded, setPaymentRecorded] = useState(
     currentOrder.payment.status === 'Paid' || currentOrder.payment.status === 'paid'
   );
+  const [isDeletingPayment, setIsDeletingPayment] = useState(false);
+  const [showDeletePaymentConfirm, setShowDeletePaymentConfirm] = useState(false);
 
   const mapAddress = currentOrder.deliveryAddress
     ? encodeURIComponent(`${currentOrder.deliveryAddress.line1}, ${currentOrder.deliveryAddress.city}, ${currentOrder.deliveryAddress.postcode}, UK`)
@@ -196,6 +198,54 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
       toast.error(err.message ?? 'Failed to record payment');
     } finally {
       setSavingPayment(false);
+    }
+  };
+
+  const handleDeletePayment = async () => {
+    setIsDeletingPayment(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_status: 'Unpaid',
+          payment_method: null,
+          delivery_charge: null,
+          payment_amount: null,
+          deposit_paid: null,
+          amount_due: null,
+          payment_notes: null,
+          payment_recorded_at: null,
+          payment_recorded_by: null,
+        })
+        .eq('id', currentOrder.id);
+
+      if (error) throw error;
+
+      const updated: AppOrder = {
+        ...currentOrder,
+        payment: {
+          ...currentOrder.payment,
+          status: 'Unpaid',
+          method: 'Unrecorded',
+          amount: 0,
+          amountDue: 0,
+          orderTotal: 0,
+          depositPaid: 0,
+          totalDue: 0,
+          notes: '',
+          recordedAt: undefined,
+          recordedBy: undefined,
+        },
+      };
+      setCurrentOrder(updated);
+      setPaymentRecorded(false);
+      setShowDeletePaymentConfirm(false);
+      onOrderUpdate?.(updated);
+      toast.success('Payment record removed');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to remove payment record');
+    } finally {
+      setIsDeletingPayment(false);
     }
   };
 
@@ -459,6 +509,45 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
                 </div>
               </div>
 
+              {/* Delete Payment Confirmation */}
+              {showDeletePaymentConfirm && (
+                <div
+                  className="rounded-xl border p-4 space-y-3"
+                  style={{ borderColor: 'hsl(0 84% 60% / 0.4)', backgroundColor: 'hsl(0 84% 60% / 0.05)' }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(0 84% 60% / 0.1)' }}>
+                      <Trash2 size={16} style={{ color: 'hsl(0 84% 60%)' }} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Remove Payment Record?</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        This will reset the payment status to <strong>Unpaid</strong>. This cannot be undone.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleDeletePayment}
+                      disabled={isDeletingPayment}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-semibold text-xs transition-all"
+                      style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white', opacity: isDeletingPayment ? 0.7 : 1 }}
+                    >
+                      {isDeletingPayment ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      {isDeletingPayment ? 'Removing…' : 'Yes, Remove'}
+                    </button>
+                    <button
+                      onClick={() => setShowDeletePaymentConfirm(false)}
+                      disabled={isDeletingPayment}
+                      className="flex-1 py-2 rounded-lg font-medium text-xs transition-colors"
+                      style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Record Payment Form */}
               {paymentRecorded ? (
                 <div
@@ -471,6 +560,16 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
                     {currentOrder.payment.method && currentOrder.payment.method !== 'Unrecorded' ? `${currentOrder.payment.method} · ` : ''}
                     £{Number(currentOrder.payment.amount ?? 0).toFixed(2)}
                   </p>
+                  {!showDeletePaymentConfirm && (
+                    <button
+                      onClick={() => setShowDeletePaymentConfirm(true)}
+                      className="flex items-center justify-center gap-1.5 mx-auto mt-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                      style={{ backgroundColor: 'hsl(0 84% 60% / 0.1)', color: 'hsl(0 84% 60%)' }}
+                    >
+                      <Trash2 size={12} />
+                      Remove Payment Record
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-xl border p-4 space-y-4" style={{ borderColor: 'hsl(var(--border))' }}>
@@ -790,7 +889,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
                 <button
                   key={t}
                   onClick={() => { setInspectionType(t); setCheckResults({}); setCheckImages({}); }}
-                  className="flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize"
+                  className="flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-all"
                   style={{
                     backgroundColor: inspectionType === t ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
                     color: inspectionType === t ? 'white' : 'hsl(var(--muted-foreground))',
@@ -947,7 +1046,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
                       <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
                         {(insp.vehicles as any)?.registration ?? 'Unknown Vehicle'}
                       </p>
-                      <span className="text-xs px-1.5 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: res.bg, color: res.color }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: res.bg, color: res.color }}>
                         {res.label}
                       </span>
                     </div>
@@ -1502,7 +1601,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfil
   );
 }
 
-// ─── Driver Dashboard ─────────────────────────────────────────────────────────
+// ─── Main Driver Dashboard (after login) ──────────────────────────────────────
 
 function DriverDashboard({
   driver: initialDriver,
@@ -1529,161 +1628,73 @@ function DriverDashboard({
   const [pastShifts, setPastShifts] = useState<any[]>([]);
   const [driverPayments, setDriverPayments] = useState<any[]>([]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // ── Delivery Failed state ──────────────────────────────────────────────────
+  const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState('');
+  const [failureNotes, setFailureNotes] = useState('');
+  const [submittingFailure, setSubmittingFailure] = useState(false);
+
+  // ─── Live Location Tracking ─────────────────────────────────────────────────
+  const locationWatchRef = useRef<number | null>(null);
+  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const broadcastLocation = useCallback(async (lat: number, lng: number, heading: number | null, speed: number | null, accuracy: number | null) => {
     try {
-      const { data: ordersData } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('driver_id', driver.id)
-        .order('booking_date', { ascending: false });
-
-      if (ordersData) {
-        const mapped: AppOrder[] = ordersData.map((o: any) => ({
-          id: o.id,
-          bookingDate: o.booking_date ?? o.bookingDate ?? '',
-          deliveryWindow: o.delivery_window ?? o.deliveryWindow ?? '',
-          status: o.status ?? '',
-          bookingType: o.booking_type ?? o.bookingType ?? 'Delivery',
-          customer: {
-            name: o.customer_name ?? o.customer?.name ?? '',
-            email: o.customer_email ?? o.customer?.email ?? '',
-            phone: o.customer_phone ?? o.customer?.phone ?? '',
-          },
-          deliveryAddress: (o.delivery_address_line1 || o.delivery_address?.line1)
-            ? {
-                line1: o.delivery_address_line1 ?? o.delivery_address?.line1 ?? '',
-                line2: o.delivery_address_line2 ?? o.delivery_address?.line2 ?? '',
-                city: o.delivery_address_city ?? o.delivery_address?.city ?? '',
-                county: o.delivery_address_county ?? o.delivery_address?.county ?? '',
-                postcode: o.delivery_address_postcode ?? o.delivery_address?.postcode ?? '',
-                notes: o.delivery_address_notes ?? o.delivery_address?.notes ?? '',
-              }
-            : (o.deliveryAddress ?? null),
-          products: o.products ?? o.line_items ?? [],
-          payment: {
-            status: o.payment_status ?? o.payment?.status ?? '',
-            method: o.payment_method ?? o.payment?.method ?? '',
-            amount: Number(o.total ?? o.payment?.amount ?? 0),
-            orderTotal: Number(o.total ?? o.payment?.orderTotal ?? 0),
-            depositPaid: Number(o.deposit_paid ?? o.payment?.depositPaid ?? 0),
-            totalDue: Number(o.amount_due ?? o.payment?.totalDue ?? 0),
-            deliveryCharge: Number(o.delivery_charge ?? o.payment?.deliveryCharge ?? 0),
-            notes: o.payment_notes ?? o.payment?.notes ?? '',
-          },
-          pod: o.pod ?? null,
-          notes: o.notes ?? '',
-          driverId: o.driver_id ?? '',
-        }));
-        setAllOrders(mapped);
-
-        // Compute earnings
-        const today = getTodayStr();
-        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const completed = mapped.filter((o) => o.status === 'Booking Complete');
-        const todayDeliveries = completed.filter((o) => o.bookingDate === today).length;
-        const weekDeliveries = completed.filter((o) => o.bookingDate >= weekAgo).length;
-        const monthDeliveries = completed.filter((o) => o.bookingDate >= monthAgo).length;
-        const bonusPerDelivery = 2.5;
-        setEarnings({
-          todayDeliveries,
-          weekDeliveries,
-          monthDeliveries,
-          todayEarnings: todayDeliveries * bonusPerDelivery,
-          weekEarnings: weekDeliveries * bonusPerDelivery,
-          monthEarnings: monthDeliveries * bonusPerDelivery,
-          avgRating: 4.8,
-          completionRate: mapped.length > 0 ? Math.round((completed.length / mapped.length) * 100) : 100,
-          bonusPerDelivery,
-        });
-      }
-
-      // Load past shifts
-      const { data: shiftsData } = await supabase
-        .from('driver_shifts')
-        .select('*')
-        .eq('driver_id', driver.id)
-        .not('clock_out', 'is', null)
-        .order('clock_in', { ascending: false })
-        .limit(20);
-      if (shiftsData) setPastShifts(shiftsData);
-
-      // Load driver payments
-      const { data: paymentsData } = await supabase
-        .from('driver_payments')
-        .select('*')
-        .eq('driver_id', driver.id)
-        .order('payment_date', { ascending: false })
-        .limit(20);
-      if (paymentsData) setDriverPayments(paymentsData);
+      await supabase.from('driver_locations').insert({
+        driver_id: driver.id,
+        latitude: lat,
+        longitude: lng,
+        heading: heading ?? null,
+        speed: speed ?? null,
+        accuracy: accuracy ?? null,
+        recorded_at: new Date().toISOString(),
+      });
     } catch {
-      // silent
-    } finally {
-      setLoading(false);
+      // silent — don't interrupt driver workflow for tracking errors
     }
   }, [driver.id, supabase]);
 
-  useEffect(() => { loadData(); }, [loadData, shiftRefreshKey]);
-
-  // Real-time subscriptions
+  // Start live GPS tracking when driver is logged in
   useEffect(() => {
-    const channel = supabase
-      .channel('public-driver-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        loadData();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [loadData, supabase]);
+    if (!navigator.geolocation) return;
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`public-driver-self-${driver.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drivers', filter: `id=eq.${driver.id}` },
-        (payload) => {
-          const updated = payload.new as any;
-          setDriver((prev) => ({ ...prev, status: updated.status }));
-          toast.info(`Availability updated to "${updated.status}" by dispatch.`);
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [driver.id, supabase]);
+    const handlePosition = (pos: GeolocationPosition) => {
+      broadcastLocation(
+        pos.coords.latitude,
+        pos.coords.longitude,
+        pos.coords.heading,
+        pos.coords.speed,
+        pos.coords.accuracy,
+      );
+    };
 
-  // ─── Availability Update ───────────────────────────────────────────────────
-
-  const handleAvailabilityChange = async (newStatus: AvailabilityStatus) => {
-    if (newStatus === driver.status) {
-      setStatusDropdownOpen(false);
-      return;
-    }
-
-    const activeOrders = allOrders.filter(
-      (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
+    // Watch position for continuous updates
+    locationWatchRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      () => { /* silent on error */ },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
-    if (newStatus === 'Off Duty' && activeOrders.length > 0) {
-      toast.error(`You have ${activeOrders.length} active delivery${activeOrders.length > 1 ? 'ies' : ''} in progress.`);
-      setStatusDropdownOpen(false);
-      return;
-    }
 
-    setUpdatingStatus(true);
-    setStatusDropdownOpen(false);
-    try {
-      const { error } = await supabase
-        .from('drivers')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', driver.id);
-      if (error) throw error;
-      setDriver((prev) => ({ ...prev, status: newStatus }));
-      toast.success(`Availability set to "${newStatus}"`);
-    } catch (err: any) {
-      toast.error(err.message ?? 'Failed to update availability');
-    } finally {
-      setUpdatingStatus(false);
-    }
-  };
+    // Also broadcast every 30 seconds as a heartbeat
+    locationIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        handlePosition,
+        () => { /* silent */ },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      );
+    }, 30000);
+
+    return () => {
+      if (locationWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+      if (locationIntervalRef.current !== null) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [broadcastLocation]);
 
   // ─── Order Status Update ───────────────────────────────────────────────────
 
@@ -1719,6 +1730,46 @@ function DriverDashboard({
       toast.error(err.message ?? 'Failed to update order status');
     } finally {
       setUpdatingOrderId(null);
+    }
+  };
+
+  // ─── Delivery Failed Handler ───────────────────────────────────────────────
+
+  const handleDeliveryFailed = async () => {
+    if (!failedOrderId) return;
+    if (!failureReason.trim()) {
+      toast.error('Please provide a reason for the delivery failure');
+      return;
+    }
+    setSubmittingFailure(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'Booking Failed',
+          failure_reason: failureReason.trim(),
+          failure_notes: failureNotes.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', failedOrderId);
+
+      if (error) throw error;
+
+      setAllOrders((prev) =>
+        prev.map((o) =>
+          o.id === failedOrderId
+            ? { ...o, status: 'Booking Failed', failure_reason: failureReason.trim(), failure_notes: failureNotes.trim() || null } as any
+            : o
+        )
+      );
+      toast.success('Delivery marked as failed');
+      setFailedOrderId(null);
+      setFailureReason('');
+      setFailureNotes('');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update order');
+    } finally {
+      setSubmittingFailure(false);
     }
   };
 
@@ -1955,6 +2006,7 @@ function DriverDashboard({
                 const nextStatusLabel = NEXT_STATUS_LABEL[order.status];
                 const isComplete = order.status === 'Booking Complete';
                 const isCancelled = order.status === 'Booking Cancelled';
+                const isFailed = order.status === 'Booking Failed';
                 const isUpdating = updatingOrderId === order.id;
                 const urgent = isUrgent(order);
                 const accentColor = STATUS_ACCENT[order.status] ?? 'hsl(var(--primary))';
@@ -2044,7 +2096,7 @@ function DriverDashboard({
                       </div>
 
                       {/* Action Buttons */}
-                      {!isComplete && !isCancelled && (
+                      {!isComplete && !isCancelled && !isFailed && (
                         <div className="flex gap-2">
                           {nextStatusLabel && (
                             <button
@@ -2086,6 +2138,17 @@ function DriverDashboard({
                             <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
                             <span className="text-xs">Details</span>
                           </button>
+                          {/* Delivery Failed Button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setFailedOrderId(order.id); setFailureReason(''); setFailureNotes(''); }}
+                            disabled={isUpdating}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors border"
+                            style={{ borderColor: 'hsl(0 84% 60% / 0.4)', color: 'hsl(0 84% 60%)', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+                            title="Mark delivery as failed"
+                          >
+                            <XOctagon size={14} />
+                            <span className="text-xs">Failed</span>
+                          </button>
                         </div>
                       )}
 
@@ -2124,6 +2187,21 @@ function DriverDashboard({
                             <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
                             <span className="text-xs">Details</span>
                           </button>
+                          {order.deliveryAddress && (
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                                `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
+                              style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              title="Navigate with Google Maps"
+                            >
+                              <Navigation size={14} style={{ color: 'hsl(var(--primary))' }} />
+                              <span className="text-xs">Nav</span>
+                            </a>
+                          )}
                           <button
                             onClick={() => setSelectedBookingDetail(order)}
                             className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
@@ -2171,6 +2249,20 @@ function DriverDashboard({
                             <Info size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
                             <span className="text-xs">Details</span>
                           </button>
+                        </div>
+                      )}
+
+                      {isFailed && (
+                        <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
+                          <XOctagon size={15} style={{ color: 'hsl(0 84% 60%)' }} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</span>
+                            {(order as any).failure_reason && (
+                              <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                                {(order as any).failure_reason}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2688,7 +2780,7 @@ function DriverDashboard({
         {/* ── MAP SECTION ── */}
         {activeSection === 'map' && (
           <div
-            className="rounded-xl border overflow-hidden"
+            className="rounded-xl border p-4"
             style={{ borderColor: 'hsl(var(--border))' }}
           >
             <div
@@ -2731,6 +2823,115 @@ function DriverDashboard({
             onDriverUpdate={(updated) => setDriver(updated)}
             onLogout={onLogout}
           />
+        )}
+
+        {/* ── Delivery Failed Modal ── */}
+        {failedOrderId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div
+              className="w-full sm:max-w-sm rounded-2xl overflow-hidden"
+              style={{ backgroundColor: 'hsl(var(--card))' }}
+            >
+              {/* Header */}
+              <div
+                className="flex items-center justify-between px-4 py-3 border-b"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <XOctagon size={18} style={{ color: 'hsl(0 84% 60%)' }} />
+                  <h3 className="font-bold text-base" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</h3>
+                </div>
+                <button
+                  onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                  className="p-1.5 rounded-lg transition-colors hover:bg-secondary"
+                >
+                  <X size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-4 space-y-4">
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Order <strong style={{ color: 'hsl(var(--foreground))' }}>{failedOrderId}</strong> will be marked as <strong style={{ color: 'hsl(0 84% 60%)' }}>Booking Failed</strong>. Please provide a reason.
+                </p>
+
+                {/* Reason */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>
+                    Reason <span style={{ color: 'hsl(0 84% 60%)' }}>*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {[
+                      'Not home / No answer',
+                      'Access issue',
+                      'Wrong address',
+                      'Customer refused',
+                      'Item damaged',
+                      'Other',
+                    ].map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setFailureReason(r)}
+                        className="py-2 px-3 rounded-lg text-xs font-medium text-left transition-all"
+                        style={{
+                          backgroundColor: failureReason === r ? 'hsl(0 84% 60%)' : 'hsl(var(--secondary))',
+                          color: failureReason === r ? 'white' : 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={failureReason}
+                    onChange={(e) => setFailureReason(e.target.value)}
+                    placeholder="Or type a custom reason…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: failureReason ? 'hsl(0 84% 60% / 0.5)' : 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Additional Notes */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>Additional Notes (optional)</label>
+                  <textarea
+                    value={failureNotes}
+                    onChange={(e) => setFailureNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Any extra details for dispatch…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none resize-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                    disabled={submittingFailure}
+                    className="flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeliveryFailed}
+                    disabled={submittingFailure || !failureReason.trim()}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-semibold text-sm transition-all"
+                    style={{
+                      backgroundColor: 'hsl(0 84% 60%)',
+                      color: 'white',
+                      opacity: submittingFailure || !failureReason.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    {submittingFailure ? <Loader2 size={14} className="animate-spin" /> : <XOctagon size={14} />}
+                    {submittingFailure ? 'Saving…' : 'Confirm Failed'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Booking Detail Modal */}
