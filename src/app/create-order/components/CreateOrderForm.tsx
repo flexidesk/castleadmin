@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -29,6 +29,7 @@ import {
 import Modal from '@/components/ui/Modal';
 import { ordersService, AppDriver } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
+import { useMapsConfig } from '@/hooks/useMapsConfig';
 
 type BookingType = 'Delivery' | 'Collection';
 type PaymentMethod = 'Card' | 'Cash' | 'Unrecorded';
@@ -130,6 +131,12 @@ export default function CreateOrderForm() {
   const [autoZoneAllocation, setAutoZoneAllocation] = useState(false);
   const [autoAssignedByZone, setAutoAssignedByZone] = useState(false);
 
+  // Google Maps autocomplete
+  const mapsConfig = useMapsConfig();
+  const addressLine1Ref = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const googleMapsScriptRef = useRef<HTMLScriptElement | null>(null);
+
   useEffect(() => {
     ordersService.fetchDrivers().then((data) => {
       setDrivers(data);
@@ -211,6 +218,89 @@ export default function CreateOrderForm() {
     },
     [activeZones, autoZoneAllocation]
   );
+
+  // Load Google Maps Places script and attach autocomplete when config is ready
+  useEffect(() => {
+    if (!mapsConfig.useGoogleMaps || !mapsConfig.apiKey || mapsConfig.loading) return;
+    if (bookingType !== 'Delivery') return;
+
+    const scriptId = 'google-maps-places-script';
+
+    const attachAutocomplete = () => {
+      if (!addressLine1Ref.current) return;
+      if (autocompleteRef.current) return; // already attached
+
+      const ac = new window.google.maps.places.Autocomplete(addressLine1Ref.current, {
+        types: ['address'],
+        componentRestrictions: { country: 'gb' },
+        fields: ['address_components', 'formatted_address'],
+      });
+      autocompleteRef.current = ac;
+
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (!place.address_components) return;
+
+        let streetNumber = '';
+        let route = '';
+        let city = '';
+        let county = '';
+        let postcode = '';
+        let subpremise = '';
+
+        for (const component of place.address_components) {
+          const types = component.types;
+          if (types.includes('subpremise')) subpremise = component.long_name;
+          if (types.includes('street_number')) streetNumber = component.long_name;
+          if (types.includes('route')) route = component.long_name;
+          if (types.includes('postal_town') || types.includes('locality')) city = component.long_name;
+          if (types.includes('administrative_area_level_2')) county = component.long_name;
+          if (types.includes('postal_code')) postcode = component.long_name;
+        }
+
+        const line1Parts = [subpremise, streetNumber, route].filter(Boolean);
+        const line1 = line1Parts.join(' ');
+
+        if (line1) setValue('addressLine1', line1, { shouldDirty: true });
+        if (city) setValue('city', city, { shouldDirty: true });
+        if (county) setValue('county', county, { shouldDirty: true });
+        if (postcode) setValue('postcode', postcode, { shouldDirty: true });
+        setHasUnsavedChanges(true);
+      });
+    };
+
+    if (window.google?.maps?.places) {
+      attachAutocomplete();
+      return;
+    }
+
+    if (document.getElementById(scriptId)) {
+      // Script already loading — wait for it
+      const interval = setInterval(() => {
+        if (window.google?.maps?.places) {
+          clearInterval(interval);
+          attachAutocomplete();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${mapsConfig.apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = attachAutocomplete;
+    document.head.appendChild(script);
+    googleMapsScriptRef.current = script;
+
+    return () => {
+      if (autocompleteRef.current) {
+        window.google?.maps?.event?.clearInstanceListeners(autocompleteRef.current);
+        autocompleteRef.current = null;
+      }
+    };
+  }, [mapsConfig.useGoogleMaps, mapsConfig.apiKey, mapsConfig.loading, bookingType, setValue]);
 
   const {
     register,
@@ -477,6 +567,20 @@ export default function CreateOrderForm() {
               Delivery Address
             </h2>
 
+            {mapsConfig.useGoogleMaps && !mapsConfig.loading && (
+              <div
+                className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs"
+                style={{
+                  backgroundColor: 'hsl(var(--primary) / 0.07)',
+                  color: 'hsl(var(--primary))',
+                  border: '1px solid hsl(var(--primary) / 0.2)',
+                }}
+              >
+                <MapPin size={13} />
+                Start typing an address below — Google Maps will suggest matching addresses to auto-fill the fields.
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label htmlFor="addressLine1" className="label">
@@ -485,11 +589,20 @@ export default function CreateOrderForm() {
                 <input
                   id="addressLine1"
                   type="text"
-                  placeholder="House number and street name"
+                  placeholder={mapsConfig.useGoogleMaps && !mapsConfig.loading ? 'Start typing to search address…' : 'House number and street name'}
                   className={`input-base ${errors.addressLine1 ? 'input-error' : ''}`}
-                  {...register('addressLine1', {
-                    required: bookingType === 'Delivery' ? 'Address line 1 is required for delivery bookings' : false,
-                  })}
+                  {...(() => {
+                    const { ref: rhfRef, ...rest } = register('addressLine1', {
+                      required: bookingType === 'Delivery' ? 'Address line 1 is required for delivery bookings' : false,
+                    });
+                    return {
+                      ...rest,
+                      ref: (el: HTMLInputElement | null) => {
+                        rhfRef(el);
+                        addressLine1Ref.current = el;
+                      },
+                    };
+                  })()}
                 />
                 {errors.addressLine1 && <p className="error-text">{errors.addressLine1.message}</p>}
               </div>
