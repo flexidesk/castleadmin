@@ -20,7 +20,7 @@ const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false })
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type AvailabilityStatus = 'Available' | 'On Route' | 'Off Duty';
-type FilterTab = 'today-deliveries' | 'today-collections' | 'all';
+type FilterTab = 'today-deliveries' | 'today-collections' | 'all' | 'tomorrow' | 'upcoming';
 
 const AVAILABILITY_OPTIONS: AvailabilityStatus[] = ['Available', 'On Route', 'Off Duty'];
 
@@ -61,6 +61,12 @@ const STATUS_ACCENT: Record<string, string> = {
 
 function getTodayStr(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+function getTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
 }
 
 function getGreeting(): string {
@@ -243,14 +249,19 @@ export default function DriverDashboardContent() {
   // ─── Derived State ─────────────────────────────────────────────────────────
 
   const today = getTodayStr();
+  const tomorrow = getTomorrowStr();
 
   const todayDeliveries = allOrders.filter((o) => o.bookingDate === today && !isCollection(o));
   const todayCollections = allOrders.filter((o) => o.bookingDate === today && isCollection(o));
+  const tomorrowOrders = allOrders.filter((o) => o.bookingDate === tomorrow);
+  const upcomingOrders = allOrders.filter((o) => o.bookingDate > tomorrow);
 
   const getDisplayOrders = (): AppOrder[] => {
     let base: AppOrder[] = [];
     if (activeTab === 'today-deliveries') base = todayDeliveries;
     else if (activeTab === 'today-collections') base = todayCollections;
+    else if (activeTab === 'tomorrow') base = tomorrowOrders;
+    else if (activeTab === 'upcoming') base = upcomingOrders;
     else base = allOrders;
 
     if (dateFilter && activeTab === 'all') {
@@ -471,16 +482,18 @@ export default function DriverDashboardContent() {
       <div>
         {/* Tab Row */}
         <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 flex gap-1 p-1 rounded-xl" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+          <div className="flex-1 flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
             {([
-              { key: 'today-deliveries', label: `Deliveries (${todayDeliveries.length})`, icon: PackageOpen },
-              { key: 'today-collections', label: `Collections (${todayCollections.length})`, icon: PackageCheck },
-              { key: 'all', label: `All (${allOrders.length})`, icon: Package },
+              { key: 'today-deliveries', label: `Deliveries (${todayDeliveries.length})`, shortLabel: `Del (${todayDeliveries.length})`, icon: PackageOpen },
+              { key: 'today-collections', label: `Collections (${todayCollections.length})`, shortLabel: `Col (${todayCollections.length})`, icon: PackageCheck },
+              { key: 'tomorrow', label: `Tomorrow (${tomorrowOrders.length})`, shortLabel: `Tmrw (${tomorrowOrders.length})`, icon: Calendar },
+              { key: 'upcoming', label: `Upcoming (${upcomingOrders.length})`, shortLabel: `Soon (${upcomingOrders.length})`, icon: ArrowRight },
+              { key: 'all', label: `All (${allOrders.length})`, shortLabel: `All (${allOrders.length})`, icon: Package },
             ] as const).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => { setActiveTab(tab.key); if (tab.key !== 'all') setDateFilter(''); }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all"
+                className="flex-shrink-0 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all"
                 style={{
                   backgroundColor: activeTab === tab.key ? 'hsl(var(--card))' : 'transparent',
                   color: activeTab === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
@@ -489,7 +502,7 @@ export default function DriverDashboardContent() {
               >
                 <tab.icon size={13} />
                 <span className="hidden sm:inline">{tab.label}</span>
-                <span className="sm:hidden">{tab.key === 'today-deliveries' ? `Del (${todayDeliveries.length})` : tab.key === 'today-collections' ? `Col (${todayCollections.length})` : `All (${allOrders.length})`}</span>
+                <span className="sm:hidden">{tab.shortLabel}</span>
               </button>
             ))}
           </div>
@@ -555,6 +568,30 @@ export default function DriverDashboardContent() {
           </div>
         )}
 
+        {activeTab === 'tomorrow' && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
+            style={{ backgroundColor: 'hsl(38 92% 50% / 0.08)' }}
+          >
+            <Calendar size={13} style={{ color: 'hsl(38 92% 50%)' }} />
+            <span className="text-xs font-medium" style={{ color: 'hsl(38 92% 50%)' }}>
+              {`${tomorrowOrders.length} order${tomorrowOrders.length !== 1 ? 's' : ''} scheduled for tomorrow · ${new Date(tomorrow + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}`}
+            </span>
+          </div>
+        )}
+
+        {activeTab === 'upcoming' && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
+            style={{ backgroundColor: 'hsl(262 83% 58% / 0.08)' }}
+          >
+            <ArrowRight size={13} style={{ color: 'hsl(262 83% 58%)' }} />
+            <span className="text-xs font-medium" style={{ color: 'hsl(262 83% 58%)' }}>
+              {`${upcomingOrders.length} upcoming order${upcomingOrders.length !== 1 ? 's' : ''} after tomorrow`}
+            </span>
+          </div>
+        )}
+
         {dateFilter && activeTab === 'all' && (
           <div
             className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
@@ -588,17 +625,24 @@ export default function DriverDashboardContent() {
               <PackageOpen size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             ) : activeTab === 'today-collections' ? (
               <PackageCheck size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            ) : activeTab === 'tomorrow' ? (
+              <Calendar size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            ) : activeTab === 'upcoming' ? (
+              <ArrowRight size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             ) : (
               <Package size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             )}
             <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
               {activeTab === 'today-deliveries' ? 'No deliveries today' :
-               activeTab === 'today-collections'? 'No collections today' : dateFilter ?'No orders on this date' : 'No orders found'}
+               activeTab === 'today-collections'? 'No collections today' :
+               activeTab === 'tomorrow' ? 'No orders tomorrow' :
+               activeTab === 'upcoming'? 'No upcoming orders' : dateFilter ?'No orders on this date' : 'No orders found'}
             </p>
             <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
               {activeTab === 'today-deliveries' ? 'No delivery orders assigned for today.' :
                activeTab === 'today-collections' ? 'No collection orders assigned for today.' :
-               dateFilter ? 'Try a different date or clear the filter.' : 'No orders assigned to you yet.'}
+               activeTab === 'tomorrow' ? 'No orders have been assigned for tomorrow yet.' :
+               activeTab === 'upcoming'? 'No orders scheduled beyond tomorrow.' : dateFilter ?'Try a different date or clear the filter.' : 'No orders assigned to you yet.'}
             </p>
           </div>
         ) : (
