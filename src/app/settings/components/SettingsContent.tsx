@@ -496,13 +496,13 @@ export default function SettingsContent() {
     setLoading(true);
     try {
       const [fleetRes, notifRes, rolesRes, intRes, ratesRes, alertRes, companyRes, apiKeysRes, zonesRes, wcRes] = await Promise.all([
-        supabase.from('fleet_config').select('*').limit(1).maybeSingle(),
-        supabase.from('notification_preferences').select('*').limit(1).maybeSingle(),
+        supabase.from('fleet_config').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('notification_preferences').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
         supabase.from('user_roles').select('*').order('created_at', { ascending: true }),
         supabase.from('system_integrations').select('*').order('name', { ascending: true }),
-        supabase.from('driver_rate_settings').select('*').limit(1).maybeSingle(),
-        supabase.from('alert_thresholds').select('*').limit(1).maybeSingle(),
-        supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+        supabase.from('driver_rate_settings').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('alert_thresholds').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('company_profile').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
         supabase.from('api_keys').select('*').order('created_at', { ascending: false }),
         supabase.from('delivery_zones').select('id, name, color, is_active').eq('is_active', true).order('name', { ascending: true }),
         supabase.from('woocommerce_settings').select('*').limit(1).maybeSingle(),
@@ -548,25 +548,25 @@ export default function SettingsContent() {
   const saveFleetConfig = async () => {
     setSaving(true);
     try {
+      const payload = {
+        company_name: fleet.company_name, timezone: fleet.timezone,
+        currency: fleet.currency, base_delivery_fee: fleet.base_delivery_fee,
+        per_km_fee: fleet.per_km_fee, min_delivery_fee: fleet.min_delivery_fee,
+        max_delivery_fee: fleet.max_delivery_fee, fee_structure: fleet.fee_structure,
+        company_address: fleet.company_address, company_phone: fleet.company_phone,
+        company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
+        map_default_zone_id: fleet.map_default_zone_id ?? null,
+        map_default_postcode: fleet.map_default_postcode ?? '',
+        delivery_fee_enabled: fleet.delivery_fee_enabled ?? true,
+        updated_at: new Date().toISOString(),
+      };
       if (fleet.id) {
-        const { error } = await supabase.from('fleet_config').update({
-          company_name: fleet.company_name, timezone: fleet.timezone,
-          currency: fleet.currency, base_delivery_fee: fleet.base_delivery_fee,
-          per_km_fee: fleet.per_km_fee, min_delivery_fee: fleet.min_delivery_fee,
-          max_delivery_fee: fleet.max_delivery_fee, fee_structure: fleet.fee_structure,
-          company_address: fleet.company_address, company_phone: fleet.company_phone,
-          company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
-          map_default_zone_id: fleet.map_default_zone_id ?? null,
-          map_default_postcode: fleet.map_default_postcode ?? '',
-          delivery_fee_enabled: fleet.delivery_fee_enabled ?? true,
-          updated_at: new Date().toISOString(),
-        }).eq('id', fleet.id);
+        const { error } = await supabase.from('fleet_config').update(payload).eq('id', fleet.id);
         if (error) throw error;
       } else {
-        const { id: _id, ...rest } = fleet;
-        const { data, error } = await supabase.from('fleet_config').insert(rest).select().single();
+        const { data, error } = await supabase.from('fleet_config').insert(payload).select().single();
         if (error) throw error;
-        if (data) setFleet(data);
+        if (data) setFleet(sanitizeNulls(data, DEFAULT_FLEET));
       }
       toast.success('Fleet configuration saved');
     } catch (err: unknown) {
@@ -688,17 +688,15 @@ export default function SettingsContent() {
   const saveNotifPrefs = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = notifPrefs;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (notifPrefs.id) {
-        const { id: _id, ...rest } = notifPrefs;
-        const { error } = await supabase.from('notification_preferences').update({
-          ...rest, updated_at: new Date().toISOString(),
-        }).eq('id', notifPrefs.id);
+        const { error } = await supabase.from('notification_preferences').update(payload).eq('id', notifPrefs.id);
         if (error) throw error;
       } else {
-        const { id: _id, ...rest } = notifPrefs;
-        const { data, error } = await supabase.from('notification_preferences').insert(rest).select().single();
+        const { data, error } = await supabase.from('notification_preferences').insert(payload).select().single();
         if (error) throw error;
-        if (data) setNotifPrefs(data);
+        if (data) setNotifPrefs(sanitizeNulls(data, DEFAULT_NOTIF_PREFS));
       }
       toast.success('Notification preferences saved');
     } catch (err: unknown) {
@@ -714,17 +712,15 @@ export default function SettingsContent() {
   const saveDriverRates = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = driverRates;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (driverRates.id) {
-        const { id: _id, ...rest } = driverRates;
-        const { error } = await supabase.from('driver_rate_settings').update({
-          ...rest, updated_at: new Date().toISOString(),
-        }).eq('id', driverRates.id);
+        const { error } = await supabase.from('driver_rate_settings').update(payload).eq('id', driverRates.id);
         if (error) throw error;
       } else {
-        const { id: _id, ...rest } = driverRates;
-        const { data, error } = await supabase.from('driver_rate_settings').insert(rest).select().single();
+        const { data, error } = await supabase.from('driver_rate_settings').insert(payload).select().single();
         if (error) throw error;
-        if (data) setDriverRates(data);
+        if (data) setDriverRates(sanitizeNulls(data, DEFAULT_DRIVER_RATES));
       }
       toast.success('Driver rate settings saved');
     } catch (err: unknown) {
@@ -740,17 +736,15 @@ export default function SettingsContent() {
   const saveAlertThresholds = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = alertThresholds;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (alertThresholds.id) {
-        const { id: _id, ...rest } = alertThresholds;
-        const { error } = await supabase.from('alert_thresholds').update({
-          ...rest, updated_at: new Date().toISOString(),
-        }).eq('id', alertThresholds.id);
+        const { error } = await supabase.from('alert_thresholds').update(payload).eq('id', alertThresholds.id);
         if (error) throw error;
       } else {
-        const { id: _id, ...rest } = alertThresholds;
-        const { data, error } = await supabase.from('alert_thresholds').insert(rest).select().single();
+        const { data, error } = await supabase.from('alert_thresholds').insert(payload).select().single();
         if (error) throw error;
-        if (data) setAlertThresholds(data);
+        if (data) setAlertThresholds(sanitizeNulls(data, DEFAULT_ALERT_THRESHOLDS));
       }
       toast.success('Alert thresholds saved');
     } catch (err: unknown) {
@@ -890,17 +884,15 @@ export default function SettingsContent() {
   const saveCompanyProfile = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = companyProfile;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (companyProfile.id) {
-        const { id: _id, ...rest } = companyProfile;
-        const { error } = await supabase.from('company_profile').update({
-          ...rest, updated_at: new Date().toISOString(),
-        }).eq('id', companyProfile.id);
+        const { error } = await supabase.from('company_profile').update(payload).eq('id', companyProfile.id);
         if (error) throw error;
       } else {
-        const { id: _id, ...rest } = companyProfile;
-        const { data, error } = await supabase.from('company_profile').insert(rest).select().single();
+        const { data, error } = await supabase.from('company_profile').insert(payload).select().single();
         if (error) throw error;
-        if (data) setCompanyProfile(data);
+        if (data) setCompanyProfile(sanitizeNulls(data, DEFAULT_COMPANY_PROFILE));
       }
       toast.success('Company profile saved');
     } catch (err: unknown) {
