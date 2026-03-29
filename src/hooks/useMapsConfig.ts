@@ -6,7 +6,11 @@ import { createClient } from '@/lib/supabase/client';
 export interface MapsConfig {
   useGoogleMaps: boolean;
   apiKey: string | null;
+  defaultCenter: [number, number];
 }
+
+// UK geographic centre as ultimate fallback
+export const DEFAULT_MAP_CENTER: [number, number] = [52.636, -1.139];
 
 let cachedConfig: MapsConfig | null = null;
 let fetchPromise: Promise<MapsConfig> | null = null;
@@ -18,20 +22,63 @@ async function fetchMapsConfig(): Promise<MapsConfig> {
   fetchPromise = (async () => {
     try {
       const supabase = createClient();
-      const { data } = await supabase.
+
+      // Fetch maps integration config
+      const { data: mapsData } = await supabase.
       from('system_integrations').
       select('is_enabled, api_key').
       eq('slug', 'google-maps').
       maybeSingle();
 
-      const config: MapsConfig = {
-        useGoogleMaps: !!(data?.is_enabled && data?.api_key),
-        apiKey: data?.api_key ?? null
-      };
+      const useGoogleMaps = !!(mapsData?.is_enabled && mapsData?.api_key);
+      const apiKey: string | null = mapsData?.api_key ?? null;
+
+      // Fetch default address from fleet_config
+      const { data: fleetData } = await supabase.
+      from('fleet_config').
+      select('company_address, map_default_postcode').
+      maybeSingle();
+
+      let defaultCenter: [number, number] = DEFAULT_MAP_CENTER;
+
+      const addressQuery =
+      fleetData?.map_default_postcode?.trim() ||
+      fleetData?.company_address?.trim() ||
+      null;
+
+      if (addressQuery) {
+        try {
+          let coords: [number, number] | null = null;
+
+          if (useGoogleMaps && apiKey) {
+            coords = await googleGeocode(addressQuery, apiKey);
+          }
+
+          if (!coords) {
+            // Fallback to Nominatim
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressQuery)}&limit=1`,
+              { headers: { 'Accept-Language': 'en' } }
+            );
+            const results = await res.json();
+            if (results?.length) {
+              coords = [parseFloat(results[0].lat), parseFloat(results[0].lon)];
+            }
+          }
+
+          if (coords) {
+            defaultCenter = coords;
+          }
+        } catch {
+
+          // keep DEFAULT_MAP_CENTER
+        }}
+
+      const config: MapsConfig = { useGoogleMaps, apiKey, defaultCenter };
       cachedConfig = config;
       return config;
     } catch {
-      return { useGoogleMaps: false, apiKey: null };
+      return { useGoogleMaps: false, apiKey: null, defaultCenter: DEFAULT_MAP_CENTER };
     }
   })();
 
@@ -39,7 +86,11 @@ async function fetchMapsConfig(): Promise<MapsConfig> {
 }
 
 export function useMapsConfig(): MapsConfig & {loading: boolean;} {
-  const [config, setConfig] = useState<MapsConfig>({ useGoogleMaps: false, apiKey: null });
+  const [config, setConfig] = useState<MapsConfig>({
+    useGoogleMaps: false,
+    apiKey: null,
+    defaultCenter: DEFAULT_MAP_CENTER
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,8 +105,6 @@ export function useMapsConfig(): MapsConfig & {loading: boolean;} {
 
 /**
  * Returns the Leaflet tile layer URL and attribution based on maps config.
- * Google Maps tiles work via Leaflet without an API key (uses public tile servers).
- * For geocoding, use googleGeocode() when useGoogleMaps is true.
  */
 export function getTileLayerConfig(useGoogleMaps: boolean): {
   url: string;

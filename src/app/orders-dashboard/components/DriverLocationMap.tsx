@@ -165,7 +165,7 @@ export default function DriverLocationMap() {
       if (!mapRef.current || mapInstanceRef.current) return;
 
       const map = L.map(mapRef.current, {
-        center: [51.505, -0.09],
+        center: mapsConfig.defaultCenter,
         zoom: 12,
         zoomControl: true,
         attributionControl: true,

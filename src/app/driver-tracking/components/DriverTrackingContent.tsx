@@ -169,7 +169,7 @@ function TrackingMap({ drivers, selectedDriverId, onSelectDriver }: TrackingMapP
       });
       if (!mapRef.current || mapInstanceRef.current) return;
       const map = L.map(mapRef.current, {
-        center: [51.505, -0.09],
+        center: mapsConfig.defaultCenter,
         zoom: 10,
         zoomControl: true,
       });

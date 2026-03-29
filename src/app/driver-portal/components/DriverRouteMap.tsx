@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { MapIcon, Navigation, Clock, ChevronDown, ExternalLink, Maximize2, Minimize2, Route, Camera, PenLine, FileText, X, Trash2, CheckCircle2, Loader2,  } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
+import { useMapsConfig, DEFAULT_MAP_CENTER } from '@/hooks/useMapsConfig';
 
 
 interface DriverRouteMapProps {
@@ -568,6 +569,8 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
   const [showNavPanel, setShowNavPanel] = useState(false);
   const [podOrder, setPodOrder] = useState<OrderWithCoords | null>(null);
 
+  const mapsConfig = useMapsConfig();
+
   const activeOrders = orders.filter(
     (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.deliveryAddress
   );
@@ -612,7 +615,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
       if (!mapRef.current || mapInstanceRef.current) return;
 
       const map = L.map(mapRef.current, {
-        center: [51.505, -0.09],
+        center: mapsConfig.loading ? DEFAULT_MAP_CENTER : mapsConfig.defaultCenter,
         zoom: 11,
         zoomControl: true,
         attributionControl: true,

@@ -99,7 +99,7 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
       });
 
       const map = L.map(mapContainerRef.current!, {
-        center: [52.636, -1.139],
+        center: mapsConfig.defaultCenter,
         zoom: 10,
         zoomControl: true,
         preferCanvas: false,
