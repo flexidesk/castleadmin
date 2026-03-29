@@ -191,6 +191,8 @@ export default function OrderDetailContent({ orderId }: Props) {
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<BookingStatus | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [failureReason, setFailureReason] = useState('');
+  const [failureNotes, setFailureNotes] = useState('');
   const [headerExpanded, setHeaderExpanded] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [podModalOpen, setPodModalOpen] = useState(false);
@@ -439,7 +441,18 @@ export default function OrderDetailContent({ orderId }: Props) {
   const confirmStatusChange = async () => {
     if (!pendingStatus || !order) return;
     setIsUpdatingStatus(true);
-    const ok = await ordersService.updateOrderStatus(order.id, pendingStatus);
+    const supabase = createClient();
+    const updatePayload: Record<string, unknown> = {
+      status: pendingStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (pendingStatus === 'Booking Failed') {
+      updatePayload.failure_reason = failureReason || null;
+      updatePayload.failure_notes = failureNotes || null;
+    }
+    const { error } = await supabase.from('orders').update(updatePayload).eq('id', order.id);
+    const ok = !error;
+    if (error) console.error('updateOrderStatus error:', error.message);
     setIsUpdatingStatus(false);
     setStatusModalOpen(false);
     if (ok) {
@@ -468,6 +481,37 @@ export default function OrderDetailContent({ orderId }: Props) {
           }
         })
         .catch((err) => console.warn('Email notification error:', err));
+    } else {
+      toast.error('Failed to update status. Please try again.');
+    }
+    setPendingStatus(null);
+    setFailureReason('');
+    setFailureNotes('');
+  };
+
+  const handleStatusChange = async () => {
+    if (!pendingStatus || !order) return;
+    setIsUpdatingStatus(true);
+    const ok = await ordersService.updateOrderStatus(order.id, pendingStatus);
+    setIsUpdatingStatus(false);
+    setStatusModalOpen(false);
+    if (ok) {
+      setOrder((prev) => prev ? { ...prev, status: pendingStatus } : prev);
+      toast.success(`Status updated to "${pendingStatus}"`);
+
+      // Send status notification email to customer (fire-and-forget)
+      fetch('/api/orders/send-status-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: order.customer.email,
+          customerName: order.customer.name,
+          orderId: order.id,
+          status: pendingStatus,
+          bookingDate: order.bookingDate,
+          deliveryWindow: order.deliveryWindow,
+        }),
+      }).catch(() => {});
     } else {
       toast.error('Failed to update status. Please try again.');
     }
@@ -1143,7 +1187,7 @@ export default function OrderDetailContent({ orderId }: Props) {
       {/* Status advance confirm modal */}
       <Modal
         open={statusModalOpen}
-        onClose={() => { setStatusModalOpen(false); setPendingStatus(null); }}
+        onClose={() => { setStatusModalOpen(false); setPendingStatus(null); setFailureReason(''); setFailureNotes(''); }}
         title="Update Booking Status"
         size="sm"
       >
@@ -1166,11 +1210,58 @@ export default function OrderDetailContent({ orderId }: Props) {
               </p>
             </div>
           )}
+
+          {/* Failure reason fields — shown only when marking as Failed */}
+          {pendingStatus === 'Booking Failed' && (
+            <div className="space-y-3 pt-1">
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: 'hsl(var(--foreground))' }}
+                >
+                  Failure Reason <span style={{ color: 'hsl(var(--destructive))' }}>*</span>
+                </label>
+                <select
+                  value={failureReason}
+                  onChange={(e) => setFailureReason(e.target.value)}
+                  className="input w-full"
+                  style={{ minHeight: '40px' }}
+                >
+                  <option value="">— Select a reason —</option>
+                  <option value="Customer Not Available">Customer Not Available</option>
+                  <option value="Wrong Address">Wrong Address</option>
+                  <option value="Access Issue">Access Issue</option>
+                  <option value="Item Damaged">Item Damaged</option>
+                  <option value="Customer Refused Delivery">Customer Refused Delivery</option>
+                  <option value="Vehicle Breakdown">Vehicle Breakdown</option>
+                  <option value="Time Window Missed">Time Window Missed</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: 'hsl(var(--foreground))' }}
+                >
+                  Notes &amp; Next Steps
+                </label>
+                <textarea
+                  value={failureNotes}
+                  onChange={(e) => setFailureNotes(e.target.value)}
+                  placeholder="Describe what happened and any planned next steps…"
+                  rows={3}
+                  className="input w-full resize-none"
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 justify-end">
             <button
               className="btn-secondary touch-manipulation"
               style={{ minHeight: '44px' }}
-              onClick={() => { setStatusModalOpen(false); setPendingStatus(null); }}
+              onClick={() => { setStatusModalOpen(false); setPendingStatus(null); setFailureReason(''); setFailureNotes(''); }}
             >
               Cancel
             </button>
@@ -1178,7 +1269,7 @@ export default function OrderDetailContent({ orderId }: Props) {
               className="btn-primary touch-manipulation"
               style={{ minHeight: '44px' }}
               onClick={confirmStatusChange}
-              disabled={isUpdatingStatus}
+              disabled={isUpdatingStatus || (pendingStatus === 'Booking Failed' && !failureReason)}
             >
               {isUpdatingStatus ? (
                 <>
