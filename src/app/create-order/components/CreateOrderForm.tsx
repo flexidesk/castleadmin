@@ -349,6 +349,7 @@ export default function CreateOrderForm() {
 
       const result = await ordersService.createOrder({
         id: generateOrderId(),
+        wooOrderId: '',
         customerName: data.customerName,
         customerEmail: data.customerEmail,
         customerPhone: data.customerPhone,
@@ -364,6 +365,7 @@ export default function CreateOrderForm() {
         deliveryWindow: deliveryWindow,
         collectionWindow: collectionWindow,
         paymentMethod: data.paymentMethod,
+        paymentAmount: totalValue,
         depositPaid: data.depositPaid ? parseFloat(data.depositPaid) : undefined,
         totalDueOnDelivery: data.totalDueOnDelivery ? parseFloat(data.totalDueOnDelivery) : undefined,
         deliveryFee: data.deliveryFee ? parseFloat(data.deliveryFee) : undefined,
