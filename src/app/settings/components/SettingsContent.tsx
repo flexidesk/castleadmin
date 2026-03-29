@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -1407,7 +1407,7 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Company Profile'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Company Profile'}
             </button>
           </div>
         </div>
@@ -1616,7 +1616,7 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Fleet Config'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Fleet Config'}
             </button>
           </div>
         </div>
@@ -1685,7 +1685,7 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Preferences'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Preferences'}
             </button>
           </div>
         </div>
@@ -2099,8 +2099,12 @@ export default function SettingsContent() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>{saving ? 'Creating…' : 'Create Key'}</button>
-                      <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Cancel</button>
+                      <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                        {saving ? 'Creating…' : 'Create Key'}
+                      </button>
+                      <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                        Cancel
+                      </button>
                     </div>
                   </div>
                 )}
@@ -2113,7 +2117,9 @@ export default function SettingsContent() {
                         <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? 'Hide' : 'Show'}</button>
+                        <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                          {revealedKeys.has(k.id) ? 'Hide' : 'Show'}
+                        </button>
                         {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
                         <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
                       </div>
@@ -2321,7 +2327,7 @@ export default function SettingsContent() {
           </div>
           <div className="flex justify-end">
             <button onClick={saveDriverRates} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Driver Rates'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Driver Rates'}
             </button>
           </div>
         </div>
@@ -2350,7 +2356,7 @@ export default function SettingsContent() {
           </div>
           <div className="flex justify-end">
             <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Thresholds'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Thresholds'}
             </button>
           </div>
         </div>
