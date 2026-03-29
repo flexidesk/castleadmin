@@ -116,6 +116,26 @@ export default function CreateOrderForm() {
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const googleMapsScriptRef = useRef<HTMLScriptElement | null>(null);
 
+  // ─── useForm must be declared BEFORE any useEffect/useCallback that uses setValue ───
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    watch,
+    reset,
+    formState: { errors, isDirty },
+  } = useForm<CreateOrderFormData>({
+    defaultValues: {
+      bookingType: 'Delivery',
+      products: DEFAULT_PRODUCTS,
+      paymentMethod: 'Unrecorded',
+      depositPaid: '',
+      totalDueOnDelivery: '',
+      deliveryFee: '',
+    },
+  });
+
   useEffect(() => {
     ordersService.fetchDrivers().then((data) => {
       setDrivers(data);
@@ -195,7 +215,7 @@ export default function CreateOrderForm() {
         setZoneCheckLoading(false);
       }
     },
-    [activeZones, autoZoneAllocation]
+    [activeZones, autoZoneAllocation, setValue]
   );
 
   // Load Google Maps Places script and attach autocomplete when config is ready
@@ -280,25 +300,6 @@ export default function CreateOrderForm() {
       }
     };
   }, [mapsConfig.useGoogleMaps, mapsConfig.apiKey, mapsConfig.loading, bookingType, setValue]);
-
-  const {
-    register,
-    handleSubmit,
-    control,
-    setValue,
-    watch,
-    reset,
-    formState: { errors, isDirty },
-  } = useForm<CreateOrderFormData>({
-    defaultValues: {
-      bookingType: 'Delivery',
-      products: DEFAULT_PRODUCTS,
-      paymentMethod: 'Unrecorded',
-      depositPaid: '',
-      totalDueOnDelivery: '',
-      deliveryFee: '',
-    },
-  });
 
   const { fields: productFields, append: appendProduct, remove: removeProduct } = useFieldArray({
     control,

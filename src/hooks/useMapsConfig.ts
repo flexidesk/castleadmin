@@ -72,7 +72,7 @@ export function getTileLayerConfig(useGoogleMaps: boolean): {
     };
   }
   return {
-    url: "https://img.rocket.new/generatedImages/rocket_gen_img_1ccd4453f-1765997373689.png",
+    url: "https://images.unsplash.com/photo-1631039083522-722523622381",
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19
   };
