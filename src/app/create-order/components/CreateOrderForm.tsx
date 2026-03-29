@@ -4,28 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import {
-  Truck,
-  PackageCheck,
-  RefreshCw,
-  Plus,
-  Trash2,
-  ChevronRight,
-  CheckCircle2,
-  User,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  Clock,
-  Package,
-  CreditCard,
-  Banknote,
-  AlertTriangle,
-  X,
-  ArrowLeft,
-  ShieldCheck,
-} from 'lucide-react';
+import { Truck, PackageCheck, RefreshCw, Plus, Trash2, ChevronRight, CheckCircle2, User, Phone, Mail, MapPin, Calendar, Clock, Package, CreditCard, AlertTriangle, X, ArrowLeft, ShieldCheck,  } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { ordersService, AppDriver } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
@@ -67,9 +46,9 @@ interface CreateOrderFormData {
   products: ProductLineItem[];
   // Payment
   paymentMethod: PaymentMethod;
-  paymentAmount: string;
   depositPaid: string;
   totalDueOnDelivery: string;
+  deliveryFee: string;
   // Custom fields
   eventType: string;
   powerSource: string;
@@ -315,9 +294,9 @@ export default function CreateOrderForm() {
       bookingType: 'Delivery',
       products: DEFAULT_PRODUCTS,
       paymentMethod: 'Unrecorded',
-      paymentAmount: '',
       depositPaid: '',
       totalDueOnDelivery: '',
+      deliveryFee: '',
     },
   });
 
@@ -385,9 +364,9 @@ export default function CreateOrderForm() {
         deliveryWindow: deliveryWindow,
         collectionWindow: collectionWindow,
         paymentMethod: data.paymentMethod,
-        paymentAmount: data.paymentAmount ? parseFloat(data.paymentAmount) : totalValue,
         depositPaid: data.depositPaid ? parseFloat(data.depositPaid) : undefined,
         totalDueOnDelivery: data.totalDueOnDelivery ? parseFloat(data.totalDueOnDelivery) : undefined,
+        deliveryFee: data.deliveryFee ? parseFloat(data.deliveryFee) : undefined,
         products,
         notes: data.bookingNotes || undefined,
         customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
@@ -1117,84 +1096,7 @@ export default function CreateOrderForm() {
             Payment
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            {(['Card', 'Cash', 'Unrecorded'] as const).map((method) => (
-              <label key={method} className="cursor-pointer">
-                <input
-                  type="radio"
-                  value={method}
-                  {...register('paymentMethod')}
-                  className="sr-only"
-                />
-                <div
-                  className="flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-150"
-                  style={{
-                    borderColor: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--border))',
-                    backgroundColor: watchedPaymentMethod === method ? 'hsl(var(--primary) / 0.05)' : 'hsl(var(--card))',
-                  }}
-                >
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{
-                      backgroundColor: watchedPaymentMethod === method ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--secondary))',
-                    }}
-                  >
-                    {method === 'Card' ? (
-                      <CreditCard size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    ) : method === 'Cash' ? (
-                      <Banknote size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    ) : (
-                      <Clock size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{method}</p>
-                    <p className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {method === 'Card' ? 'Card / online' : method === 'Cash' ? 'Cash on delivery' : 'Record later'}
-                    </p>
-                  </div>
-                  {watchedPaymentMethod === method && (
-                    <CheckCircle2 size={14} className="ml-auto shrink-0" style={{ color: 'hsl(var(--primary))' }} />
-                  )}
-                </div>
-              </label>
-            ))}
-          </div>
-
-          {watchedPaymentMethod !== 'Unrecorded' && (
-            <div className="max-w-xs">
-              <label htmlFor="paymentAmount" className="label">
-                Amount (£)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  £
-                </span>
-                <input
-                  id="paymentAmount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder={totalValue > 0 ? totalValue.toFixed(2) : '0.00'}
-                  className={`input-base pl-8 font-mono ${errors.paymentAmount ? 'input-error' : ''}`}
-                  {...register('paymentAmount', {
-                    validate: (v) => {
-                      if (watchedPaymentMethod !== 'Unrecorded' && v && isNaN(parseFloat(v))) {
-                        return 'Enter a valid amount';
-                      }
-                      return true;
-                    },
-                  })}
-                />
-              </div>
-              {errors.paymentAmount && <p className="error-text">{errors.paymentAmount.message}</p>}
-              {totalValue > 0 && (
-                <p className="helper-text">Order total: £{totalValue.toFixed(2)}</p>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="depositPaid" className="label">
                 Deposit Paid (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
@@ -1245,6 +1147,32 @@ export default function CreateOrderForm() {
                 />
               </div>
               {errors.totalDueOnDelivery && <p className="error-text">{errors.totalDueOnDelivery.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="deliveryFee" className="label">
+                Delivery Fee (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="deliveryFee"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.deliveryFee ? 'input-error' : ''}`}
+                  {...register('deliveryFee', {
+                    validate: (v) => {
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
+                      return true;
+                    },
+                  })}
+                />
+              </div>
+              {errors.deliveryFee && <p className="error-text">{errors.deliveryFee.message}</p>}
             </div>
           </div>
         </div>

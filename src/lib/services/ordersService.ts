@@ -324,6 +324,7 @@ export const ordersService = {
     paymentAmount: number;
     depositPaid?: number;
     totalDueOnDelivery?: number;
+    deliveryFee?: number;
     products: any[];
     notes?: string;
     customFields?: Record<string, string>;
@@ -349,6 +350,7 @@ export const ordersService = {
       payment_amount: payload.paymentAmount || 0,
       deposit_paid: payload.depositPaid ?? null,
       amount_due: payload.totalDueOnDelivery ?? null,
+      delivery_charge: payload.deliveryFee ?? null,
       products: payload.products,
       notes: payload.notes || null,
       custom_fields: payload.customFields || {},
