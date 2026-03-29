@@ -33,6 +33,7 @@ interface DriverLocation {
   longitude: number;
   heading: number | null;
   speed: number | null;
+  accuracy: number | null;
   recorded_at: string;
 }
 
@@ -139,6 +140,43 @@ function parseETAMinutes(bookingDate: string, deliveryWindow: string | null): nu
   d.setHours(h, m, 0, 0);
   const diffMs = d.getTime() - Date.now();
   return Math.floor(diffMs / 60000);
+}
+
+// ─── GPS Accuracy Helpers ─────────────────────────────────────────────────────
+
+function getAccuracyLabel(accuracy: number | null): { label: string; color: string } {
+  if (accuracy === null) return { label: 'Unknown', color: '#94a3b8' };
+  if (accuracy <= 10) return { label: 'Excellent', color: '#22c55e' };
+  if (accuracy <= 30) return { label: 'Good', color: '#84cc16' };
+  if (accuracy <= 60) return { label: 'Fair', color: '#f97316' };
+  return { label: 'Poor', color: '#ef4444' };
+}
+
+function AccuracyDots({ accuracy }: { accuracy: number | null }) {
+  const { color } = getAccuracyLabel(accuracy);
+  let filled = 0;
+  if (accuracy !== null) {
+    if (accuracy <= 10) filled = 4;
+    else if (accuracy <= 30) filled = 3;
+    else if (accuracy <= 60) filled = 2;
+    else filled = 1;
+  }
+  return (
+    <span className="flex items-center gap-0.5">
+      {[1, 2, 3, 4].map((i) => (
+        <span
+          key={i}
+          style={{
+            display: 'inline-block',
+            width: 5,
+            height: 5 + i * 2,
+            borderRadius: 2,
+            backgroundColor: i <= filled ? color : 'hsl(var(--border))',
+          }}
+        />
+      ))}
+    </span>
+  );
 }
 
 // ─── Map Component ────────────────────────────────────────────────────────────
@@ -295,6 +333,7 @@ function DriverCard({
   const shiftProgress = shift ? calcShiftProgress(shift) : 0;
   const speed = location?.speed ? Math.round(location.speed) : 0;
   const etaMins = activeOrder ? parseETAMinutes(activeOrder.booking_date, activeOrder.delivery_window) : null;
+  const accuracyInfo = getAccuracyLabel(location?.accuracy ?? null);
 
   return (
     <button
@@ -329,7 +368,7 @@ function DriverCard({
         </span>
       </div>
 
-      {/* Speed + Location */}
+      {/* Speed + Location + Accuracy */}
       <div className="flex items-center gap-3 mb-2">
         <div className="flex items-center gap-1">
           <Gauge size={11} style={{ color: '#f97316' }} />
@@ -338,12 +377,20 @@ function DriverCard({
           </span>
         </div>
         {location && (
-          <div className="flex items-center gap-1">
-            <MapPin size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
-            <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {timeAgo(location.recorded_at)}
-            </span>
-          </div>
+          <>
+            <div className="flex items-center gap-1">
+              <MapPin size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+              <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {timeAgo(location.recorded_at)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 ml-auto" title={`GPS Accuracy: ${location.accuracy !== null ? `±${Math.round(location.accuracy)}m` : 'Unknown'}`}>
+              <AccuracyDots accuracy={location.accuracy ?? null} />
+              <span className="text-[9px] font-medium" style={{ color: accuracyInfo.color }}>
+                {location.accuracy !== null ? `±${Math.round(location.accuracy)}m` : '—'}
+              </span>
+            </div>
+          </>
         )}
         {!location && (
           <span className="text-[10px]" style={{ color: '#94a3b8' }}>No GPS signal</span>
@@ -434,6 +481,7 @@ function DriverDetailPanel({ row }: { row: DriverRow }) {
   const speed = location?.speed ? Math.round(location.speed) : 0;
   const heading = location?.heading ? Math.round(location.heading) : null;
   const etaMins = activeOrder ? parseETAMinutes(activeOrder.booking_date, activeOrder.delivery_window) : null;
+  const accuracyInfo = getAccuracyLabel(location?.accuracy ?? null);
 
   return (
     <div className="p-4 space-y-4">
@@ -495,14 +543,45 @@ function DriverDetailPanel({ row }: { row: DriverRow }) {
             <p className="text-[9px]" style={{ color: 'hsl(var(--muted-foreground))' }}>heading</p>
           </div>
         </div>
+
+        {/* GPS Accuracy indicator */}
+        <div className="rounded p-2.5" style={{ backgroundColor: 'hsl(var(--card))' }}>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <MapPin size={12} style={{ color: accuracyInfo.color }} />
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                GPS Accuracy
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <AccuracyDots accuracy={location?.accuracy ?? null} />
+              <span className="text-[10px] font-bold" style={{ color: accuracyInfo.color }}>
+                {accuracyInfo.label}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono" style={{ color: 'hsl(var(--foreground))' }}>
+              {location?.accuracy !== null && location?.accuracy !== undefined
+                ? `±${Math.round(location.accuracy)} metres`
+                : 'No signal'}
+            </span>
+            {location && (
+              <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+              </span>
+            )}
+          </div>
+        </div>
+
         {location && (
           <div className="flex items-center gap-1.5">
-            <MapPin size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+            <Clock size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
             <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+              Last update: {new Date(location.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
             <span className="ml-auto text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {timeAgo(location.recorded_at)}
+              ({timeAgo(location.recorded_at)})
             </span>
           </div>
         )}
@@ -625,6 +704,7 @@ export default function DriverTrackingContent() {
   const supabase = createClient();
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [connected, setConnected] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -651,7 +731,7 @@ export default function DriverTrackingContent() {
       // Fetch latest location per driver — limit to recent 500 rows to avoid large payloads
       const { data: locationRows } = await supabase
         .from('driver_locations')
-        .select('driver_id, latitude, longitude, heading, speed, recorded_at')
+        .select('driver_id, latitude, longitude, heading, speed, accuracy, recorded_at')
         .order('recorded_at', { ascending: false })
         .limit(500);
 
@@ -713,6 +793,12 @@ export default function DriverTrackingContent() {
     }
   }, [supabase]);
 
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchData();
+    setIsRefreshing(false);
+  }, [fetchData]);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -769,9 +855,18 @@ export default function DriverTrackingContent() {
           </div>
           <div className="flex items-center gap-3">
             {lastUpdated && (
-              <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Updated {timeAgo(lastUpdated.toISOString())}
-              </span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <Clock size={12} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Last updated:{' '}
+                  <span className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                  <span className="ml-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    ({timeAgo(lastUpdated.toISOString())})
+                  </span>
+                </span>
+              </div>
             )}
             <div className="flex items-center gap-1.5">
               {connected ? (
@@ -787,12 +882,13 @@ export default function DriverTrackingContent() {
               </span>
             </div>
             <button
-              onClick={fetchData}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all hover:opacity-80"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all hover:opacity-80 disabled:opacity-50"
               style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
             >
-              <RefreshCw size={12} />
-              Refresh
+              <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+              {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
