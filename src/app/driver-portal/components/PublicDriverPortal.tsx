@@ -162,6 +162,23 @@ function BookingDetailModal({ order, driverId, onClose, onOrderUpdate }: Booking
 
       if (error) throw error;
 
+      // If payment method is Cash, allocate the amount to the driver's cash account
+      if (payMethod === 'Cash' && amount > 0) {
+        const { error: cashError } = await supabase
+          .from('driver_cash_allocations')
+          .insert({
+            driver_id: driverId,
+            order_id: String(currentOrder.id),
+            amount,
+            notes: payNotes.trim() || `Cash collected for order #${currentOrder.id}`,
+            allocated_at: new Date().toISOString(),
+          });
+        if (cashError) {
+          console.error('Failed to allocate cash to driver account:', cashError);
+          toast.warning(`Payment recorded but cash allocation failed: ${cashError.message}`);
+        }
+      }
+
       const updated: AppOrder = {
         ...currentOrder,
         payment: {
