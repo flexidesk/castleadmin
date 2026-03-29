@@ -82,6 +82,12 @@ function getTodayStr(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function getTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
 function getGreeting(): string {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -989,7 +995,7 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
               placeholder="Any additional notes..."
-              className="w-full text-sm px-3 py-2 rounded-lg border outline-none resize-none"
+              className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none resize-none"
               style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
             />
           </div>
@@ -1615,7 +1621,7 @@ function DriverDashboard({
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'earnings' | 'map' | 'profile'>('orders');
-  const [activeTab, setActiveTab] = useState<'today' | 'all'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -1779,7 +1785,7 @@ function DriverDashboard({
 
   const handleAdvanceOrderStatus = async (order: AppOrder, e: React.MouseEvent) => {
     e.stopPropagation();
-    const nextStatus = NEXT_STATUS_VALUE[order.status];
+    const nextStatus = (order as any)._overrideNextStatus ?? NEXT_STATUS_VALUE[order.status];
     if (!nextStatus) return;
 
     // Block job completion until POD has been submitted
@@ -1855,8 +1861,10 @@ function DriverDashboard({
   // ─── Derived State ─────────────────────────────────────────────────────────
 
   const today = getTodayStr();
+  const tomorrow = getTomorrowStr();
   const todayOrders = allOrders.filter((o) => o.bookingDate === today && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
-  const displayOrders = activeTab === 'today' ? todayOrders : allOrders;
+  const tomorrowOrders = allOrders.filter((o) => o.bookingDate === tomorrow);
+  const displayOrders = activeTab === 'today' ? todayOrders : activeTab === 'tomorrow' ? tomorrowOrders : allOrders;
   const todayActive = todayOrders.filter(
     (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
   ).length;
@@ -2025,7 +2033,7 @@ function DriverDashboard({
             {/* Sub-tab + Refresh */}
             <div className="flex items-center justify-between">
               <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                {(['today', 'all'] as const).map((tab) => (
+                {(['today', 'tomorrow', 'all'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -2035,7 +2043,7 @@ function DriverDashboard({
                       color: activeTab === tab ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
                     }}
                   >
-                    {tab === 'today' ? `Today (${todayOrders.length})` : `All (${allOrders.length})`}
+                    {tab === 'today' ? `Today (${todayOrders.length})` : tab === 'tomorrow' ? `Tomorrow (${tomorrowOrders.length})` : `All (${allOrders.length})`}
                   </button>
                 ))}
               </div>
@@ -2074,15 +2082,20 @@ function DriverDashboard({
               >
                 <Package size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
                 <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
-                  {activeTab === 'today' ? 'No active orders today' : 'No orders assigned'}
+                  {activeTab === 'today' ? 'No active orders today' : activeTab === 'tomorrow' ? 'No orders tomorrow' : 'No orders assigned'}
                 </p>
                 <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  {activeTab === 'today' ? 'Completed orders are shown in Past Bookings.' : 'Check back later or view all orders.'}
+                  {activeTab === 'today' ? 'Completed orders are shown in Past Bookings.' : activeTab === 'tomorrow' ? 'No orders have been assigned for tomorrow yet.' : 'Check back later or view all orders.'}
                 </p>
               </div>
             ) : (
               displayOrders.map((order) => {
-                const nextStatusLabel = NEXT_STATUS_LABEL[order.status];
+                const nextStatusLabel = order.status === 'Booking Accepted' ?'Start'
+                  : NEXT_STATUS_LABEL[order.status];
+                const nextStatusOverride = order.status === 'Booking Accepted' ?'Booking Out For Delivery'
+                  : undefined;
+                const orderWithOverride = nextStatusOverride ? { ...order, _overrideNextStatus: nextStatusOverride } as any : order;
+                const isAssigned = order.status === 'Booking Accepted' || order.status === 'Booking Assigned';
                 const isComplete = order.status === 'Booking Complete';
                 const isCancelled = order.status === 'Booking Cancelled';
                 const isFailed = order.status === 'Booking Failed';
@@ -2179,7 +2192,7 @@ function DriverDashboard({
                         <div className="flex gap-2">
                           {nextStatusLabel && (
                             <button
-                              onClick={(e) => handleAdvanceOrderStatus(order, e)}
+                              onClick={(e) => handleAdvanceOrderStatus(orderWithOverride, e)}
                               disabled={isUpdating}
                               className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg font-semibold text-sm transition-all"
                               style={{ backgroundColor: accentColor, color: 'white', opacity: isUpdating ? 0.7 : 1 }}
@@ -2889,7 +2902,7 @@ function DriverDashboard({
               </button>
             </div>
             <DriverRouteMap
-              orders={activeTab === 'today' ? todayOrders : allOrders}
+              orders={activeTab === 'today' ? todayOrders : activeTab === 'tomorrow' ? tomorrowOrders : allOrders}
               driverName={driver.name}
             />
           </div>
