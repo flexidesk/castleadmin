@@ -129,13 +129,6 @@ export default function LoginPage() {
 
           {/* Hero text */}
           <div className="mt-auto mb-10">
-            <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium mb-6"
-              style={{ backgroundColor: 'hsl(var(--accent) / 0.2)', color: 'hsl(var(--accent))' }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-current" />
-              Inflatable Events Platform
-            </div>
             <h2 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-4">
               Manage your<br />
               <span style={{ color: 'hsl(var(--accent))' }}>entire operation</span><br />
