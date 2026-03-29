@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText, Loader2 } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -188,7 +188,7 @@ interface WebhookConfig {
   last_status?: string | null;
 }
 
-type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'database';
+type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'database' | 'smtp';
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
@@ -534,6 +534,21 @@ export default function SettingsContent() {
     name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true,
   });
   const [testingWebhook, setTestingWebhook] = useState<string | null>(null);
+
+  // SMTP Configuration
+  const [smtpConfig, setSmtpConfig] = useState({
+    host: process.env.NEXT_PUBLIC_SMTP_HOST ?? '',
+    port: '587',
+    secure: false,
+    user: '',
+    pass: '',
+    fromName: '',
+    fromEmail: '',
+  });
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpShowPass, setSmtpShowPass] = useState(false);
+  const [smtpSaved, setSmtpSaved] = useState(false);
 
   // Database backup/export
   const [dbExporting, setDbExporting] = useState(false);
@@ -1178,6 +1193,7 @@ export default function SettingsContent() {
     { id: 'driver_rates', label: 'Driver Rates', icon: Car },
     { id: 'alert_thresholds', label: 'Alert Thresholds', icon: AlertTriangle },
     { id: 'integrations', label: 'Integrations', icon: Plug },
+    { id: 'smtp', label: 'SMTP Mail', icon: Mail },
     { id: 'database', label: 'Database', icon: Database },
   ];
 
@@ -1787,20 +1803,15 @@ export default function SettingsContent() {
             )}
             <div className="space-y-2">
               {userRoles.map((role) => (
-                <div key={role.id} className="border rounded-lg p-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{role.full_name}</p>
-                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{role.email}</p>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[role.role]}`}>{role.role}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Toggle checked={role.is_active} onChange={(v) => updateUserRole(role.id, { is_active: v })} />
-                      <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Permissions</button>
-                      <button onClick={() => deleteUserRole(role.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Remove</button>
-                    </div>
+                <div key={role.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{role.full_name}</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{role.email}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Toggle checked={role.is_active} onChange={(v) => updateUserRole(role.id, { is_active: v })} />
+                    <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Permissions</button>
+                    <button onClick={() => deleteUserRole(role.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Remove</button>
                   </div>
                   {expandedRole === role.id && (
                     <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
@@ -2003,7 +2014,7 @@ export default function SettingsContent() {
                   {wcShowFieldMapping && (
                     <div className="px-4 py-4 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
                       <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        Map WooCommerce order fields to CastleAdmin fields. Use dot notation for nested fields (e.g. <code className="px-1 py-0.5 rounded text-xs font-mono" style={{ backgroundColor: 'hsl(var(--secondary))' }}>billing.email</code>).
+                        Map WooCommerce order fields to CastleAdmin fields. Use dot notation for nested fields (e.g. <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--secondary))' }}>billing.email</code>).
                       </p>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {(
@@ -2454,6 +2465,197 @@ export default function SettingsContent() {
             <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Thresholds'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── SMTP Mail ─────────────────────────────────────────────────────────── */}
+      {activeTab === 'smtp' && (
+        <div className="space-y-5">
+          {/* Server Settings */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Mail size={16} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>SMTP Server Configuration</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Configure your outgoing mail server. These credentials are used to send booking status emails and notifications.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>SMTP Host</label>
+                <input
+                  type="text"
+                  value={smtpConfig.host}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, host: e.target.value }))}
+                  placeholder="smtp.gmail.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Port</label>
+                <input
+                  type="number"
+                  value={smtpConfig.port}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, port: e.target.value }))}
+                  placeholder="587"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div className="flex items-center gap-3 pt-5">
+                <Toggle
+                  checked={smtpConfig.secure}
+                  onChange={(v) => setSmtpConfig((c) => ({ ...c, secure: v }))}
+                />
+                <div>
+                  <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Use SSL/TLS</p>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Enable for port 465, disable for 587 (STARTTLS)</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Auth Credentials */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Authentication</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Username / Email</label>
+                <input
+                  type="text"
+                  value={smtpConfig.user}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, user: e.target.value }))}
+                  placeholder="you@gmail.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Password / App Password</label>
+                <div className="relative">
+                  <input
+                    type={smtpShowPass ? 'text' : 'password'}
+                    value={smtpConfig.pass}
+                    onChange={(e) => setSmtpConfig((c) => ({ ...c, pass: e.target.value }))}
+                    placeholder="••••••••••••"
+                    className="w-full px-3 py-2 pr-9 rounded-lg border text-sm focus:outline-none"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSmtpShowPass((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                    style={{ color: 'hsl(var(--muted-foreground))' }}
+                  >
+                    {smtpShowPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sender Identity */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Sender Identity</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>From Name</label>
+                <input
+                  type="text"
+                  value={smtpConfig.fromName}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, fromName: e.target.value }))}
+                  placeholder="CastleAdmin"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>From Email Address</label>
+                <input
+                  type="email"
+                  value={smtpConfig.fromEmail}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, fromEmail: e.target.value }))}
+                  placeholder="noreply@yourcompany.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Test Email */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Test Connection</h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Send a test email to verify your SMTP settings are working correctly.
+            </p>
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Send Test Email To</label>
+                <input
+                  type="email"
+                  value={smtpTestEmail}
+                  onChange={(e) => setSmtpTestEmail(e.target.value)}
+                  placeholder="test@example.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!smtpTestEmail) { toast.error('Enter a recipient email address'); return; }
+                  if (!smtpConfig.host || !smtpConfig.user || !smtpConfig.pass || !smtpConfig.fromEmail) {
+                    toast.error('Fill in all SMTP fields before testing');
+                    return;
+                  }
+                  setSmtpTesting(true);
+                  try {
+                    const res = await fetch('/api/smtp/test', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        host: smtpConfig.host,
+                        port: smtpConfig.port,
+                        secure: smtpConfig.secure,
+                        user: smtpConfig.user,
+                        pass: smtpConfig.pass,
+                        fromName: smtpConfig.fromName,
+                        fromEmail: smtpConfig.fromEmail,
+                        toEmail: smtpTestEmail,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      toast.success('Test email sent successfully!');
+                    } else {
+                      toast.error(`SMTP test failed: ${data.error}`);
+                    }
+                  } catch {
+                    toast.error('Failed to reach SMTP test endpoint');
+                  } finally {
+                    setSmtpTesting(false);
+                  }
+                }}
+                disabled={smtpTesting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-60 whitespace-nowrap"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+              >
+                {smtpTesting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                {smtpTesting ? 'Sending…' : 'Send Test'}
+              </button>
+            </div>
+          </div>
+
+          {/* Info Banner */}
+          <div className="rounded-xl border p-4 flex gap-3" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: 'hsl(var(--primary))' }} />
+            <div className="text-xs space-y-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <p className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>SMTP credentials are stored in environment variables</p>
+              <p>Update <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_HOST</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_PORT</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_USER</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_PASS</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_FROM_NAME</code>, and <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_FROM_EMAIL</code> in your <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>.env</code> file to persist changes across restarts.</p>
+              <p>For Gmail, use an <strong>App Password</strong> (not your account password). Enable 2FA first, then generate an App Password under Google Account → Security.</p>
+            </div>
           </div>
         </div>
       )}
