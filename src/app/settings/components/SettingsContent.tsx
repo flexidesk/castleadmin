@@ -279,11 +279,19 @@ const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
 
 function sanitizeNulls<T extends object>(data: Partial<T>, defaults: T): T {
   const result = { ...defaults } as T;
+  // First, copy all keys from defaults (replacing nulls with defaults)
   for (const key in defaults) {
     const k = key as keyof T;
     const val = (data as T)[k];
     if (val !== null && val !== undefined) {
       (result as T)[k] = val;
+    }
+  }
+  // Also copy any extra keys from data that are NOT in defaults (e.g. `id`, timestamps)
+  for (const key in data) {
+    const k = key as keyof T;
+    if (!(k in defaults) && (data as T)[k] !== null && (data as T)[k] !== undefined) {
+      (result as T)[k] = (data as T)[k] as T[keyof T];
     }
   }
   return result;
