@@ -1634,6 +1634,85 @@ function DriverDashboard({
   const [failureNotes, setFailureNotes] = useState('');
   const [submittingFailure, setSubmittingFailure] = useState(false);
 
+  // ─── Data Loading ──────────────────────────────────────────────────────────
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*, drivers(*)')
+        .eq('driver_id', driver.id)
+        .order('booking_date', { ascending: false });
+
+      if (!ordersError && ordersData) {
+        const { mapDbOrderToApp } = await import('@/lib/services/ordersService');
+        setAllOrders(ordersData.map((row: any) => mapDbOrderToApp(row)));
+      }
+
+      // Load earnings summary
+      const today = getTodayStr();
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+      const { data: completedOrders } = await supabase
+        .from('orders')
+        .select('booking_date, payment_amount')
+        .eq('driver_id', driver.id)
+        .eq('status', 'Booking Complete');
+
+      const { data: allDriverOrders } = await supabase
+        .from('orders')
+        .select('booking_date, status')
+        .eq('driver_id', driver.id);
+
+      const todayCompleted = (completedOrders ?? []).filter((o: any) => o.booking_date === today);
+      const weekCompleted = (completedOrders ?? []).filter((o: any) => new Date(o.booking_date) >= weekStart);
+      const monthCompleted = (completedOrders ?? []).filter((o: any) => new Date(o.booking_date) >= monthStart);
+
+      const totalOrders = (allDriverOrders ?? []).length;
+      const totalCompleted = (completedOrders ?? []).length;
+
+      setEarnings({
+        todayDeliveries: todayCompleted.length,
+        weekDeliveries: weekCompleted.length,
+        monthDeliveries: monthCompleted.length,
+        todayEarnings: todayCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
+        weekEarnings: weekCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
+        monthEarnings: monthCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
+        avgRating: 0,
+        completionRate: totalOrders > 0 ? Math.round((totalCompleted / totalOrders) * 100) : 0,
+        bonusPerDelivery: 0,
+      });
+
+      // Load past shifts
+      const { data: shiftsData } = await supabase
+        .from('driver_shifts')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .not('clock_out', 'is', null)
+        .order('clock_in', { ascending: false })
+        .limit(20);
+      setPastShifts(shiftsData ?? []);
+
+      // Load driver payments
+      const { data: paymentsData } = await supabase
+        .from('driver_payments')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .order('payment_date', { ascending: false })
+        .limit(20);
+      setDriverPayments(paymentsData ?? []);
+    } catch (err) {
+      console.error('Driver portal load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [driver.id, supabase]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
   // ─── Live Location Tracking ─────────────────────────────────────────────────
   const locationWatchRef = useRef<number | null>(null);
   const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
