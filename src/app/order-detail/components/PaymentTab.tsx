@@ -15,6 +15,7 @@ import {
   Receipt,
   Truck,
   ShoppingCart,
+  Trash2,
 } from 'lucide-react';
 import { AppOrder as Order } from '@/lib/services/ordersService';
 import { PaymentBadge } from '@/components/ui/StatusBadge';
@@ -36,6 +37,8 @@ interface PaymentFormData {
 export default function PaymentTab({ order }: Props) {
   const [isEditing, setIsEditing] = useState(order.payment.status === 'Unpaid');
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [savedPayment, setSavedPayment] = useState(order.payment);
 
   const {
@@ -140,8 +143,104 @@ export default function PaymentTab({ order }: Props) {
     }
   };
 
+  const handleDeletePayment = async () => {
+    setIsDeleting(true);
+    try {
+      const supabase = createClient();
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_status: 'Unpaid',
+          payment_method: null,
+          delivery_charge: null,
+          payment_amount: null,
+          deposit_paid: null,
+          amount_due: null,
+          payment_notes: null,
+          payment_recorded_at: null,
+          payment_recorded_by: null,
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      setSavedPayment({
+        ...savedPayment,
+        status: 'Unpaid',
+        method: 'Unrecorded',
+        deliveryCharge: 0,
+        orderTotal: 0,
+        depositPaid: 0,
+        totalDue: 0,
+        amount: 0,
+        amountDue: 0,
+        notes: '',
+        recordedAt: undefined,
+        recordedBy: undefined,
+      });
+      setShowDeleteConfirm(false);
+      setIsEditing(true);
+      toast.success('Payment record deleted successfully');
+    } catch (err: any) {
+      toast.error('Failed to delete payment record: ' + (err?.message ?? 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl space-y-6">
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div
+          className="flex items-start gap-4 p-5 rounded-xl border"
+          style={{ borderColor: 'hsl(var(--destructive) / 0.4)', backgroundColor: 'hsl(var(--destructive) / 0.05)' }}
+        >
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ backgroundColor: 'hsl(var(--destructive) / 0.1)' }}
+          >
+            <Trash2 size={18} style={{ color: 'hsl(var(--destructive))' }} />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold mb-1" style={{ color: 'hsl(var(--foreground))' }}>
+              Delete Payment Record?
+            </p>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              This will permanently remove all payment details for this order and reset the status to <strong>Unpaid</strong>. This action cannot be undone.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleDeletePayment}
+                disabled={isDeleting}
+                className="btn-primary text-xs py-1.5 px-3"
+                style={{ backgroundColor: 'hsl(var(--destructive))', borderColor: 'hsl(var(--destructive))' }}
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw size={12} className="animate-spin" />
+                    Deleting…
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={12} />
+                    Yes, Delete
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="btn-secondary text-xs py-1.5 px-3"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Current payment status summary */}
       <div
         className="flex items-start gap-4 p-5 rounded-xl border"
@@ -225,6 +324,16 @@ export default function PaymentTab({ order }: Props) {
           >
             <Edit3 size={12} />
             Edit
+          </button>
+        )}
+        {savedPayment.status === 'Paid' && !isEditing && (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="btn-secondary text-xs py-1.5 px-3 shrink-0"
+            style={{ color: 'hsl(var(--destructive))', borderColor: 'hsl(var(--destructive) / 0.4)' }}
+          >
+            <Trash2 size={12} />
+            Delete
           </button>
         )}
       </div>
