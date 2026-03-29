@@ -1029,7 +1029,9 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
           <div className="rounded-xl border p-8 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
             <Shield size={32} className="mx-auto mb-2" style={{ color: 'hsl(var(--muted-foreground))' }} />
             <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No safety checks yet</p>
-            <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Complete your first pre-drive check above.</p>
+            <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Complete your first pre-drive check above.
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -1420,7 +1422,7 @@ pay_type: 'hourly',
 
       {activeShift ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)' }}>
+          <div className="flex items-center gap-2 px-4 py-1.5" style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)' }}>
             <CheckCircle2 size={14} style={{ color: 'hsl(142 69% 35%)' }} />
             <span className="text-xs font-medium" style={{ color: 'hsl(142 69% 35%)' }}>
               On shift since {new Date(activeShift.clock_in).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -1620,7 +1622,7 @@ function DriverDashboard({
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'earnings' | 'map' | 'profile'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'earnings' | 'map' | 'profile' | 'loading'>('orders');
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -1633,6 +1635,7 @@ function DriverDashboard({
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [pastShifts, setPastShifts] = useState<any[]>([]);
   const [driverPayments, setDriverPayments] = useState<any[]>([]);
+  const [vehicleLoadingDate, setVehicleLoadingDate] = useState<string>(getTodayStr());
 
   // ── Delivery Failed state ──────────────────────────────────────────────────
   const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
@@ -2005,6 +2008,7 @@ function DriverDashboard({
           {([
             { key: 'orders', label: 'Orders', icon: Package },
             { key: 'past-bookings', label: 'History', icon: History },
+            { key: 'loading', label: 'Loading', icon: Truck },
             { key: 'vehicle', label: 'Vehicle', icon: Car },
             { key: 'earnings', label: 'Earnings', icon: PoundSterling },
             { key: 'map', label: 'Map', icon: MapPin },
@@ -2026,6 +2030,216 @@ function DriverDashboard({
             </button>
           ))}
         </div>
+
+        {/* ── VEHICLE LOADING SECTION ── */}
+        {activeSection === 'loading' && (() => {
+          const loadingOrders = allOrders.filter((o) => o.bookingDate === vehicleLoadingDate);
+          const totalItems = loadingOrders.reduce((sum, o) => sum + (o.products?.length ?? 0), 0);
+          const totalQty = loadingOrders.reduce((sum, o) =>
+            sum + (o.products ?? []).reduce((s: number, p: any) => s + Number(p.quantity ?? p.qty ?? 1), 0), 0);
+
+          return (
+            <div className="space-y-4">
+              {/* Header + Date Picker */}
+              <div className="rounded-2xl border p-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(262 83% 58% / 0.12)' }}>
+                    <Truck size={18} style={{ color: 'hsl(262 83% 58%)' }} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Vehicle Loading</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Items booked for loading by date</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} style={{ color: 'hsl(var(--primary))' }} />
+                  <input
+                    type="date"
+                    value={vehicleLoadingDate}
+                    onChange={(e) => setVehicleLoadingDate(e.target.value)}
+                    className="flex-1 text-sm px-3 py-2 rounded-lg border outline-none transition-colors"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  <button
+                    onClick={() => setVehicleLoadingDate(getTodayStr())}
+                    className="px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: vehicleLoadingDate === getTodayStr() ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                      color: vehicleLoadingDate === getTodayStr() ? 'white' : 'hsl(var(--muted-foreground))',
+                    }}
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => setVehicleLoadingDate(getTomorrowStr())}
+                    className="px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: vehicleLoadingDate === getTomorrowStr() ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                      color: vehicleLoadingDate === getTomorrowStr() ? 'white' : 'hsl(var(--muted-foreground))',
+                    }}
+                  >
+                    Tomorrow
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary Pills */}
+              {loadingOrders.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Orders', value: loadingOrders.length, color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)' },
+                    { label: 'Line Items', value: totalItems, color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)' },
+                    { label: 'Total Qty', value: totalQty, color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)' },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-xl border p-3 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                      <p className="text-xl font-bold" style={{ color: s.color }}>{s.value}</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Date label */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <Calendar size={13} style={{ color: 'hsl(var(--primary))' }} />
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                  {new Date(vehicleLoadingDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {' · '}{loadingOrders.length} order{loadingOrders.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Orders with items */}
+              {loading ? (
+                <div className="space-y-3">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="rounded-xl border p-4 animate-pulse" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                      <div className="h-4 rounded w-1/3 mb-3" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                      <div className="h-3 rounded w-2/3 mb-2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                      <div className="h-3 rounded w-1/2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                    </div>
+                  ))}
+                </div>
+              ) : loadingOrders.length === 0 ? (
+                <div className="rounded-xl border p-10 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                  <Package size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>No orders for this date</p>
+                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>No bookings have been assigned for the selected date.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {loadingOrders.map((order, idx) => {
+                    const products: any[] = order.products ?? [];
+                    const isDelivery = !((order as any).bookingType ?? (order as any).booking_type ?? '').toLowerCase().includes('collection');
+                    return (
+                      <div key={order.id} className="rounded-xl border overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                        {/* Order Header */}
+                        <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary))' }}>
+                          <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                            style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                          >
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                style={{
+                                  backgroundColor: isDelivery ? 'hsl(217 91% 60% / 0.12)' : 'hsl(262 83% 58% / 0.12)',
+                                  color: isDelivery ? 'hsl(217 91% 60%)' : 'hsl(262 83% 58%)',
+                                }}
+                              >
+                                {isDelivery ? '↓ Delivery' : '↑ Collection'}
+                              </span>
+                              <StatusBadge status={order.status} />
+                            </div>
+                            <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {order.customer.name}
+                              {order.deliveryWindow ? ` · ${order.deliveryWindow}` : ''}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                              {products.length} item{products.length !== 1 ? 's' : ''}
+                            </p>
+                            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              Qty: {products.reduce((s: number, p: any) => s + Number(p.quantity ?? p.qty ?? 1), 0)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Products List */}
+                        {products.length === 0 ? (
+                          <div className="px-4 py-3 flex items-center gap-2">
+                            <Info size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs italic" style={{ color: 'hsl(var(--muted-foreground))' }}>No item details available for this order</span>
+                          </div>
+                        ) : (
+                          <div className="divide-y" style={{ borderColor: 'hsl(var(--border))' }}>
+                            {products.map((product: any, pIdx: number) => {
+                              const name = product.name ?? product.product_name ?? product.title ?? `Item ${pIdx + 1}`;
+                              const qty = Number(product.quantity ?? product.qty ?? 1);
+                              const sku = product.sku ?? product.product_sku ?? null;
+                              const meta = product.meta_data ?? product.meta ?? [];
+                              return (
+                                <div key={pIdx} className="flex items-start gap-3 px-4 py-3">
+                                  <div
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold"
+                                    style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
+                                  >
+                                    {qty}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{name}</p>
+                                    {sku && (
+                                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>SKU: {sku}</p>
+                                    )}
+                                    {Array.isArray(meta) && meta.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {meta.slice(0, 4).map((m: any, mi: number) => (
+                                          <span
+                                            key={mi}
+                                            className="text-xs px-1.5 py-0.5 rounded"
+                                            style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
+                                          >
+                                            {m.display_key ?? m.key}: {m.display_value ?? m.value}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0">
+                                    <span
+                                      className="text-xs px-2 py-1 rounded-lg font-semibold"
+                                      style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)', color: 'hsl(142 69% 35%)' }}
+                                    >
+                                      ×{qty}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Delivery Address */}
+                        {order.deliveryAddress && (
+                          <div className="flex items-start gap-2 px-4 py-2.5 border-t" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary) / 0.5)' }}>
+                            <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <p className="text-xs leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {order.deliveryAddress.line1}{order.deliveryAddress.line2 ? `, ${order.deliveryAddress.line2}` : ''}, {order.deliveryAddress.city}, {order.deliveryAddress.postcode}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── ORDERS SECTION ── */}
         {activeSection === 'orders' && (
@@ -2173,9 +2387,7 @@ function DriverDashboard({
                           <div className="flex items-start gap-2">
                             <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
                             <p className="text-xs leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                              {order.deliveryAddress.line1}
-                              {order.deliveryAddress.line2 ? `, ${order.deliveryAddress.line2}` : ''}
-                              {', '}{order.deliveryAddress.city}{', '}{order.deliveryAddress.postcode}
+                              {order.deliveryAddress.line1}{order.deliveryAddress.line2 ? `, ${order.deliveryAddress.line2}` : ''}, {order.deliveryAddress.city}, {order.deliveryAddress.postcode}
                             </p>
                           </div>
                         )}
@@ -2216,6 +2428,7 @@ function DriverDashboard({
                               rel="noopener noreferrer"
                               className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border"
                               style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              title="Navigate with Google Maps"
                             >
                               <Navigation size={14} style={{ color: 'hsl(var(--primary))' }} />
                               <span className="text-xs">Nav</span>
@@ -2448,7 +2661,9 @@ function DriverDashboard({
                     <button
                       onClick={() => { setPastBookingDateFilter(''); setPastBookingTypeFilter('all'); setPastBookingSearch(''); }}
                       className="text-xs font-medium flex items-center gap-1"
-                      style={{ color: 'hsl(var(--primary))' }}
+                      style={{
+                        color: 'hsl(var(--primary))',
+                      }}
                     >
                       <X size={11} /> Clear filters
                     </button>
@@ -2480,7 +2695,7 @@ function DriverDashboard({
                         <div className="p-4">
                           <div className="flex items-start justify-between gap-3 mb-2">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
                                 <span
                                   className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -2591,10 +2806,7 @@ function DriverDashboard({
                       className="rounded-xl border p-3 text-center"
                       style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
                     >
-                      <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {period.label}
-                      </p>
-                      <p className="text-lg font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                      <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
                         £{period.amount.toFixed(2)}
                       </p>
                       <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
