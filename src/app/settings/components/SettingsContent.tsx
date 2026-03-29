@@ -212,6 +212,66 @@ const INTEGRATION_ICONS: Record<string, string> = {
   slack: '💬',
 };
 
+const INTEGRATION_INSTRUCTIONS: Record<string, { overview: string; steps: { title: string; desc: string }[]; tip?: string }> = {
+  twilio: {
+    overview: 'Twilio powers SMS and WhatsApp alerts sent from CastleAdmin to drivers and customers.',
+    steps: [
+      { title: 'Create a Twilio account', desc: 'Sign up at https://www.twilio.com and verify your phone number.' },
+      { title: 'Get your Account SID and Auth Token', desc: 'From the Twilio Console dashboard, copy your Account SID and Auth Token.' },
+      { title: 'Buy a Twilio phone number', desc: 'Go to Phone Numbers → Manage → Buy a number. Choose a number with SMS capability.' },
+      { title: 'Enable WhatsApp (optional)', desc: 'Go to Messaging → Try it out → Send a WhatsApp message to activate the Twilio WhatsApp sandbox, or apply for a WhatsApp Business number.' },
+      { title: 'Add credentials to your environment', desc: 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, and TWILIO_WHATSAPP_NUMBER in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste your Auth Token as the API Key and your Account SID as the Webhook URL field, then click Save Config.' },
+    ],
+    tip: 'For production use, upgrade your Twilio account from trial mode to send messages to unverified numbers.',
+  },
+  stripe: {
+    overview: 'Stripe enables payment processing for orders and deposits within CastleAdmin.',
+    steps: [
+      { title: 'Create a Stripe account', desc: 'Sign up at https://dashboard.stripe.com/register.' },
+      { title: 'Get your API keys', desc: 'Go to Developers → API keys in the Stripe Dashboard. Copy your Publishable key and Secret key.' },
+      { title: 'Add keys to your environment', desc: 'Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY and STRIPE_SECRET_KEY in your .env file.' },
+      { title: 'Enter your Secret Key above', desc: 'Paste your Stripe Secret Key (sk_live_… or sk_test_…) as the API Key and click Save Config.' },
+      { title: 'Set up webhooks (optional)', desc: 'In Stripe Dashboard → Developers → Webhooks, add an endpoint pointing to your app\'s /api/stripe/webhook route to receive payment events.' },
+    ],
+    tip: 'Use test mode keys (sk_test_…) during development. Switch to live keys only when going to production.',
+  },
+  'google-maps': {
+    overview: 'Google Maps provides live driver tracking, route optimisation, and delivery zone mapping.',
+    steps: [
+      { title: 'Open Google Cloud Console', desc: 'Go to https://console.cloud.google.com and create or select a project.' },
+      { title: 'Enable required APIs', desc: 'Navigate to APIs & Services → Library and enable: Maps JavaScript API, Geocoding API, Directions API, and Distance Matrix API.' },
+      { title: 'Create an API key', desc: 'Go to APIs & Services → Credentials → Create Credentials → API key.' },
+      { title: 'Restrict the key (recommended)', desc: 'Under API restrictions, limit the key to the four APIs above. Under Application restrictions, add your domain.' },
+      { title: 'Add the key to your environment', desc: 'Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste the key into the API Key field and click Save Config.' },
+    ],
+    tip: 'Set up billing alerts in Google Cloud Console to avoid unexpected charges. New accounts receive $200 free credit per month.',
+  },
+  sendgrid: {
+    overview: 'SendGrid delivers transactional emails such as order confirmations and status updates.',
+    steps: [
+      { title: 'Create a SendGrid account', desc: 'Sign up at https://signup.sendgrid.com.' },
+      { title: 'Verify your sender identity', desc: 'Go to Settings → Sender Authentication and verify either a single sender email or your entire domain.' },
+      { title: 'Create an API key', desc: 'Go to Settings → API Keys → Create API Key. Choose "Restricted Access" and enable "Mail Send" permission.' },
+      { title: 'Add the key to your environment', desc: 'Set SENDGRID_API_KEY in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste the SendGrid API key (SG.…) into the API Key field and click Save Config.' },
+    ],
+    tip: 'Domain authentication (DKIM/SPF) significantly improves email deliverability. Complete it in SendGrid → Settings → Sender Authentication.',
+  },
+  slack: {
+    overview: 'Slack integration sends real-time alerts and notifications to your team channels.',
+    steps: [
+      { title: 'Create a Slack app', desc: 'Go to https://api.slack.com/apps and click "Create New App" → "From scratch". Give it a name and select your workspace.' },
+      { title: 'Enable Incoming Webhooks', desc: 'In your app settings, go to Features → Incoming Webhooks and toggle it on.' },
+      { title: 'Add a webhook to your workspace', desc: 'Click "Add New Webhook to Workspace", select the channel to post to, and click Allow.' },
+      { title: 'Copy the Webhook URL', desc: 'Copy the generated webhook URL (https://hooks.slack.com/services/…).' },
+      { title: 'Enter the webhook URL above', desc: 'Paste the Slack webhook URL into the Webhook URL field and click Save Config.' },
+    ],
+    tip: 'You can create multiple Slack apps or webhooks to route different alert types (e.g. orders vs driver alerts) to separate channels.',
+  },
+};
+
 const API_SCOPES = ['read', 'write', 'orders:read', 'orders:write', 'drivers:read', 'drivers:write', 'analytics:read', 'settings:read', 'settings:write'];
 
 const DEFAULT_FLEET: FleetConfig = {
@@ -422,6 +482,7 @@ export default function SettingsContent() {
   const [editingIntegration, setEditingIntegration] = useState<string | null>(null);
   const [integrationApiKey, setIntegrationApiKey] = useState('');
   const [integrationWebhook, setIntegrationWebhook] = useState('');
+  const [expandedInstructions, setExpandedInstructions] = useState<string | null>(null);
 
   // Driver rate settings
   const [driverRates, setDriverRates] = useState<DriverRateSettings>(DEFAULT_DRIVER_RATES);
@@ -2024,7 +2085,7 @@ export default function SettingsContent() {
 
               {/* Other integrations */}
               {integrations.map((integration) => (
-                <div key={integration.id} className="rounded-xl border p-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                <div key={integration.id} className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{INTEGRATION_ICONS[integration.slug] ?? '🔌'}</span>
@@ -2039,8 +2100,51 @@ export default function SettingsContent() {
                       <button onClick={() => { setEditingIntegration(integration.id === editingIntegration ? null : integration.id); setIntegrationApiKey(integration.api_key ?? ''); setIntegrationWebhook(integration.webhook_url ?? ''); }} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Configure</button>
                     </div>
                   </div>
+
+                  {/* Setup Instructions collapsible */}
+                  {INTEGRATION_INSTRUCTIONS[integration.slug] && (
+                    <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedInstructions(expandedInstructions === integration.id ? null : integration.id)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-left transition-colors hover:bg-black/5"
+                        style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>📋</span> Setup Instructions
+                        </span>
+                        <span style={{ color: 'hsl(var(--muted-foreground))' }}>{expandedInstructions === integration.id ? '▲ Hide' : '▼ Show'}</span>
+                      </button>
+                      {expandedInstructions === integration.id && (() => {
+                        const info = INTEGRATION_INSTRUCTIONS[integration.slug];
+                        return (
+                          <div className="px-4 py-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{info.overview}</p>
+                            <ol className="space-y-2.5">
+                              {info.steps.map(({ title, desc }, idx) => (
+                                <li key={idx} className="flex gap-3">
+                                  <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white mt-0.5" style={{ backgroundColor: 'hsl(var(--primary))' }}>{idx + 1}</span>
+                                  <div>
+                                    <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{title}</p>
+                                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{desc}</p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ol>
+                            {info.tip && (
+                              <div className="rounded-lg p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                                <p className="text-xs font-medium mb-0.5" style={{ color: 'hsl(var(--foreground))' }}>💡 Tip</p>
+                                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{info.tip}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
                   {editingIntegration === integration.id && (
-                    <div className="mt-4 space-y-3 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                    <div className="mt-1 space-y-3 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
                       <TextInput label="API Key" value={integrationApiKey} onChange={setIntegrationApiKey} placeholder="Enter API key…" />
                       <TextInput label="Webhook URL" value={integrationWebhook} onChange={setIntegrationWebhook} placeholder="https://…" type="url" />
                       <button onClick={() => saveIntegrationConfig(integration.id)} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
