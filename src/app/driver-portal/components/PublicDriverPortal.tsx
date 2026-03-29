@@ -1524,9 +1524,14 @@ interface DriverProfileSectionProps {
   driver: AppDriver & { access_code: string };
   onDriverUpdate: (updated: AppDriver & { access_code: string }) => void;
   onLogout: () => void;
+  earnings: EarningsSummary | null;
+  pastShifts: any[];
+  driverPayments: any[];
+  allOrders: AppOrder[];
+  loadingData: boolean;
 }
 
-function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfileSectionProps) {
+function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, pastShifts, driverPayments, allOrders, loadingData }: DriverProfileSectionProps) {
   const supabase = createClient();
   const [editing, setEditing] = useState(false);
   const [phone, setPhone] = useState(driver.phone ?? '');
@@ -1549,6 +1554,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfil
 
   return (
     <div className="space-y-4">
+      {/* ── Profile Card ── */}
       <div className="rounded-xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold shrink-0" style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}>
@@ -1598,6 +1604,304 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout }: DriverProfil
         </div>
       </div>
 
+      {/* ── Earnings Section ── */}
+      {loadingData || !earnings ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="rounded-xl border p-4 animate-pulse h-20"
+              style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+            />
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* Earnings Cards */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Today', deliveries: earnings.todayDeliveries, amount: earnings.todayEarnings },
+              { label: 'This Week', deliveries: earnings.weekDeliveries, amount: earnings.weekEarnings },
+              { label: 'This Month', deliveries: earnings.monthDeliveries, amount: earnings.monthEarnings },
+            ].map((period) => (
+              <div
+                key={period.label}
+                className="rounded-xl border p-3 text-center"
+                style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+              >
+                <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                  £{period.amount.toFixed(2)}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  {period.deliveries} deliveries
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Performance Stats */}
+          <div
+            className="rounded-xl border p-4 space-y-4"
+            style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+          >
+            <h3 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
+              Performance (This Month)
+            </h3>
+
+            {/* Completion Rate */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <TrendingUp size={13} style={{ color: 'hsl(142 69% 35%)' }} />
+                  <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    Completion Rate
+                  </span>
+                </div>
+                <span className="text-xs font-bold" style={{ color: 'hsl(142 69% 35%)' }}>
+                  {earnings.completionRate}%
+                </span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${earnings.completionRate}%`,
+                    backgroundColor: earnings.completionRate >= 90
+                      ? 'hsl(142 69% 35%)'
+                      : earnings.completionRate >= 70
+                      ? 'hsl(38 92% 50%)'
+                      : 'hsl(0 84% 60%)',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Average Rating */}
+            {earnings.avgRating > 0 && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Star size={13} style={{ color: 'hsl(38 92% 50%)' }} />
+                  <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    Avg Customer Rating
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                    {earnings.avgRating}
+                  </span>
+                  <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>/5</span>
+                  <div className="flex gap-0.5 ml-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={10}
+                        fill={star <= Math.round(earnings.avgRating) ? 'hsl(38 92% 50%)' : 'none'}
+                        style={{ color: 'hsl(38 92% 50%)' }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bonus Rate */}
+            <div
+              className="flex items-center justify-between p-3 rounded-lg"
+              style={{ backgroundColor: 'hsl(var(--secondary))' }}
+            >
+              <div className="flex items-center gap-1.5">
+                <PoundSterling size={13} style={{ color: 'hsl(var(--primary))' }} />
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                  Bonus per Delivery
+                </span>
+              </div>
+              <span className="text-xs font-bold" style={{ color: 'hsl(var(--primary))' }}>
+                £{earnings.bonusPerDelivery.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* All-Time Summary */}
+          <div
+            className="rounded-xl border p-4"
+            style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+          >
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
+              All-Time Summary
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Completed</p>
+                <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                  {allOrders.filter((o) => o.status === 'Booking Complete').length}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Bonus Earned</p>
+                <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                  £{(allOrders.filter((o) => o.status === 'Booking Complete').length * earnings.bonusPerDelivery).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Summary */}
+          {(() => {
+            const totalGrossPay = pastShifts.reduce((sum, s) => sum + (Number(s.gross_pay) || 0), 0);
+            const totalPaid = driverPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const amountDue = Math.max(0, totalGrossPay - totalPaid);
+            return (
+              <div
+                className="rounded-xl border p-4"
+                style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+              >
+                <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
+                  Payment Summary
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                    <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Gross Pay</p>
+                    <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>£{totalGrossPay.toFixed(2)}</p>
+                  </div>
+                  <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                    <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Paid</p>
+                    <p className="text-base font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{totalPaid.toFixed(2)}</p>
+                  </div>
+                  <div className="p-3 rounded-lg text-center" style={{ backgroundColor: amountDue > 0 ? 'hsl(38 92% 50% / 0.12)' : 'hsl(142 69% 35% / 0.1)' }}>
+                    <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Amount Due</p>
+                    <p className="text-base font-bold" style={{ color: amountDue > 0 ? 'hsl(38 92% 50%)' : 'hsl(142 69% 35%)' }}>£{amountDue.toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Past Shifts */}
+          <div
+            className="rounded-xl border p-4"
+            style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+          >
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
+              Past Shifts
+            </h3>
+            {pastShifts.length === 0 ? (
+              <p className="text-xs text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                No shifts recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {pastShifts.map((shift) => {
+                  const clockIn = new Date(shift.clock_in);
+                  const clockOut = shift.clock_out ? new Date(shift.clock_out) : null;
+                  const durationMs = clockOut ? clockOut.getTime() - clockIn.getTime() : null;
+                  const durationHrs = durationMs ? (durationMs / 3600000 - (shift.break_minutes || 0) / 60) : null;
+                  return (
+                    <div
+                      key={shift.id}
+                      className="flex items-start justify-between gap-3 p-3 rounded-lg"
+                      style={{ backgroundColor: 'hsl(var(--secondary))' }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                            {clockIn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded-full capitalize"
+                            style={{
+                              backgroundColor: shift.shift_type === 'overtime' ? 'hsl(262 83% 58% / 0.15)' : 'hsl(217 91% 60% / 0.12)',
+                              color: shift.shift_type === 'overtime' ? 'hsl(262 83% 58%)' : 'hsl(217 91% 60%)',
+                            }}
+                          >
+                            {shift.shift_type}
+                          </span>
+                          {shift.is_manual && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                              manual
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {clockIn.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                          {clockOut ? ` – ${clockOut.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' (ongoing)'}
+                          {durationHrs !== null && ` · ${durationHrs.toFixed(1)}h`}
+                          {shift.break_minutes > 0 && ` (${shift.break_minutes}m break)`}
+                        </p>
+                        {shift.notes && (
+                          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {shift.notes}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        {shift.gross_pay != null ? (
+                          <p className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                            £{Number(shift.gross_pay).toFixed(2)}
+                          </p>
+                        ) : (
+                          <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>—</p>
+                        )}
+                        <p className="text-xs capitalize" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {shift.pay_type}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Payment History */}
+          <div
+            className="rounded-xl border p-4"
+            style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+          >
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
+              Payment History
+            </h3>
+            {driverPayments.length === 0 ? (
+              <p className="text-xs text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                No payments recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {driverPayments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="flex items-start justify-between gap-3 p-3 rounded-lg"
+                    style={{ backgroundColor: 'hsl(var(--secondary))' }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                        {new Date(payment.payment_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                      <p className="text-xs capitalize mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {payment.payment_method.replace(/_/g, ' ')}
+                        {payment.reference ? ` · Ref: ${payment.reference}` : ''}
+                      </p>
+                      {payment.period_start && payment.period_end && (
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          Period: {new Date(payment.period_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – {new Date(payment.period_end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                        </p>
+                      )}
+                      {payment.notes && (
+                        <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {payment.notes}
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-sm font-bold shrink-0" style={{ color: 'hsl(142 69% 35%)' }}>
+                      £{Number(payment.amount).toFixed(2)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       <button
         onClick={onLogout}
         className="w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2"
@@ -1622,7 +1926,7 @@ function DriverDashboard({
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'earnings' | 'map' | 'profile' | 'loading'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading'>('orders');
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -2010,7 +2314,6 @@ function DriverDashboard({
             { key: 'past-bookings', label: 'History', icon: History },
             { key: 'loading', label: 'Loading', icon: Truck },
             { key: 'vehicle', label: 'Vehicle', icon: Car },
-            { key: 'earnings', label: 'Earnings', icon: PoundSterling },
             { key: 'map', label: 'Map', icon: MapPin },
             { key: 'profile', label: 'Profile', icon: User },
           ] as const).map((tab) => (
@@ -2779,308 +3082,6 @@ function DriverDashboard({
           <SafetyCheckSection driverId={driver.id} />
         )}
 
-        {/* ── EARNINGS SECTION ── */}
-        {activeSection === 'earnings' && (
-          <div className="space-y-4">
-            {loading || !earnings ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="rounded-xl border p-4 animate-pulse h-20"
-                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <>
-                {/* Earnings Cards */}
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: 'Today', deliveries: earnings.todayDeliveries, amount: earnings.todayEarnings },
-                    { label: 'This Week', deliveries: earnings.weekDeliveries, amount: earnings.weekEarnings },
-                    { label: 'This Month', deliveries: earnings.monthDeliveries, amount: earnings.monthEarnings },
-                  ].map((period) => (
-                    <div
-                      key={period.label}
-                      className="rounded-xl border p-3 text-center"
-                      style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                    >
-                      <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                        £{period.amount.toFixed(2)}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {period.deliveries} deliveries
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Performance Stats */}
-                <div
-                  className="rounded-xl border p-4 space-y-4"
-                  style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                >
-                  <h3 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
-                    Performance (This Month)
-                  </h3>
-
-                  {/* Completion Rate */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <TrendingUp size={13} style={{ color: 'hsl(142 69% 35%)' }} />
-                        <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                          Completion Rate
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold" style={{ color: 'hsl(142 69% 35%)' }}>
-                        {earnings.completionRate}%
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${earnings.completionRate}%`,
-                          backgroundColor: earnings.completionRate >= 90
-                            ? 'hsl(142 69% 35%)'
-                            : earnings.completionRate >= 70
-                            ? 'hsl(38 92% 50%)'
-                            : 'hsl(0 84% 60%)',
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Average Rating */}
-                  {earnings.avgRating > 0 && (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Star size={13} style={{ color: 'hsl(38 92% 50%)' }} />
-                        <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                          Avg Customer Rating
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                          {earnings.avgRating}
-                        </span>
-                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>/5</span>
-                        <div className="flex gap-0.5 ml-1">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              size={10}
-                              fill={star <= Math.round(earnings.avgRating) ? 'hsl(38 92% 50%)' : 'none'}
-                              style={{ color: 'hsl(38 92% 50%)' }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Bonus Rate */}
-                  <div
-                    className="flex items-center justify-between p-3 rounded-lg"
-                    style={{ backgroundColor: 'hsl(var(--secondary))' }}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <PoundSterling size={13} style={{ color: 'hsl(var(--primary))' }} />
-                      <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                        Bonus per Delivery
-                      </span>
-                    </div>
-                    <span className="text-xs font-bold" style={{ color: 'hsl(var(--primary))' }}>
-                      £{earnings.bonusPerDelivery.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Monthly deliveries breakdown */}
-                <div
-                  className="rounded-xl border p-4"
-                  style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                >
-                  <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
-                    All-Time Summary
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                      <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Completed</p>
-                      <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                        {allOrders.filter((o) => o.status === 'Booking Complete').length}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                      <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Bonus Earned</p>
-                      <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                        £{(allOrders.filter((o) => o.status === 'Booking Complete').length * earnings.bonusPerDelivery).toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── PAYMENTS SUMMARY ── */}
-                {(() => {
-                  const totalGrossPay = pastShifts.reduce((sum, s) => sum + (Number(s.gross_pay) || 0), 0);
-                  const totalPaid = driverPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-                  const amountDue = Math.max(0, totalGrossPay - totalPaid);
-                  return (
-                    <div
-                      className="rounded-xl border p-4"
-                      style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                    >
-                      <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
-                        Payment Summary
-                      </h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                          <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Gross Pay</p>
-                          <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>£{totalGrossPay.toFixed(2)}</p>
-                        </div>
-                        <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                          <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Paid</p>
-                          <p className="text-base font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{totalPaid.toFixed(2)}</p>
-                        </div>
-                        <div className="p-3 rounded-lg text-center" style={{ backgroundColor: amountDue > 0 ? 'hsl(38 92% 50% / 0.12)' : 'hsl(142 69% 35% / 0.1)' }}>
-                          <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Amount Due</p>
-                          <p className="text-base font-bold" style={{ color: amountDue > 0 ? 'hsl(38 92% 50%)' : 'hsl(142 69% 35%)' }}>£{amountDue.toFixed(2)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ── PAST SHIFTS ── */}
-                <div
-                  className="rounded-xl border p-4"
-                  style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                >
-                  <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
-                    Past Shifts
-                  </h3>
-                  {pastShifts.length === 0 ? (
-                    <p className="text-xs text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      No shifts recorded yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {pastShifts.map((shift) => {
-                        const clockIn = new Date(shift.clock_in);
-                        const clockOut = shift.clock_out ? new Date(shift.clock_out) : null;
-                        const durationMs = clockOut ? clockOut.getTime() - clockIn.getTime() : null;
-                        const durationHrs = durationMs ? (durationMs / 3600000 - (shift.break_minutes || 0) / 60) : null;
-                        return (
-                          <div
-                            key={shift.id}
-                            className="flex items-start justify-between gap-3 p-3 rounded-lg"
-                            style={{ backgroundColor: 'hsl(var(--secondary))' }}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                                  {clockIn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                </span>
-                                <span
-                                  className="text-xs px-1.5 py-0.5 rounded-full capitalize"
-                                  style={{
-                                    backgroundColor: shift.shift_type === 'overtime' ? 'hsl(262 83% 58% / 0.15)' : 'hsl(217 91% 60% / 0.12)',
-                                    color: shift.shift_type === 'overtime' ? 'hsl(262 83% 58%)' : 'hsl(217 91% 60%)',
-                                  }}
-                                >
-                                  {shift.shift_type}
-                                </span>
-                                {shift.is_manual && (
-                                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                                    manual
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                {clockIn.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                {clockOut ? ` – ${clockOut.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' (ongoing)'}
-                                {durationHrs !== null && ` · ${durationHrs.toFixed(1)}h`}
-                                {shift.break_minutes > 0 && ` (${shift.break_minutes}m break)`}
-                              </p>
-                              {shift.notes && (
-                                <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                  {shift.notes}
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right shrink-0">
-                              {shift.gross_pay != null ? (
-                                <p className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-                                  £{Number(shift.gross_pay).toFixed(2)}
-                                </p>
-                              ) : (
-                                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>—</p>
-                              )}
-                              <p className="text-xs capitalize" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                {shift.pay_type}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* ── DRIVER PAYMENTS ── */}
-                <div
-                  className="rounded-xl border p-4"
-                  style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-                >
-                  <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>
-                    Payment History
-                  </h3>
-                  {driverPayments.length === 0 ? (
-                    <p className="text-xs text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      No payments recorded yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {driverPayments.map((payment) => (
-                        <div
-                          key={payment.id}
-                          className="flex items-start justify-between gap-3 p-3 rounded-lg"
-                          style={{ backgroundColor: 'hsl(var(--secondary))' }}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                              {new Date(payment.payment_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </p>
-                            <p className="text-xs capitalize mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                              {payment.payment_method.replace(/_/g, ' ')}
-                              {payment.reference ? ` · Ref: ${payment.reference}` : ''}
-                            </p>
-                            {payment.period_start && payment.period_end && (
-                              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                Period: {new Date(payment.period_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – {new Date(payment.period_end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                              </p>
-                            )}
-                            {payment.notes && (
-                              <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                                {payment.notes}
-                              </p>
-                            )}
-                          </div>
-                          <p className="text-sm font-bold shrink-0" style={{ color: 'hsl(142 69% 35%)' }}>
-                            £{Number(payment.amount).toFixed(2)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* ── MAP SECTION ── */}
         {activeSection === 'map' && (
           <div
@@ -3126,6 +3127,11 @@ function DriverDashboard({
             driver={driver}
             onDriverUpdate={(updated) => setDriver(updated)}
             onLogout={onLogout}
+            earnings={earnings}
+            pastShifts={pastShifts}
+            driverPayments={driverPayments}
+            allOrders={allOrders}
+            loadingData={loading}
           />
         )}
 
