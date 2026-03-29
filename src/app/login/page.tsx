@@ -15,7 +15,7 @@ interface LoginFormData {
 }
 
 const features = [
-  { icon: Package, label: 'Order Management', desc: 'Track every order in real-time' },
+  { icon: Package, label: 'Booking Management', desc: 'Track every booking in real-time' },
   { icon: Truck, label: 'Driver Dispatch', desc: 'Assign and monitor your fleet' },
   { icon: MapPin, label: 'Live Tracking', desc: 'GPS visibility across all routes' },
   { icon: BarChart3, label: 'Analytics', desc: 'Revenue and performance insights' },
@@ -326,16 +326,6 @@ export default function LoginPage() {
 
           {/* Footer links */}
           <div className="space-y-3 text-center">
-            <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Don&apos;t have an account?{' '}
-              <Link
-                href="/register"
-                className="font-medium transition-colors hover:underline"
-                style={{ color: 'hsl(var(--primary))' }}
-              >
-                Create one
-              </Link>
-            </p>
             <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
               Looking for your delivery?{' '}
               <Link
