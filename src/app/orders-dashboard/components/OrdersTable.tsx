@@ -20,6 +20,7 @@ const STATUS_TABS: Array<{ label: string; value: BookingStatus | 'All' }> = [
   { label: 'Assigned', value: 'Booking Assigned' },
   { label: 'In Transit', value: 'Booking Out For Delivery' },
   { label: 'Complete', value: 'Booking Complete' },
+  { label: 'Failed', value: 'Booking Failed' },
 ];
 
 export default function OrdersTable() {
@@ -214,9 +215,9 @@ export default function OrdersTable() {
       } else if (activeDateTab === 'tomorrow') {
         result = result.filter((o) => o.bookingDate === tomorrowStr);
       } else if (activeDateTab === 'upcoming') {
-        result = result.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
+        result = result.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed');
       } else if (activeDateTab === 'delayed') {
-        result = result.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled');
+        result = result.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed');
       } else if (activeDateTab === 'pending-payment') {
         result = result.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending');
       }
@@ -615,8 +616,8 @@ export default function OrdersTable() {
           { label: 'All Orders', value: 'all', count: orders.length },
           { label: 'Today', value: 'today', count: orders.filter((o) => o.bookingDate === todayStr).length, accent: 'hsl(217 91% 60%)' },
           { label: 'Tomorrow', value: 'tomorrow', count: orders.filter((o) => o.bookingDate === tomorrowStr).length, accent: 'hsl(262 83% 58%)' },
-          { label: 'Upcoming', value: 'upcoming', count: orders.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled').length, accent: 'hsl(142 69% 35%)' },
-          { label: 'Delayed', value: 'delayed', count: orders.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled').length, accent: 'hsl(0 84% 60%)' },
+          { label: 'Upcoming', value: 'upcoming', count: orders.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed').length, accent: 'hsl(142 69% 35%)' },
+          { label: 'Delayed', value: 'delayed', count: orders.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed').length, accent: 'hsl(0 84% 60%)' },
           { label: 'Pending Payment', value: 'pending-payment', count: orders.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending').length, accent: 'hsl(38 92% 50%)' },
         ];
 

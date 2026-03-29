@@ -55,6 +55,7 @@ const STATUS_ACCENT: Record<string, string> = {
   'Booking Out For Delivery': 'hsl(262 83% 58%)',
   'Booking Complete': 'hsl(142 69% 35%)',
   'Booking Cancelled': 'hsl(0 84% 60%)',
+  'Booking Failed': 'hsl(0 84% 60%)',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ function getGreeting(): string {
 }
 
 function isUrgent(order: AppOrder): boolean {
-  if (order.status === 'Booking Complete' || order.status === 'Booking Cancelled') return false;
+  if (order.status === 'Booking Complete' || order.status === 'Booking Cancelled' || order.status === 'Booking Failed') return false;
   const window = order.deliveryWindow ?? '';
   const now = new Date();
   const h = now.getHours();
@@ -197,7 +198,7 @@ export default function DriverDashboardContent() {
       return;
     }
     const activeOrders = allOrders.filter(
-      (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
+      (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed'
     );
     if (newStatus === 'Off Duty' && activeOrders.length > 0) {
       toast.error(`You have ${activeOrders.length} active delivery${activeOrders.length > 1 ? 'ies' : ''} in progress.`);
@@ -274,7 +275,7 @@ export default function DriverDashboardContent() {
   const displayOrders = getDisplayOrders();
 
   const todayActive = [...todayDeliveries, ...todayCollections].filter(
-    (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
+    (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed'
   ).length;
   const todayComplete = [...todayDeliveries, ...todayCollections].filter((o) => o.status === 'Booking Complete').length;
   const urgentCount = [...todayDeliveries, ...todayCollections].filter(isUrgent).length;
@@ -807,6 +808,12 @@ export default function DriverDashboardContent() {
                       <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
                         <AlertCircle size={15} style={{ color: 'hsl(0 84% 60%)' }} />
                         <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Booking Cancelled</span>
+                      </div>
+                    )}
+                    {order.status === 'Booking Failed' && (
+                      <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
+                        <AlertCircle size={15} style={{ color: 'hsl(0 84% 60%)' }} />
+                        <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Booking Failed</span>
                       </div>
                     )}
                   </div>

@@ -27,6 +27,7 @@ const STATUS_FLOW: BookingStatus[] = [
   'Booking Assigned',
   'Booking Out For Delivery',
   'Booking Complete',
+  'Booking Failed',
 ];
 
 const STATUS_ICONS: Record<BookingStatus, React.ElementType> = {
@@ -34,6 +35,7 @@ const STATUS_ICONS: Record<BookingStatus, React.ElementType> = {
   'Booking Assigned': Circle,
   'Booking Out For Delivery': Truck,
   'Booking Complete': CheckCircle2,
+  'Booking Failed': AlertTriangle,
 };
 
 const STATUS_LABELS: Record<BookingStatus, string> = {
@@ -41,6 +43,7 @@ const STATUS_LABELS: Record<BookingStatus, string> = {
   'Booking Assigned': 'Assigned',
   'Booking Out For Delivery': 'In Transit',
   'Booking Complete': 'Complete',
+  'Booking Failed': 'Failed',
 };
 
 const ALL_STATUSES: BookingStatus[] = [
@@ -48,6 +51,7 @@ const ALL_STATUSES: BookingStatus[] = [
   'Booking Assigned',
   'Booking Out For Delivery',
   'Booking Complete',
+  'Booking Failed',
 ];
 
 interface Props {
