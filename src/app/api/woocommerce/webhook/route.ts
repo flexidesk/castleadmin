@@ -1,6 +1,46 @@
+/**
+ * WooCommerce Webhook Endpoint
+ * ─────────────────────────────────────────────────────────────────────────────
+ * GET  /api/woocommerce/webhook
+ *   WooCommerce sends a GET ping when a webhook is first registered to verify
+ *   the endpoint is reachable. Responds with 200 OK.
+ *
+ * POST /api/woocommerce/webhook
+ *   Receives WooCommerce webhook events.
+ *   Supported topics:
+ *     • order.created  → inserts a new order (if not already present)
+ *     • order.updated  → updates order details AND maps WC status → internal status
+ *     • order.deleted  → marks order as cancelled
+ *     • order.restored → re-activates a previously cancelled order
+ *
+ *   Signature verification:
+ *     Set WC_WEBHOOK_SECRET in .env to the same secret configured in WooCommerce.
+ *     If the env var is absent the signature check is skipped (useful for dev).
+ *
+ *   Status mapping (WooCommerce → internal):
+ *     pending     → Booking Accepted
+ *     processing  → Booking Accepted
+ *     on-hold     → Booking Accepted
+ *     completed   → Booking Completed
+ *     cancelled   → Booking Cancelled
+ *     refunded    → Booking Cancelled
+ *     failed      → Booking Cancelled
+ *
+ *   Update rules:
+ *     • order.created  : always inserts (upsert on woo_order_id)
+ *     • order.updated  : updates customer/address/product fields AND status
+ *                        UNLESS the internal order is already Out For Delivery
+ *                        or Delivered (driver has started the run — don't regress)
+ *     • order.deleted  : sets status → Booking Cancelled
+ *     • order.restored : sets status → Booking Accepted
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createHmac } from 'crypto';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WooLineItem {
   id: number;
@@ -40,6 +80,30 @@ interface WooOrder {
   line_items: WooLineItem[];
   meta_data: { key: string; value: string }[];
 }
+
+// ─── Status mapping ───────────────────────────────────────────────────────────
+
+const WOO_STATUS_MAP: Record<string, string> = {
+  pending: 'Booking Accepted',
+  processing: 'Booking Accepted',
+  'on-hold': 'Booking Accepted',
+  completed: 'Booking Completed',
+  cancelled: 'Booking Cancelled',
+  refunded: 'Booking Cancelled',
+  failed: 'Booking Cancelled',
+};
+
+/**
+ * Internal statuses that represent an active driver run.
+ * We do NOT regress these when WooCommerce sends an update.
+ */
+const LOCKED_STATUSES = new Set([
+  'Booking Out For Delivery',
+  'Booking Delivered',
+  'Booking Completed',
+]);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapWooPaymentMethod(wooMethod: string): 'Card' | 'Cash' | 'Unrecorded' {
   const m = (wooMethod ?? '').toLowerCase();
@@ -101,6 +165,7 @@ function mapWooOrderToRow(order: WooOrder) {
   const bookingType = extractBookingType(order);
   const paymentMethod = mapWooPaymentMethod(order.payment_method);
   const paymentStatus = paymentMethod === 'Unrecorded' ? 'Unpaid' : 'Paid';
+  const internalStatus = WOO_STATUS_MAP[order.status] ?? 'Booking Accepted';
 
   const products = (order.line_items ?? []).map((item) => {
     const qty = Number(item.quantity) || 1;
@@ -131,7 +196,7 @@ function mapWooOrderToRow(order: WooOrder) {
     customer_email: billing.email ?? '',
     customer_phone: billing.phone ?? '',
     booking_type: bookingType,
-    status: 'Booking Accepted',
+    status: internalStatus,
     delivery_address_line1: addressSource.address_1 ?? null,
     delivery_address_line2: addressSource.address_2 ?? null,
     delivery_address_city: addressSource.city ?? null,
@@ -151,119 +216,229 @@ function mapWooOrderToRow(order: WooOrder) {
   };
 }
 
+// ─── Signature verification ───────────────────────────────────────────────────
+
+function verifySignature(rawBody: string, signature: string, secret: string): boolean {
+  const hmac = createHmac('sha256', secret);
+  hmac.update(rawBody, 'utf8');
+  const expected = hmac.digest('base64');
+  return signature === expected;
+}
+
+// ─── GET — webhook verification ping ─────────────────────────────────────────
+
+/**
+ * WooCommerce pings this endpoint with a GET request when you first save a
+ * webhook in the WooCommerce admin. It expects a 200 response.
+ */
+export async function GET() {
+  return NextResponse.json(
+    { status: 'ok', message: 'Castle Admin webhook endpoint is active.' },
+    { status: 200 }
+  );
+}
+
+// ─── POST — receive webhook events ───────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
-  // Verify WooCommerce webhook signature if secret is configured
   const webhookSecret = process.env.WC_WEBHOOK_SECRET;
-  if (webhookSecret) {
+  const topic = req.headers.get('x-wc-webhook-topic') ?? '';
+
+  let order: WooOrder;
+
+  if (webhookSecret && webhookSecret !== 'your-woocommerce-webhook-secret-here') {
+    // Signature verification required — read raw body first
     const signature = req.headers.get('x-wc-webhook-signature');
     if (!signature) {
       return NextResponse.json({ error: 'Missing webhook signature' }, { status: 401 });
     }
     const rawBody = await req.text();
-    const hmac = createHmac('sha256', webhookSecret);
-    hmac.update(rawBody, 'utf8');
-    const expected = hmac.digest('base64');
-    if (signature !== expected) {
+    if (!verifySignature(rawBody, signature, webhookSecret)) {
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
     }
-    // Parse body from text since we already consumed the stream
-    let order: WooOrder;
     try {
       order = JSON.parse(rawBody);
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
-    return handleWebhookOrder(req, order);
+  } else {
+    // No secret configured — parse body directly (dev / testing mode)
+    try {
+      order = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
   }
 
-  // No secret configured — parse body directly
-  let order: WooOrder;
-  try {
-    order = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
-  return handleWebhookOrder(req, order);
+  return handleWebhookEvent(topic, order);
 }
 
-async function handleWebhookOrder(req: NextRequest, order: WooOrder) {
-  const topic = req.headers.get('x-wc-webhook-topic') ?? '';
+// ─── Core event handler ───────────────────────────────────────────────────────
+
+async function handleWebhookEvent(topic: string, order: WooOrder) {
   const supabase = await createClient();
 
-  // Log the incoming webhook
+  // Log every incoming event
   await supabase.from('woocommerce_webhook_log').insert({
     woo_order_id: String(order.id),
     topic,
     payload_summary: {
-      status: order.status,
+      woo_status: order.status,
       total: order.total,
       customer: `${order.billing?.first_name ?? ''} ${order.billing?.last_name ?? ''}`.trim(),
     },
   });
 
-  // Only process order topics
-  const isOrderTopic =
-    topic === 'order.created' ||
-    topic === 'order.updated' ||
-    topic === 'order.completed'|| topic.startsWith('order.');
+  // ── order.deleted ──────────────────────────────────────────────────────────
+  if (topic === 'order.deleted') {
+    const { data: existing } = await supabase
+      .from('orders')
+      .select('id, status')
+      .eq('woo_order_id', String(order.id))
+      .maybeSingle();
 
+    if (!existing) {
+      return NextResponse.json({ received: true, processed: false, reason: 'Order not found locally' });
+    }
+
+    await supabase
+      .from('orders')
+      .update({ status: 'Booking Cancelled', updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+
+    return NextResponse.json({ received: true, processed: true, action: 'cancelled', orderId: existing.id });
+  }
+
+  // ── order.restored ─────────────────────────────────────────────────────────
+  if (topic === 'order.restored') {
+    const { data: existing } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('woo_order_id', String(order.id))
+      .maybeSingle();
+
+    if (!existing) {
+      // Treat as a new order
+      const row = mapWooOrderToRow(order);
+      const { error } = await supabase.from('orders').insert(row);
+      if (error) {
+        return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ received: true, processed: true, action: 'inserted', orderId: row.id });
+    }
+
+    await supabase
+      .from('orders')
+      .update({ status: 'Booking Accepted', updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+
+    return NextResponse.json({ received: true, processed: true, action: 'restored', orderId: existing.id });
+  }
+
+  // ── order.created / order.updated (and any other order.* topics) ───────────
+  const isOrderTopic = topic.startsWith('order.');
   if (!isOrderTopic) {
     return NextResponse.json({ received: true, processed: false, reason: 'Non-order topic ignored' });
   }
 
-  // Map WooCommerce status to whether we should import/update
-  const importableStatuses = ['pending', 'processing', 'on-hold', 'completed'];
+  // Only import recognised WooCommerce statuses
+  const importableStatuses = ['pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed'];
   if (!importableStatuses.includes(order.status)) {
-    return NextResponse.json({ received: true, processed: false, reason: `Status "${order.status}" not imported` });
+    return NextResponse.json({
+      received: true,
+      processed: false,
+      reason: `WooCommerce status "${order.status}" is not handled`,
+    });
   }
 
   const row = mapWooOrderToRow(order);
 
-  // Check if order already exists
+  // Check if order already exists locally
   const { data: existing } = await supabase
     .from('orders')
     .select('id, status')
     .eq('woo_order_id', row.woo_order_id)
     .maybeSingle();
 
-  if (existing) {
-    // Only update if still at Booking Accepted — don't overwrite dispatched orders
-    if (existing.status === 'Booking Accepted') {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          customer_name: row.customer_name,
-          customer_email: row.customer_email,
-          customer_phone: row.customer_phone,
-          booking_date: row.booking_date,
-          delivery_window: row.delivery_window,
-          payment_amount: row.payment_amount,
-          payment_method: row.payment_method,
-          payment_status: row.payment_status,
-          products: row.products,
-          delivery_address_line1: row.delivery_address_line1,
-          delivery_address_line2: row.delivery_address_line2,
-          delivery_address_city: row.delivery_address_city,
-          delivery_address_county: row.delivery_address_county,
-          delivery_address_postcode: row.delivery_address_postcode,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id);
-
-      if (error) {
-        return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
-      }
-      return NextResponse.json({ received: true, processed: true, action: 'updated', orderId: existing.id });
+  // ── New order ──────────────────────────────────────────────────────────────
+  if (!existing) {
+    const { error } = await supabase.from('orders').insert(row);
+    if (error) {
+      return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
     }
-    // Order has progressed — skip update
-    return NextResponse.json({ received: true, processed: false, reason: 'Order already progressed beyond Booking Accepted' });
+    return NextResponse.json({ received: true, processed: true, action: 'inserted', orderId: row.id });
   }
 
-  // New order — insert
-  const { error } = await supabase.from('orders').insert(row);
+  // ── Existing order — update ────────────────────────────────────────────────
+  // Don't regress orders that are already out for delivery or completed
+  if (LOCKED_STATUSES.has(existing.status)) {
+    // Still update non-status fields (customer details, products) but keep status
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        customer_name: row.customer_name,
+        customer_email: row.customer_email,
+        customer_phone: row.customer_phone,
+        booking_date: row.booking_date,
+        delivery_window: row.delivery_window,
+        payment_amount: row.payment_amount,
+        payment_method: row.payment_method,
+        payment_status: row.payment_status,
+        products: row.products,
+        delivery_address_line1: row.delivery_address_line1,
+        delivery_address_line2: row.delivery_address_line2,
+        delivery_address_city: row.delivery_address_city,
+        delivery_address_county: row.delivery_address_county,
+        delivery_address_postcode: row.delivery_address_postcode,
+        updated_at: new Date().toISOString(),
+        // status intentionally NOT updated — driver run is in progress
+      })
+      .eq('id', existing.id);
+
+    if (error) {
+      return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({
+      received: true,
+      processed: true,
+      action: 'updated_details_only',
+      reason: `Status kept as "${existing.status}" — driver run in progress`,
+      orderId: existing.id,
+    });
+  }
+
+  // Order is still in a pre-dispatch state — update everything including status
+  const { error } = await supabase
+    .from('orders')
+    .update({
+      customer_name: row.customer_name,
+      customer_email: row.customer_email,
+      customer_phone: row.customer_phone,
+      booking_date: row.booking_date,
+      delivery_window: row.delivery_window,
+      payment_amount: row.payment_amount,
+      payment_method: row.payment_method,
+      payment_status: row.payment_status,
+      products: row.products,
+      delivery_address_line1: row.delivery_address_line1,
+      delivery_address_line2: row.delivery_address_line2,
+      delivery_address_city: row.delivery_address_city,
+      delivery_address_county: row.delivery_address_county,
+      delivery_address_postcode: row.delivery_address_postcode,
+      status: row.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existing.id);
+
   if (error) {
     return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ received: true, processed: true, action: 'inserted', orderId: row.id });
+  return NextResponse.json({
+    received: true,
+    processed: true,
+    action: 'updated',
+    newStatus: row.status,
+    orderId: existing.id,
+  });
 }
