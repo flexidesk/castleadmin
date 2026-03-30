@@ -199,6 +199,14 @@ export async function GET(req: NextRequest) {
   const external_id = p.get('external_id');
   const customer_name = p.get('customer_name');
 
+  // Verification ping — no parameters provided, just confirm the endpoint is alive
+  if (!external_id && !customer_name) {
+    return NextResponse.json(
+      { received: true, status: 'ok', message: 'Webhook endpoint is active' },
+      { status: 200 }
+    );
+  }
+
   if (!external_id || !customer_name) {
     return NextResponse.json(
       { error: 'Missing required query parameters: external_id, customer_name' },
