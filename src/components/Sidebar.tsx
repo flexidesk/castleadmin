@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical } from 'lucide-react';
+import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -41,6 +41,7 @@ const navItems: NavItem[] = [
   { label: 'Message Templates', href: '/message-templates', icon: Mail, group: 'Reports' },
   { label: 'Alert History', href: '/alert-history', icon: History, group: 'Reports' },
   { label: 'Webhook Event Logs', href: '/webhook-event-logs', icon: Webhook, group: 'Reports' },
+  { label: 'Webhook Logs', href: '/webhook-logs', icon: ScrollText, group: 'System' },
   { label: 'Admin Users', href: '/admin-users', icon: ShieldCheck, group: 'System' },
   { label: 'Webhook Guide', href: '/webhook-guide', icon: BookOpen, group: 'System' },
   { label: 'Webhook Tester', href: '/webhook-tester', icon: FlaskConical, group: 'System' },

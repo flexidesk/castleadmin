@@ -393,9 +393,37 @@ function validatePostPayload(body: unknown): ValidationError[] {
   return errors;
 }
 
+// ─── Request Logger ───────────────────────────────────────────────────────────
+
+async function logRequest(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  method: string,
+  payload: Record<string, unknown>,
+  httpStatus: number,
+  response: Record<string, unknown>,
+  req: NextRequest,
+  durationMs: number
+) {
+  try {
+    await supabase.from('webhook_request_logs').insert({
+      method,
+      endpoint: '/api/woocommerce/webhook',
+      payload,
+      http_status: httpStatus,
+      response,
+      ip_address: req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? null,
+      user_agent: req.headers.get('user-agent') ?? null,
+      duration_ms: durationMs,
+    });
+  } catch {
+    // Non-blocking — logging failure should never break the webhook
+  }
+}
+
 // ─── GET — Create a booking ───────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const start = Date.now();
   const p = req.nextUrl.searchParams;
 
   const external_id = p.get('external_id');
@@ -403,26 +431,26 @@ export async function GET(req: NextRequest) {
 
   // Verification ping — no parameters provided, just confirm the endpoint is alive
   if (!external_id && !customer_name) {
-    return NextResponse.json(
-      { received: true, status: 'ok', message: 'Webhook endpoint is active' },
-      { status: 200 }
-    );
+    const responseBody = { received: true, status: 'ok', message: 'Webhook endpoint is active' };
+    const supabase = await createClient();
+    await logRequest(supabase, 'GET', {}, 200, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 200 });
   }
 
   // Validate all provided parameters
   const validationErrors = validateGetParams(p);
   if (validationErrors.length > 0) {
-    return NextResponse.json(
-      {
-        received: false,
-        error: 'Validation failed',
-        details: validationErrors,
-      },
-      { status: 400 }
-    );
+    const responseBody = { received: false, error: 'Validation failed', details: validationErrors };
+    const supabase = await createClient();
+    const payload: Record<string, unknown> = {};
+    p.forEach((v, k) => { payload[k] = v; });
+    await logRequest(supabase, 'GET', payload, 400, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 400 });
   }
 
   const supabase = await createClient();
+  const payload: Record<string, unknown> = {};
+  p.forEach((v, k) => { payload[k] = v; });
 
   // Prevent duplicates
   const { data: existing } = await supabase
@@ -432,10 +460,9 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (existing) {
-    return NextResponse.json(
-      { received: true, action: 'already_exists', orderId: existing.id },
-      { status: 200 }
-    );
+    const responseBody = { received: true, action: 'already_exists', orderId: existing.id };
+    await logRequest(supabase, 'GET', payload, 200, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 200 });
   }
 
   const payment_method = (p.get('payment_method') ?? 'Unrecorded') as 'Card' | 'Cash' | 'Unrecorded';
@@ -472,15 +499,20 @@ export async function GET(req: NextRequest) {
 
   const { error } = await supabase.from('orders').insert(row);
   if (error) {
-    return NextResponse.json({ received: false, error: error.message }, { status: 500 });
+    const responseBody = { received: false, error: error.message };
+    await logRequest(supabase, 'GET', payload, 500, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 500 });
   }
 
-  return NextResponse.json({ received: true, action: 'inserted', orderId }, { status: 201 });
+  const responseBody = { received: true, action: 'inserted', orderId };
+  await logRequest(supabase, 'GET', payload, 201, responseBody, req, Date.now() - start);
+  return NextResponse.json(responseBody, { status: 201 });
 }
 
 // ─── POST — Update a booking ──────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const start = Date.now();
   const webhookSecret = process.env.WC_WEBHOOK_SECRET;
   let body: PostPayload;
   let rawBodyForValidation: unknown;
@@ -488,49 +520,52 @@ export async function POST(req: NextRequest) {
   if (webhookSecret && webhookSecret !== 'your-woocommerce-webhook-secret-here') {
     const signature = req.headers.get('x-webhook-signature');
     if (!signature) {
-      return NextResponse.json({ error: 'Missing X-Webhook-Signature header' }, { status: 401 });
+      const responseBody = { error: 'Missing X-Webhook-Signature header' };
+      const supabase = await createClient();
+      await logRequest(supabase, 'POST', {}, 401, responseBody, req, Date.now() - start);
+      return NextResponse.json(responseBody, { status: 401 });
     }
     const rawBody = await req.text();
     if (!verifySignature(rawBody, signature, webhookSecret)) {
-      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
+      const responseBody = { error: 'Invalid webhook signature' };
+      const supabase = await createClient();
+      await logRequest(supabase, 'POST', {}, 401, responseBody, req, Date.now() - start);
+      return NextResponse.json(responseBody, { status: 401 });
     }
     try {
       rawBodyForValidation = JSON.parse(rawBody);
       body = rawBodyForValidation as PostPayload;
     } catch {
-      return NextResponse.json(
-        { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' },
-        { status: 400 }
-      );
+      const responseBody = { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' };
+      const supabase = await createClient();
+      await logRequest(supabase, 'POST', {}, 400, responseBody, req, Date.now() - start);
+      return NextResponse.json(responseBody, { status: 400 });
     }
   } else {
     try {
       rawBodyForValidation = await req.json();
       body = rawBodyForValidation as PostPayload;
     } catch {
-      return NextResponse.json(
-        { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' },
-        { status: 400 }
-      );
+      const responseBody = { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' };
+      const supabase = await createClient();
+      await logRequest(supabase, 'POST', {}, 400, responseBody, req, Date.now() - start);
+      return NextResponse.json(responseBody, { status: 400 });
     }
   }
 
   // Validate payload fields
   const validationErrors = validatePostPayload(rawBodyForValidation);
   if (validationErrors.length > 0) {
-    return NextResponse.json(
-      {
-        received: false,
-        error: 'Validation failed',
-        details: validationErrors,
-      },
-      { status: 400 }
-    );
+    const responseBody = { received: false, error: 'Validation failed', details: validationErrors };
+    const supabase = await createClient();
+    await logRequest(supabase, 'POST', (rawBodyForValidation as Record<string, unknown>) ?? {}, 400, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 400 });
   }
 
   const { external_id } = body;
 
   const supabase = await createClient();
+  const postPayload = (rawBodyForValidation as Record<string, unknown>) ?? {};
 
   const { data: existing } = await supabase
     .from('orders')
@@ -539,10 +574,9 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (!existing) {
-    return NextResponse.json(
-      { error: `Booking not found for external_id: ${external_id}` },
-      { status: 404 }
-    );
+    const responseBody = { error: `Booking not found for external_id: ${external_id}` };
+    await logRequest(supabase, 'POST', postPayload, 404, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 404 });
   }
 
   // Build update payload from provided fields only
@@ -573,17 +607,23 @@ export async function POST(req: NextRequest) {
 
   const { error } = await supabase.from('orders').update(updates).eq('id', existing.id);
   if (error) {
-    return NextResponse.json({ received: false, error: error.message }, { status: 500 });
+    const responseBody = { received: false, error: error.message };
+    await logRequest(supabase, 'POST', postPayload, 500, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody, { status: 500 });
   }
 
   if (isLocked && body.status !== undefined) {
-    return NextResponse.json({
+    const responseBody = {
       received: true,
       action: 'updated_details_only',
       reason: `Status kept as "${existing.status}" — driver run in progress`,
       orderId: existing.id,
-    });
+    };
+    await logRequest(supabase, 'POST', postPayload, 200, responseBody, req, Date.now() - start);
+    return NextResponse.json(responseBody);
   }
 
-  return NextResponse.json({ received: true, action: 'updated', orderId: existing.id });
+  const responseBody = { received: true, action: 'updated', orderId: existing.id };
+  await logRequest(supabase, 'POST', postPayload, 200, responseBody, req, Date.now() - start);
+  return NextResponse.json(responseBody);
 }
