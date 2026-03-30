@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook } from 'lucide-react';
+import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -42,6 +42,7 @@ const navItems: NavItem[] = [
   { label: 'Alert History', href: '/alert-history', icon: History, group: 'Reports' },
   { label: 'Webhook Event Logs', href: '/webhook-event-logs', icon: Webhook, group: 'Reports' },
   { label: 'Admin Users', href: '/admin-users', icon: ShieldCheck, group: 'System' },
+  { label: 'Webhook Guide', href: '/webhook-guide', icon: BookOpen, group: 'System' },
   { label: 'Settings', href: '/settings', icon: Settings, group: 'System' },
 ];
 
