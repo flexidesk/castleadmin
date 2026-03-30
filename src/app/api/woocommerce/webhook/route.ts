@@ -191,6 +191,208 @@ function verifySignature(rawBody: string, signature: string, secret: string): bo
   return hmac.digest('base64') === signature;
 }
 
+// ─── Validation Helpers ───────────────────────────────────────────────────────
+
+const VALID_BOOKING_TYPES = new Set(['Delivery', 'Collection']);
+const VALID_PAYMENT_METHODS = new Set(['Card', 'Cash', 'Unrecorded']);
+const VALID_PAYMENT_STATUSES = new Set(['Paid', 'Unpaid']);
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+function validateGetParams(p: URLSearchParams): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  const external_id = p.get('external_id');
+  const customer_name = p.get('customer_name');
+
+  if (!external_id || external_id.trim() === '') {
+    errors.push({ field: 'external_id', message: 'external_id is required and must not be empty' });
+  }
+
+  if (!customer_name || customer_name.trim() === '') {
+    errors.push({ field: 'customer_name', message: 'customer_name is required and must not be empty' });
+  }
+
+  const status = p.get('status');
+  if (status !== null && !VALID_STATUSES.has(status)) {
+    errors.push({
+      field: 'status',
+      message: `Invalid status value "${status}". Allowed values: ${[...VALID_STATUSES].join(', ')}`,
+    });
+  }
+
+  const booking_type = p.get('booking_type');
+  if (booking_type !== null && !VALID_BOOKING_TYPES.has(booking_type)) {
+    errors.push({
+      field: 'booking_type',
+      message: `Invalid booking_type "${booking_type}". Allowed values: Delivery, Collection`,
+    });
+  }
+
+  const payment_method = p.get('payment_method');
+  if (payment_method !== null && !VALID_PAYMENT_METHODS.has(payment_method)) {
+    errors.push({
+      field: 'payment_method',
+      message: `Invalid payment_method "${payment_method}". Allowed values: Card, Cash, Unrecorded`,
+    });
+  }
+
+  const payment_status = p.get('payment_status');
+  if (payment_status !== null && !VALID_PAYMENT_STATUSES.has(payment_status)) {
+    errors.push({
+      field: 'payment_status',
+      message: `Invalid payment_status "${payment_status}". Allowed values: Paid, Unpaid`,
+    });
+  }
+
+  const payment_amount = p.get('payment_amount');
+  if (payment_amount !== null) {
+    const parsed = parseFloat(payment_amount);
+    if (isNaN(parsed) || parsed < 0) {
+      errors.push({
+        field: 'payment_amount',
+        message: `Invalid payment_amount "${payment_amount}". Must be a non-negative number`,
+      });
+    }
+  }
+
+  const booking_date = p.get('booking_date');
+  if (booking_date !== null && !DATE_REGEX.test(booking_date)) {
+    errors.push({
+      field: 'booking_date',
+      message: `Invalid booking_date "${booking_date}". Must be in YYYY-MM-DD format`,
+    });
+  }
+
+  return errors;
+}
+
+function validatePostPayload(body: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    errors.push({ field: 'body', message: 'Request body must be a JSON object' });
+    return errors;
+  }
+
+  const payload = body as Record<string, unknown>;
+
+  // Required field
+  if (!('external_id' in payload) || payload.external_id === undefined || payload.external_id === null) {
+    errors.push({ field: 'external_id', message: 'external_id is required' });
+  } else if (typeof payload.external_id !== 'string' || payload.external_id.trim() === '') {
+    errors.push({ field: 'external_id', message: 'external_id must be a non-empty string' });
+  }
+
+  // Status validation
+  if ('status' in payload && payload.status !== undefined) {
+    if (typeof payload.status !== 'string') {
+      errors.push({ field: 'status', message: 'status must be a string' });
+    } else if (!VALID_STATUSES.has(payload.status)) {
+      errors.push({
+        field: 'status',
+        message: `Invalid status value "${payload.status}". Allowed values: ${[...VALID_STATUSES].join(', ')}`,
+      });
+    }
+  }
+
+  // Enum fields
+  if ('booking_type' in payload && payload.booking_type !== undefined) {
+    if (!VALID_BOOKING_TYPES.has(payload.booking_type as string)) {
+      errors.push({
+        field: 'booking_type',
+        message: `Invalid booking_type "${payload.booking_type}". Allowed values: Delivery, Collection`,
+      });
+    }
+  }
+
+  if ('payment_method' in payload && payload.payment_method !== undefined) {
+    if (!VALID_PAYMENT_METHODS.has(payload.payment_method as string)) {
+      errors.push({
+        field: 'payment_method',
+        message: `Invalid payment_method "${payload.payment_method}". Allowed values: Card, Cash, Unrecorded`,
+      });
+    }
+  }
+
+  if ('payment_status' in payload && payload.payment_status !== undefined) {
+    if (!VALID_PAYMENT_STATUSES.has(payload.payment_status as string)) {
+      errors.push({
+        field: 'payment_status',
+        message: `Invalid payment_status "${payload.payment_status}". Allowed values: Paid, Unpaid`,
+      });
+    }
+  }
+
+  // Numeric fields
+  if ('payment_amount' in payload && payload.payment_amount !== undefined) {
+    const amt = payload.payment_amount;
+    if (typeof amt !== 'number' || isNaN(amt) || amt < 0) {
+      errors.push({
+        field: 'payment_amount',
+        message: 'payment_amount must be a non-negative number',
+      });
+    }
+  }
+
+  // Date fields
+  if ('booking_date' in payload && payload.booking_date !== undefined) {
+    if (typeof payload.booking_date !== 'string' || !DATE_REGEX.test(payload.booking_date)) {
+      errors.push({
+        field: 'booking_date',
+        message: `Invalid booking_date "${payload.booking_date}". Must be in YYYY-MM-DD format`,
+      });
+    }
+  }
+
+  // String fields type check
+  const stringFields = [
+    'customer_name', 'customer_email', 'customer_phone', 'delivery_window',
+    'address_line1', 'address_line2', 'address_city', 'address_county',
+    'address_postcode', 'notes',
+  ];
+  for (const field of stringFields) {
+    if (field in payload && payload[field] !== undefined && payload[field] !== null) {
+      if (typeof payload[field] !== 'string') {
+        errors.push({ field, message: `${field} must be a string` });
+      }
+    }
+  }
+
+  // Products array validation
+  if ('products' in payload && payload.products !== undefined) {
+    if (!Array.isArray(payload.products)) {
+      errors.push({ field: 'products', message: 'products must be an array' });
+    } else {
+      (payload.products as unknown[]).forEach((item, index) => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+          errors.push({ field: `products[${index}]`, message: `products[${index}] must be an object` });
+          return;
+        }
+        const product = item as Record<string, unknown>;
+        if (!('name' in product) || typeof product.name !== 'string' || product.name.trim() === '') {
+          errors.push({ field: `products[${index}].name`, message: `products[${index}].name is required and must be a non-empty string` });
+        }
+        if ('quantity' in product && product.quantity !== undefined && (typeof product.quantity !== 'number' || product.quantity < 0)) {
+          errors.push({ field: `products[${index}].quantity`, message: `products[${index}].quantity must be a non-negative number` });
+        }
+        if ('unitPrice' in product && product.unitPrice !== undefined && (typeof product.unitPrice !== 'number' || product.unitPrice < 0)) {
+          errors.push({ field: `products[${index}].unitPrice`, message: `products[${index}].unitPrice must be a non-negative number` });
+        }
+        if ('totalPrice' in product && product.totalPrice !== undefined && (typeof product.totalPrice !== 'number' || product.totalPrice < 0)) {
+          errors.push({ field: `products[${index}].totalPrice`, message: `products[${index}].totalPrice must be a non-negative number` });
+        }
+      });
+    }
+  }
+
+  return errors;
+}
+
 // ─── GET — Create a booking ───────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -207,9 +409,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!external_id || !customer_name) {
+  // Validate all provided parameters
+  const validationErrors = validateGetParams(p);
+  if (validationErrors.length > 0) {
     return NextResponse.json(
-      { error: 'Missing required query parameters: external_id, customer_name' },
+      {
+        received: false,
+        error: 'Validation failed',
+        details: validationErrors,
+      },
       { status: 400 }
     );
   }
@@ -275,6 +483,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.WC_WEBHOOK_SECRET;
   let body: PostPayload;
+  let rawBodyForValidation: unknown;
 
   if (webhookSecret && webhookSecret !== 'your-woocommerce-webhook-secret-here') {
     const signature = req.headers.get('x-webhook-signature');
@@ -286,22 +495,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
     }
     try {
-      body = JSON.parse(rawBody);
+      rawBodyForValidation = JSON.parse(rawBody);
+      body = rawBodyForValidation as PostPayload;
     } catch {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+      return NextResponse.json(
+        { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' },
+        { status: 400 }
+      );
     }
   } else {
     try {
-      body = await req.json();
+      rawBodyForValidation = await req.json();
+      body = rawBodyForValidation as PostPayload;
     } catch {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+      return NextResponse.json(
+        { received: false, error: 'Malformed JSON body', details: 'The request body could not be parsed as valid JSON. Ensure Content-Type is application/json and the body is well-formed.' },
+        { status: 400 }
+      );
     }
   }
 
-  const { external_id } = body;
-  if (!external_id) {
-    return NextResponse.json({ error: 'Missing required field: external_id' }, { status: 400 });
+  // Validate payload fields
+  const validationErrors = validatePostPayload(rawBodyForValidation);
+  if (validationErrors.length > 0) {
+    return NextResponse.json(
+      {
+        received: false,
+        error: 'Validation failed',
+        details: validationErrors,
+      },
+      { status: 400 }
+    );
   }
+
+  const { external_id } = body;
 
   const supabase = await createClient();
 
