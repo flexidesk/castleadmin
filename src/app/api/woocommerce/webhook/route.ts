@@ -1,38 +1,123 @@
 /**
- * WooCommerce Webhook Endpoint
+ * Generic Booking Webhook Endpoint
  * ─────────────────────────────────────────────────────────────────────────────
- * GET  /api/woocommerce/webhook
- *   WooCommerce sends a GET ping when a webhook is first registered to verify
- *   the endpoint is reachable. Responds with 200 OK.
+ * This endpoint is INDEPENDENT of WooCommerce. It accepts bookings from any
+ * external system (e-commerce platforms, booking tools, custom apps, etc.)
+ * using a simple JSON format over HTTP.
  *
- * POST /api/woocommerce/webhook
- *   Receives WooCommerce webhook events.
- *   Supported topics:
- *     • order.created  → inserts a new order (if not already present)
- *     • order.updated  → updates order details AND maps WC status → internal status
- *     • order.deleted  → marks order as cancelled
- *     • order.restored → re-activates a previously cancelled order
+ * ─────────────────────────────────────────────────────────────────────────────
+ * HOW TO CONNECT — CREATE A BOOKING (GET)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Method : GET
+ * URL    : https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook
  *
- *   Signature verification:
- *     Set WC_WEBHOOK_SECRET in .env to the same secret configured in WooCommerce.
- *     If the env var is absent the signature check is skipped (useful for dev).
+ * Pass booking data as query parameters:
  *
- *   Status mapping (WooCommerce → internal):
- *     pending     → Booking Accepted
- *     processing  → Booking Accepted
- *     on-hold     → Booking Accepted
- *     completed   → Booking Completed
- *     cancelled   → Booking Cancelled
- *     refunded    → Booking Cancelled
- *     failed      → Booking Cancelled
+ *   Required:
+ *     external_id        Unique ID from your system (e.g. "ORDER-123")
+ *     customer_name      Full name of the customer
  *
- *   Update rules:
- *     • order.created  : always inserts (upsert on woo_order_id)
- *     • order.updated  : updates customer/address/product fields AND status
- *                        UNLESS the internal order is already Out For Delivery
- *                        or Delivered (driver has started the run — don't regress)
- *     • order.deleted  : sets status → Booking Cancelled
- *     • order.restored : sets status → Booking Accepted
+ *   Optional:
+ *     customer_email     Customer email address
+ *     customer_phone     Customer phone number
+ *     booking_date       Delivery/booking date  (YYYY-MM-DD, default: today)
+ *     delivery_window    Time window string      (e.g. "09:00-12:00", default: "TBC")
+ *     booking_type       "Delivery" or "Collection" (default: "Delivery")
+ *     status             Internal status string  (default: "Booking Accepted")
+ *     payment_method     "Card", "Cash", or "Unrecorded" (default: "Unrecorded")
+ *     payment_status     "Paid" or "Unpaid"      (default: "Unpaid")
+ *     payment_amount     Numeric total           (default: 0)
+ *     address_line1      Delivery address line 1
+ *     address_line2      Delivery address line 2
+ *     address_city       City
+ *     address_county     County / state
+ *     address_postcode   Postcode / ZIP
+ *     notes              Free-text notes
+ *
+ * Example:
+ *   GET /api/woocommerce/webhook
+ *     ?external_id=ORDER-123
+ *     &customer_name=Jane+Smith
+ *     &customer_email=jane@example.com
+ *     &booking_date=2026-04-01
+ *     &delivery_window=09:00-12:00
+ *     &address_postcode=SW1A+1AA
+ *     &payment_method=Card
+ *     &payment_status=Paid
+ *     &payment_amount=150
+ *
+ * Response (201 Created):
+ *   { "received": true, "action": "inserted", "orderId": "EXT-ORDER-123" }
+ *
+ * Response (200 Already Exists):
+ *   { "received": true, "action": "already_exists", "orderId": "EXT-ORDER-123" }
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * HOW TO CONNECT — UPDATE A BOOKING (POST)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Method       : POST
+ * URL          : https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook
+ * Content-Type : application/json
+ *
+ * Body (all fields optional except external_id):
+ * {
+ *   "external_id":      "ORDER-123",        // REQUIRED — identifies the booking
+ *   "status":           "Booking Accepted", // optional — new internal status
+ *   "customer_name":    "Jane Smith",
+ *   "customer_email":   "jane@example.com",
+ *   "customer_phone":   "07700900000",
+ *   "booking_date":     "2026-04-01",
+ *   "delivery_window":  "09:00-12:00",
+ *   "booking_type":     "Delivery",
+ *   "payment_method":   "Card",
+ *   "payment_status":   "Paid",
+ *   "payment_amount":   150,
+ *   "address_line1":    "10 Downing Street",
+ *   "address_line2":    "",
+ *   "address_city":     "London",
+ *   "address_county":   "Greater London",
+ *   "address_postcode": "SW1A 2AA",
+ *   "notes":            "Leave at front door",
+ *   "products": [
+ *     {
+ *       "id":         1,
+ *       "name":       "Bouncy Castle",
+ *       "sku":        "BC-001",
+ *       "quantity":   1,
+ *       "unitPrice":  150.00,
+ *       "totalPrice": 150.00,
+ *       "category":   "Bouncy Castle"
+ *     }
+ *   ]
+ * }
+ *
+ * Allowed internal status values:
+ *   "Booking Accepted" | "Booking Confirmed" | "Booking Out For Delivery" *"Booking Delivered" | "Booking Completed" | "Booking Cancelled"
+ *
+ * Update rules:
+ *   • If the booking is already "Booking Out For Delivery", "Booking Delivered",
+ *     or "Booking Completed", the status field is ignored (driver run in progress).
+ *     All other fields are still updated.
+ *   • If external_id is not found, a 404 is returned.
+ *
+ * Response (200 Updated):
+ *   { "received": true, "action": "updated", "orderId": "EXT-ORDER-123" }
+ *
+ * Response (200 Details-only update — status locked):
+ *   { "received": true, "action": "updated_details_only",
+ *     "reason": "Status kept as \"Booking Out For Delivery\" — driver run in progress",
+ *     "orderId": "EXT-ORDER-123" }
+ *
+ * Response (404 Not Found):
+ *   { "error": "Booking not found for external_id: ORDER-123" }
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * OPTIONAL SECURITY — WEBHOOK SECRET
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Set WC_WEBHOOK_SECRET in your .env file.
+ * When set, POST requests must include the header:
+ *   X-Webhook-Signature: <HMAC-SHA256 of raw body, base64-encoded>
+ * GET requests are not signature-verified (they carry no sensitive payload).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -42,60 +127,51 @@ import { createHmac } from 'crypto';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface WooLineItem {
-  id: number;
+interface IncomingProduct {
+  id?: number;
   name: string;
-  sku: string;
-  quantity: number;
-  price: string;
-  subtotal: string;
-  total: string;
-  meta_data: { key: string; value: string }[];
+  sku?: string;
+  quantity?: number;
+  unitPrice?: number;
+  totalPrice?: number;
+  category?: string;
 }
 
-interface WooOrder {
-  id: number;
-  status: string;
-  date_created: string;
-  total: string;
-  payment_method: string;
-  billing: {
-    first_name: string;
-    last_name: string;
-    email: string;
-    phone: string;
-    address_1: string;
-    address_2: string;
-    city: string;
-    state: string;
-    postcode: string;
-  };
-  shipping: {
-    address_1: string;
-    address_2: string;
-    city: string;
-    state: string;
-    postcode: string;
-  };
-  line_items: WooLineItem[];
-  meta_data: { key: string; value: string }[];
+interface PostPayload {
+  external_id: string;
+  status?: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  booking_date?: string;
+  delivery_window?: string;
+  booking_type?: 'Delivery' | 'Collection';
+  payment_method?: 'Card' | 'Cash' | 'Unrecorded';
+  payment_status?: 'Paid' | 'Unpaid';
+  payment_amount?: number;
+  address_line1?: string;
+  address_line2?: string;
+  address_city?: string;
+  address_county?: string;
+  address_postcode?: string;
+  notes?: string;
+  products?: IncomingProduct[];
 }
 
-// ─── Status mapping ───────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const WOO_STATUS_MAP: Record<string, string> = {
-  pending: 'Booking Accepted',
-  processing: 'Booking Accepted',
-  'on-hold': 'Booking Accepted',
-  completed: 'Booking Completed',
-  cancelled: 'Booking Cancelled',
-  refunded: 'Booking Cancelled',
-  failed: 'Booking Cancelled',
-};
+const VALID_STATUSES = new Set([
+  'Booking Accepted',
+  'Booking Confirmed',
+  'Booking Out For Delivery',
+  'Booking Delivered',
+  'Booking Completed',
+  'Booking Cancelled',
+]);
 
 /**
  * Internal statuses that represent an active driver run.
- * We do NOT regress these when WooCommerce sends an update.
+ * Status updates are ignored when the order is in one of these states.
  */
 const LOCKED_STATUSES = new Set([
   'Booking Out For Delivery',
@@ -105,340 +181,174 @@ const LOCKED_STATUSES = new Set([
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function mapWooPaymentMethod(wooMethod: string): 'Card' | 'Cash' | 'Unrecorded' {
-  const m = (wooMethod ?? '').toLowerCase();
-  if (m.includes('stripe') || m.includes('card') || m.includes('paypal') || m.includes('bacs')) return 'Card';
-  if (m.includes('cod') || m.includes('cash')) return 'Cash';
-  return 'Unrecorded';
+function today(): string {
+  return new Date().toISOString().split('T')[0];
 }
-
-function extractDeliveryDate(order: WooOrder): string {
-  const dateKeys = [
-    '_delivery_date', 'delivery_date', '_order_delivery_date', 'order_delivery_date',
-    'jckwds_date', '_jckwds_date',
-  ];
-  for (const key of dateKeys) {
-    const meta = order.meta_data?.find((m) => m.key === key);
-    if (meta?.value) {
-      const d = new Date(meta.value);
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-      const parts = meta.value.split('/');
-      if (parts.length === 3) {
-        const iso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-        const d2 = new Date(iso);
-        if (!isNaN(d2.getTime())) return iso;
-      }
-      return meta.value;
-    }
-  }
-  return order.date_created ? order.date_created.split('T')[0] : new Date().toISOString().split('T')[0];
-}
-
-function extractDeliveryWindow(order: WooOrder): string {
-  const windowKeys = [
-    '_delivery_time_frame', 'delivery_time_frame', '_order_delivery_time', 'order_delivery_time',
-    'jckwds_time', '_jckwds_time',
-  ];
-  for (const key of windowKeys) {
-    const meta = order.meta_data?.find((m) => m.key === key);
-    if (meta?.value) return meta.value;
-  }
-  return 'TBC';
-}
-
-function extractBookingType(order: WooOrder): 'Delivery' | 'Collection' {
-  const typeKeys = ['_booking_type', 'booking_type', '_order_type', 'order_type'];
-  for (const key of typeKeys) {
-    const meta = order.meta_data?.find((m) => m.key === key);
-    if (meta?.value) {
-      if (meta.value.toLowerCase().includes('collect')) return 'Collection';
-    }
-  }
-  if (!order.shipping?.address_1 && !order.billing?.address_1) return 'Collection';
-  return 'Delivery';
-}
-
-function mapWooOrderToRow(order: WooOrder) {
-  const billing = order.billing ?? {};
-  const shipping = order.shipping ?? {};
-  const addressSource = shipping.address_1 ? shipping : billing;
-  const bookingType = extractBookingType(order);
-  const paymentMethod = mapWooPaymentMethod(order.payment_method);
-  const paymentStatus = paymentMethod === 'Unrecorded' ? 'Unpaid' : 'Paid';
-  const internalStatus = WOO_STATUS_MAP[order.status] ?? 'Booking Accepted';
-
-  const products = (order.line_items ?? []).map((item) => {
-    const qty = Number(item.quantity) || 1;
-    let unitPrice = 0;
-    if (item.price !== undefined) unitPrice = Number(item.price);
-    else if (item.subtotal) unitPrice = Number(item.subtotal) / qty;
-    else if (item.total) unitPrice = Number(item.total) / qty;
-
-    const categoryMeta = (item.meta_data ?? []).find(
-      (m) => m.key === '_product_type' || m.key === 'pa_category'
-    );
-
-    return {
-      id: item.id,
-      name: item.name ?? '',
-      sku: item.sku ?? '',
-      quantity: qty,
-      unitPrice: parseFloat(unitPrice.toFixed(2)),
-      totalPrice: parseFloat((unitPrice * qty).toFixed(2)),
-      category: categoryMeta?.value ?? 'Bouncy Castle',
-    };
-  });
-
-  return {
-    id: `WC-${order.id}`,
-    woo_order_id: String(order.id),
-    customer_name: `${billing.first_name ?? ''} ${billing.last_name ?? ''}`.trim() || 'Unknown',
-    customer_email: billing.email ?? '',
-    customer_phone: billing.phone ?? '',
-    booking_type: bookingType,
-    status: internalStatus,
-    delivery_address_line1: addressSource.address_1 ?? null,
-    delivery_address_line2: addressSource.address_2 ?? null,
-    delivery_address_city: addressSource.city ?? null,
-    delivery_address_county: addressSource.state ?? null,
-    delivery_address_postcode: addressSource.postcode ?? null,
-    delivery_address_notes: null,
-    driver_id: null,
-    booking_date: extractDeliveryDate(order),
-    delivery_window: extractDeliveryWindow(order),
-    collection_window: null,
-    payment_status: paymentStatus,
-    payment_method: paymentMethod,
-    payment_amount: parseFloat(order.total ?? '0'),
-    products,
-    notes: null,
-    custom_fields: {},
-  };
-}
-
-// ─── Signature verification ───────────────────────────────────────────────────
 
 function verifySignature(rawBody: string, signature: string, secret: string): boolean {
   const hmac = createHmac('sha256', secret);
   hmac.update(rawBody, 'utf8');
-  const expected = hmac.digest('base64');
-  return signature === expected;
+  return hmac.digest('base64') === signature;
 }
 
-// ─── GET — webhook verification ping ─────────────────────────────────────────
+// ─── GET — Create a booking ───────────────────────────────────────────────────
 
-/**
- * WooCommerce pings this endpoint with a GET request when you first save a
- * webhook in the WooCommerce admin. It expects a 200 response.
- */
-export async function GET() {
-  return NextResponse.json(
-    { status: 'ok', message: 'Castle Admin webhook endpoint is active.' },
-    { status: 200 }
-  );
+export async function GET(req: NextRequest) {
+  const p = req.nextUrl.searchParams;
+
+  const external_id = p.get('external_id');
+  const customer_name = p.get('customer_name');
+
+  if (!external_id || !customer_name) {
+    return NextResponse.json(
+      { error: 'Missing required query parameters: external_id, customer_name' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = await createClient();
+
+  // Prevent duplicates
+  const { data: existing } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('woo_order_id', `EXT-${external_id}`)
+    .maybeSingle();
+
+  if (existing) {
+    return NextResponse.json(
+      { received: true, action: 'already_exists', orderId: existing.id },
+      { status: 200 }
+    );
+  }
+
+  const payment_method = (p.get('payment_method') ?? 'Unrecorded') as 'Card' | 'Cash' | 'Unrecorded';
+  const payment_status = (p.get('payment_status') ?? 'Unpaid') as 'Paid' | 'Unpaid';
+  const booking_type = (p.get('booking_type') ?? 'Delivery') as 'Delivery' | 'Collection';
+  const status = VALID_STATUSES.has(p.get('status') ?? '') ? p.get('status')! : 'Booking Accepted';
+  const orderId = `EXT-${external_id}`;
+
+  const row = {
+    id: orderId,
+    woo_order_id: `EXT-${external_id}`,
+    customer_name,
+    customer_email: p.get('customer_email') ?? '',
+    customer_phone: p.get('customer_phone') ?? '',
+    booking_type,
+    status,
+    delivery_address_line1: p.get('address_line1') ?? null,
+    delivery_address_line2: p.get('address_line2') ?? null,
+    delivery_address_city: p.get('address_city') ?? null,
+    delivery_address_county: p.get('address_county') ?? null,
+    delivery_address_postcode: p.get('address_postcode') ?? null,
+    delivery_address_notes: null,
+    driver_id: null,
+    booking_date: p.get('booking_date') ?? today(),
+    delivery_window: p.get('delivery_window') ?? 'TBC',
+    collection_window: null,
+    payment_status,
+    payment_method,
+    payment_amount: parseFloat(p.get('payment_amount') ?? '0') || 0,
+    products: [],
+    notes: p.get('notes') ?? null,
+    custom_fields: {},
+  };
+
+  const { error } = await supabase.from('orders').insert(row);
+  if (error) {
+    return NextResponse.json({ received: false, error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true, action: 'inserted', orderId }, { status: 201 });
 }
 
-// ─── POST — receive webhook events ───────────────────────────────────────────
+// ─── POST — Update a booking ──────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.WC_WEBHOOK_SECRET;
-  const topic = req.headers.get('x-wc-webhook-topic') ?? '';
-
-  let order: WooOrder;
+  let body: PostPayload;
 
   if (webhookSecret && webhookSecret !== 'your-woocommerce-webhook-secret-here') {
-    // Signature verification required — read raw body first
-    const signature = req.headers.get('x-wc-webhook-signature');
+    const signature = req.headers.get('x-webhook-signature');
     if (!signature) {
-      return NextResponse.json({ error: 'Missing webhook signature' }, { status: 401 });
+      return NextResponse.json({ error: 'Missing X-Webhook-Signature header' }, { status: 401 });
     }
     const rawBody = await req.text();
     if (!verifySignature(rawBody, signature, webhookSecret)) {
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
     }
     try {
-      order = JSON.parse(rawBody);
+      body = JSON.parse(rawBody);
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
   } else {
-    // No secret configured — parse body directly (dev / testing mode)
     try {
-      order = await req.json();
+      body = await req.json();
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
   }
 
-  return handleWebhookEvent(topic, order);
-}
+  const { external_id } = body;
+  if (!external_id) {
+    return NextResponse.json({ error: 'Missing required field: external_id' }, { status: 400 });
+  }
 
-// ─── Core event handler ───────────────────────────────────────────────────────
-
-async function handleWebhookEvent(topic: string, order: WooOrder) {
   const supabase = await createClient();
 
-  // Log every incoming event
-  await supabase.from('woocommerce_webhook_log').insert({
-    woo_order_id: String(order.id),
-    topic,
-    payload_summary: {
-      woo_status: order.status,
-      total: order.total,
-      customer: `${order.billing?.first_name ?? ''} ${order.billing?.last_name ?? ''}`.trim(),
-    },
-  });
-
-  // ── order.deleted ──────────────────────────────────────────────────────────
-  if (topic === 'order.deleted') {
-    const { data: existing } = await supabase
-      .from('orders')
-      .select('id, status')
-      .eq('woo_order_id', String(order.id))
-      .maybeSingle();
-
-    if (!existing) {
-      return NextResponse.json({ received: true, processed: false, reason: 'Order not found locally' });
-    }
-
-    await supabase
-      .from('orders')
-      .update({ status: 'Booking Cancelled', updated_at: new Date().toISOString() })
-      .eq('id', existing.id);
-
-    return NextResponse.json({ received: true, processed: true, action: 'cancelled', orderId: existing.id });
-  }
-
-  // ── order.restored ─────────────────────────────────────────────────────────
-  if (topic === 'order.restored') {
-    const { data: existing } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('woo_order_id', String(order.id))
-      .maybeSingle();
-
-    if (!existing) {
-      // Treat as a new order
-      const row = mapWooOrderToRow(order);
-      const { error } = await supabase.from('orders').insert(row);
-      if (error) {
-        return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
-      }
-      return NextResponse.json({ received: true, processed: true, action: 'inserted', orderId: row.id });
-    }
-
-    await supabase
-      .from('orders')
-      .update({ status: 'Booking Accepted', updated_at: new Date().toISOString() })
-      .eq('id', existing.id);
-
-    return NextResponse.json({ received: true, processed: true, action: 'restored', orderId: existing.id });
-  }
-
-  // ── order.created / order.updated (and any other order.* topics) ───────────
-  const isOrderTopic = topic.startsWith('order.');
-  if (!isOrderTopic) {
-    return NextResponse.json({ received: true, processed: false, reason: 'Non-order topic ignored' });
-  }
-
-  // Only import recognised WooCommerce statuses
-  const importableStatuses = ['pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed'];
-  if (!importableStatuses.includes(order.status)) {
-    return NextResponse.json({
-      received: true,
-      processed: false,
-      reason: `WooCommerce status "${order.status}" is not handled`,
-    });
-  }
-
-  const row = mapWooOrderToRow(order);
-
-  // Check if order already exists locally
   const { data: existing } = await supabase
     .from('orders')
     .select('id, status')
-    .eq('woo_order_id', row.woo_order_id)
+    .eq('woo_order_id', `EXT-${external_id}`)
     .maybeSingle();
 
-  // ── New order ──────────────────────────────────────────────────────────────
   if (!existing) {
-    const { error } = await supabase.from('orders').insert(row);
-    if (error) {
-      return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
-    }
-    return NextResponse.json({ received: true, processed: true, action: 'inserted', orderId: row.id });
+    return NextResponse.json(
+      { error: `Booking not found for external_id: ${external_id}` },
+      { status: 404 }
+    );
   }
 
-  // ── Existing order — update ────────────────────────────────────────────────
-  // Don't regress orders that are already out for delivery or completed
-  if (LOCKED_STATUSES.has(existing.status)) {
-    // Still update non-status fields (customer details, products) but keep status
-    const { error } = await supabase
-      .from('orders')
-      .update({
-        customer_name: row.customer_name,
-        customer_email: row.customer_email,
-        customer_phone: row.customer_phone,
-        booking_date: row.booking_date,
-        delivery_window: row.delivery_window,
-        payment_amount: row.payment_amount,
-        payment_method: row.payment_method,
-        payment_status: row.payment_status,
-        products: row.products,
-        delivery_address_line1: row.delivery_address_line1,
-        delivery_address_line2: row.delivery_address_line2,
-        delivery_address_city: row.delivery_address_city,
-        delivery_address_county: row.delivery_address_county,
-        delivery_address_postcode: row.delivery_address_postcode,
-        updated_at: new Date().toISOString(),
-        // status intentionally NOT updated — driver run is in progress
-      })
-      .eq('id', existing.id);
+  // Build update payload from provided fields only
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-    if (error) {
-      return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
-    }
+  if (body.customer_name !== undefined) updates.customer_name = body.customer_name;
+  if (body.customer_email !== undefined) updates.customer_email = body.customer_email;
+  if (body.customer_phone !== undefined) updates.customer_phone = body.customer_phone;
+  if (body.booking_date !== undefined) updates.booking_date = body.booking_date;
+  if (body.delivery_window !== undefined) updates.delivery_window = body.delivery_window;
+  if (body.booking_type !== undefined) updates.booking_type = body.booking_type;
+  if (body.payment_method !== undefined) updates.payment_method = body.payment_method;
+  if (body.payment_status !== undefined) updates.payment_status = body.payment_status;
+  if (body.payment_amount !== undefined) updates.payment_amount = body.payment_amount;
+  if (body.address_line1 !== undefined) updates.delivery_address_line1 = body.address_line1;
+  if (body.address_line2 !== undefined) updates.delivery_address_line2 = body.address_line2;
+  if (body.address_city !== undefined) updates.delivery_address_city = body.address_city;
+  if (body.address_county !== undefined) updates.delivery_address_county = body.address_county;
+  if (body.address_postcode !== undefined) updates.delivery_address_postcode = body.address_postcode;
+  if (body.notes !== undefined) updates.notes = body.notes;
+  if (body.products !== undefined) updates.products = body.products;
+
+  // Status update — skip if driver run is in progress
+  const isLocked = LOCKED_STATUSES.has(existing.status);
+  if (body.status !== undefined && VALID_STATUSES.has(body.status) && !isLocked) {
+    updates.status = body.status;
+  }
+
+  const { error } = await supabase.from('orders').update(updates).eq('id', existing.id);
+  if (error) {
+    return NextResponse.json({ received: false, error: error.message }, { status: 500 });
+  }
+
+  if (isLocked && body.status !== undefined) {
     return NextResponse.json({
       received: true,
-      processed: true,
       action: 'updated_details_only',
       reason: `Status kept as "${existing.status}" — driver run in progress`,
       orderId: existing.id,
     });
   }
 
-  // Order is still in a pre-dispatch state — update everything including status
-  const { error } = await supabase
-    .from('orders')
-    .update({
-      customer_name: row.customer_name,
-      customer_email: row.customer_email,
-      customer_phone: row.customer_phone,
-      booking_date: row.booking_date,
-      delivery_window: row.delivery_window,
-      payment_amount: row.payment_amount,
-      payment_method: row.payment_method,
-      payment_status: row.payment_status,
-      products: row.products,
-      delivery_address_line1: row.delivery_address_line1,
-      delivery_address_line2: row.delivery_address_line2,
-      delivery_address_city: row.delivery_address_city,
-      delivery_address_county: row.delivery_address_county,
-      delivery_address_postcode: row.delivery_address_postcode,
-      status: row.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', existing.id);
-
-  if (error) {
-    return NextResponse.json({ received: true, processed: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    received: true,
-    processed: true,
-    action: 'updated',
-    newStatus: row.status,
-    orderId: existing.id,
-  });
+  return NextResponse.json({ received: true, action: 'updated', orderId: existing.id });
 }
