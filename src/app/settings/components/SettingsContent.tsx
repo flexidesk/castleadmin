@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, HardDrive, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -566,6 +566,9 @@ export default function SettingsContent() {
   const [termsOfHireId, setTermsOfHireId] = useState<string | null>(null);
   const [savingTerms, setSavingTerms] = useState(false);
 
+  // SMTP saving
+  const [smtpSaving, setSmtpSaving] = useState(false);
+
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -607,6 +610,25 @@ export default function SettingsContent() {
       if (termsData) {
         setTermsOfHire(termsData.config_value ?? '');
         setTermsOfHireId(termsData.id);
+      }
+
+      // Load SMTP config from system_config
+      const { data: smtpRows } = await supabase
+        .from('system_config')
+        .select('config_key, config_value')
+        .in('config_key', ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_pass', 'smtp_from_name', 'smtp_from_email']);
+      if (smtpRows && smtpRows.length > 0) {
+        const map: Record<string, string> = {};
+        smtpRows.forEach((r: { config_key: string; config_value: string }) => { map[r.config_key] = r.config_value; });
+        setSmtpConfig({
+          host: map['smtp_host'] ?? process.env.NEXT_PUBLIC_SMTP_HOST ?? '',
+          port: map['smtp_port'] ?? '587',
+          secure: map['smtp_secure'] === 'true',
+          user: map['smtp_user'] ?? '',
+          pass: map['smtp_pass'] ?? '',
+          fromName: map['smtp_from_name'] ?? '',
+          fromEmail: map['smtp_from_email'] ?? '',
+        });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
@@ -687,6 +709,47 @@ export default function SettingsContent() {
       toast.error(`Failed to save terms of hire: ${msg}`);
     } finally {
       setSavingTerms(false);
+    }
+  };
+
+  // ─── Save SMTP Config ────────────────────────────────────────────────────────
+
+  const saveSmtpConfig = async () => {
+    setSmtpSaving(true);
+    try {
+      const entries = [
+        { config_key: 'smtp_host', config_value: smtpConfig.host, label: 'SMTP Host', is_sensitive: false },
+        { config_key: 'smtp_port', config_value: smtpConfig.port, label: 'SMTP Port', is_sensitive: false },
+        { config_key: 'smtp_secure', config_value: String(smtpConfig.secure), label: 'SMTP Secure', is_sensitive: false },
+        { config_key: 'smtp_user', config_value: smtpConfig.user, label: 'SMTP Username', is_sensitive: true },
+        { config_key: 'smtp_pass', config_value: smtpConfig.pass, label: 'SMTP Password', is_sensitive: true },
+        { config_key: 'smtp_from_name', config_value: smtpConfig.fromName, label: 'SMTP From Name', is_sensitive: false },
+        { config_key: 'smtp_from_email', config_value: smtpConfig.fromEmail, label: 'SMTP From Email', is_sensitive: false },
+      ];
+      for (const entry of entries) {
+        const { error } = await supabase
+          .from('system_config')
+          .upsert(
+            {
+              config_key: entry.config_key,
+              config_value: entry.config_value,
+              config_type: 'string',
+              category: 'smtp',
+              label: entry.label,
+              description: `SMTP configuration: ${entry.label}`,
+              is_sensitive: entry.is_sensitive,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'config_key' }
+          );
+        if (error) throw error;
+      }
+      toast.success('SMTP configuration saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save SMTP configuration: ${msg}`);
+    } finally {
+      setSmtpSaving(false);
     }
   };
 
@@ -882,7 +945,7 @@ export default function SettingsContent() {
       if (error) throw error;
       setUserRoles((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r));
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to update role: ${msg}`);
     }
   };
@@ -894,7 +957,7 @@ export default function SettingsContent() {
       setUserRoles((prev) => prev.filter((r) => r.id !== id));
       toast.success('User role removed');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Failed to remove user role: ${msg}`);
     }
   };
@@ -2242,230 +2305,103 @@ export default function SettingsContent() {
           {integrationsSubTab === 'webhooks' && (
             <div className="space-y-4">
               <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-                      <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} /> Webhooks
-                    </h2>
-                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Send real-time HTTP requests to external URLs when events occur</p>
-                  </div>
-                  <button
-                    onClick={() => setShowNewWebhookForm((v) => !v)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-                    style={{ backgroundColor: 'hsl(var(--primary))' }}
-                  >
-                    <Webhook size={13} /> Add Webhook
-                  </button>
-                </div>
-
-                {/* Incoming webhook info */}
-                <div className="rounded-lg p-3 border" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))' }}>
-                  <p className="text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>Incoming Webhook Endpoint (WooCommerce → CastleAdmin)</p>
+                <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono flex-1 break-all" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      POST https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook
-                    </code>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText('https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook'); toast.success('Copied!'); }}
-                      className="shrink-0 p-1.5 rounded border"
-                      style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                    >
-                      <Copy size={12} />
-                    </button>
+                    <Download size={15} style={{ color: 'hsl(var(--primary))' }} />
+                    <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</h2>
                   </div>
-                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Topics: Order created · Order updated · Order completed</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</span>
+                    <div className="flex rounded-lg border overflow-hidden text-xs" style={{ borderColor: 'hsl(var(--border))' }}>
+                      {(['json', 'csv'] as const).map((fmt) => (
+                        <button
+                          key={fmt}
+                          onClick={() => setDbExportFormat(fmt)}
+                          className="px-3 py-1.5 font-medium transition-colors uppercase"
+                          style={{
+                            backgroundColor: dbExportFormat === fmt ? 'hsl(var(--primary))' : 'hsl(var(--background))',
+                            color: dbExportFormat === fmt ? 'white' : 'hsl(var(--foreground))',
+                          }}
+                        >
+                          {fmt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-
-                {/* New webhook form */}
-                {showNewWebhookForm && (
-                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
-                      <div>
-                        <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
-                        <div className="flex gap-2">
-                          {(['GET', 'POST'] as const).map((m) => (
-                            <button
-                              key={m}
-                              onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
-                              className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
-                              style={newWebhookForm.method === m
-                                ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
-                                : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                            >
-                              {m}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
-                      </div>
-                      <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="Signing secret for HMAC verification" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
-                      <div className="flex flex-wrap gap-2">
-                        {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
-                          <button
-                            key={ev}
-                            onClick={() => setNewWebhookForm((f) => ({
-                              ...f,
-                              events: f.events.includes(ev) ? f.events.filter((e) => e !== ev) : [...f.events, ev],
-                            }))}
-                            className="px-2 py-1 rounded text-xs border"
-                            style={newWebhookForm.events.includes(ev)
-                              ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }
-                              : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                          >
-                            {ev}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Export any individual table as JSON or CSV. Click the download button next to the table you want to export.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {[
+                    { key: 'orders', label: 'Orders', icon: '📦' },
+                    { key: 'drivers', label: 'Drivers', icon: '🚗' },
+                    { key: 'customers', label: 'Customers', icon: '👥' },
+                    { key: 'vehicles', label: 'Vehicles', icon: '🚐' },
+                    { key: 'driver_shifts', label: 'Driver Shifts', icon: '🕐' },
+                    { key: 'driver_performance_logs', label: 'Performance Logs', icon: '📊' },
+                    { key: 'driver_documents', label: 'Driver Documents', icon: '📄' },
+                    { key: 'driver_cash_allocations', label: 'Cash Allocations', icon: '💵' },
+                    { key: 'driver_cash_collections', label: 'Cash Collections', icon: '💰' },
+                    { key: 'vehicle_inspections', label: 'Vehicle Inspections', icon: '🔧' },
+                    { key: 'vehicle_incidents', label: 'Vehicle Incidents', icon: '⚠️' },
+                    { key: 'delivery_zones', label: 'Delivery Zones', icon: '🗺️' },
+                    { key: 'message_templates', label: 'Message Templates', icon: '✉️' },
+                    { key: 'notifications', label: 'Notifications', icon: '🔔' },
+                    { key: 'activity_logs', label: 'Activity Logs', icon: '📋' },
+                    { key: 'email_alert_logs', label: 'Email Alert Logs', icon: '📧' },
+                    { key: 'sms_alert_logs', label: 'SMS Alert Logs', icon: '📱' },
+                    { key: 'woocommerce_sync_log', label: 'WooCommerce Sync Log', icon: '🛒' },
+                    { key: 'fleet_config', label: 'Fleet Config', icon: '⚙️' },
+                    { key: 'user_roles', label: 'User Roles', icon: '👤' },
+                    { key: 'company_profile', label: 'Company Profile', icon: '🏢' },
+                  ].map(({ key, label, icon }) => (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-lg border"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                    >
+                      <span className="text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                        <span>{icon}</span> {label}
+                      </span>
                       <button
-                        onClick={() => {
-                          if (!newWebhookForm.name || !newWebhookForm.url) { toast.error('Name and URL are required'); return; }
-                          const wh: WebhookConfig = { ...newWebhookForm, id: crypto.randomUUID() };
-                          setWebhooks((prev) => [...prev, wh]);
-                          setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
-                          setShowNewWebhookForm(false);
-                          toast.success('Webhook added');
+                        onClick={async () => {
+                          setDbTableExporting(key);
+                          try {
+                            const res = await fetch(`/api/database/export?table=${key}&format=${dbExportFormat}`);
+                            if (!res.ok) throw new Error('Export failed');
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${key}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            toast.success(`${label} exported successfully`);
+                          } catch (err: unknown) {
+                            const msg = err instanceof Error ? err.message : 'Export failed';
+                            toast.error(`Export failed: ${msg}`);
+                          } finally {
+                            setDbTableExporting(null);
+                          }
                         }}
-                        className="px-4 py-2 rounded-lg text-xs font-medium text-white"
-                        style={{ backgroundColor: 'hsl(var(--primary))' }}
+                        disabled={dbTableExporting === key}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                        style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
                       >
-                        Add Webhook
+                        {dbTableExporting === key ? (
+                          <RefreshCw size={11} className="animate-spin" />
+                        ) : (
+                          <Download size={11} />
+                        )}
+                        Export
                       </button>
-                      <button onClick={() => setShowNewWebhookForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Webhook list */}
-                <div className="space-y-2">
-                  {webhooks.map((wh) => (
-                    <div key={wh.id} className="border rounded-lg p-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</p>
-                            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${wh.method === 'POST' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{wh.method}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{wh.is_active ? 'Active' : 'Inactive'}</span>
-                          </div>
-                          <p className="text-xs font-mono mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
-                          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events: {wh.events.join(', ')}</p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={async () => {
-                              setTestingWebhook(wh.id ?? null);
-                              try {
-                                const payload = { event: 'test', timestamp: new Date().toISOString(), source: 'castleadmin' };
-                                const res = await fetch(wh.url, {
-                                  method: wh.method,
-                                  headers: { 'Content-Type': 'application/json', ...(wh.secret ? { 'X-Webhook-Secret': wh.secret } : {}) },
-                                  ...(wh.method === 'POST' ? { body: JSON.stringify(payload) } : {}),
-                                });
-                                if (res.ok) toast.success(`Test ${wh.method} to ${wh.url} succeeded (${res.status})`);
-                                else toast.error(`Test failed: HTTP ${res.status}`);
-                              } catch {
-                                toast.error('Test request failed — check the URL and CORS settings');
-                              } finally {
-                                setTestingWebhook(null);
-                              }
-                            }}
-                            disabled={testingWebhook === wh.id}
-                            className="text-xs px-2 py-1 rounded border disabled:opacity-60"
-                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                          >
-                            {testingWebhook === wh.id ? <Loader size={11} className="animate-spin" /> : 'Test'}
-                          </button>
-                          <Toggle
-                            checked={wh.is_active}
-                            onChange={(v) => setWebhooks((prev) => prev.map((w) => w.id === wh.id ? { ...w, is_active: v } : w))}
-                          />
-                          <button
-                            onClick={() => { setWebhooks((prev) => prev.filter((w) => w.id !== wh.id)); toast.success('Webhook removed'); }}
-                            className="text-xs px-2 py-1 rounded border border-red-200 text-red-500"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   ))}
-                  {webhooks.length === 0 && (
-                    <div className="text-center py-8">
-                      <Webhook size={28} className="mx-auto mb-2 opacity-30" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                      <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No outgoing webhooks configured yet.</p>
-                      <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Add a webhook to push events to external services.</p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── Driver Rates ──────────────────────────────────────────────────────── */}
-      {activeTab === 'driver_rates' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <Car size={15} style={{ color: 'hsl(var(--primary))' }} /> Driver Rate Settings
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <NumInput label="Base Rate / Hour (£)" value={driverRates.base_rate_per_hour} onChange={(v) => setDriverRates((d) => ({ ...d, base_rate_per_hour: v }))} step="0.01" min="0" />
-              <NumInput label="Rate / Mile (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, rate_per_km: v }))} step="0.01" min="0" />
-              <NumInput label="Overtime Multiplier" value={driverRates.overtime_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, overtime_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Weekend Multiplier" value={driverRates.weekend_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, weekend_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Night Shift Multiplier" value={driverRates.night_shift_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, night_shift_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Bonus / Delivery (£)" value={driverRates.bonus_per_delivery} onChange={(v) => setDriverRates((d) => ({ ...d, bonus_per_delivery: v }))} step="0.01" min="0" />
-              <NumInput label="Fuel Allowance / Mile (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, fuel_allowance_per_km: v }))} step="0.01" min="0" />
-              <NumInput label="Min Guaranteed Hours" value={driverRates.min_guaranteed_hours} onChange={(v) => setDriverRates((d) => ({ ...d, min_guaranteed_hours: v }))} step="1" min="0" />
-              <NumInput label="Max Hours / Day" value={driverRates.max_hours_per_day} onChange={(v) => setDriverRates((d) => ({ ...d, max_hours_per_day: v }))} step="1" min="1" />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button onClick={saveDriverRates} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Driver Rates'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Alert Thresholds ──────────────────────────────────────────────────── */}
-      {activeTab === 'alert_thresholds' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <AlertTriangle size={15} style={{ color: 'hsl(var(--primary))' }} /> Alert Thresholds
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <NumInput label="Min Active Drivers" value={alertThresholds.min_active_drivers} onChange={(v) => setAlertThresholds((a) => ({ ...a, min_active_drivers: v }))} step="1" min="1" />
-              <NumInput label="Low Driver Warning (%)" value={alertThresholds.low_driver_warning_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, low_driver_warning_pct: v }))} step="1" min="0" suffix="%" />
-              <NumInput label="Late Delivery (min)" value={alertThresholds.late_delivery_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, late_delivery_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Critical Delay (min)" value={alertThresholds.critical_delay_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, critical_delay_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Max Failed Deliveries (%)" value={alertThresholds.max_failed_deliveries_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, max_failed_deliveries_pct: v }))} step="1" min="0" suffix="%" />
-              <NumInput label="High Order Volume / Hour" value={alertThresholds.high_order_volume_per_hour} onChange={(v) => setAlertThresholds((a) => ({ ...a, high_order_volume_per_hour: v }))} step="1" min="1" />
-              <NumInput label="Unassigned Orders Warning" value={alertThresholds.unassigned_order_warning_count} onChange={(v) => setAlertThresholds((a) => ({ ...a, unassigned_order_warning_count: v }))} step="1" min="1" />
-              <NumInput label="Driver Offline Alert (min)" value={alertThresholds.driver_offline_alert_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, driver_offline_alert_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="GPS Stale Alert (min)" value={alertThresholds.gps_stale_alert_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, gps_stale_alert_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Daily Revenue Target (£)" value={alertThresholds.daily_revenue_target} onChange={(v) => setAlertThresholds((a) => ({ ...a, daily_revenue_target: v }))} step="1" min="0" />
-              <NumInput label="Low Revenue Warning (%)" value={alertThresholds.low_revenue_warning_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, low_revenue_warning_pct: v }))} step="1" min="0" suffix="%" />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Thresholds'}
-            </button>
-          </div>
         </div>
       )}
 
@@ -2515,11 +2451,6 @@ export default function SettingsContent() {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Auth Credentials */}
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Authentication</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Username / Email</label>
@@ -2554,11 +2485,6 @@ export default function SettingsContent() {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Sender Identity */}
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Sender Identity</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>From Name</label>
@@ -2582,6 +2508,17 @@ export default function SettingsContent() {
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                 />
               </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={saveSmtpConfig}
+                disabled={smtpSaving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {smtpSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {smtpSaving ? 'Saving…' : 'Save SMTP Settings'}
+              </button>
             </div>
           </div>
 
@@ -2652,276 +2589,10 @@ export default function SettingsContent() {
           <div className="rounded-xl border p-4 flex gap-3" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
             <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: 'hsl(var(--primary))' }} />
             <div className="text-xs space-y-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              <p className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>SMTP credentials are stored in environment variables</p>
-              <p>Update <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_HOST</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_PORT</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_USER</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_PASS</code>, <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_FROM_NAME</code>, and <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>SMTP_FROM_EMAIL</code> in your <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--muted))' }}>.env</code> file to persist changes across restarts.</p>
+              <p className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>SMTP settings are saved to the database</p>
+              <p>Click <strong>Save SMTP Settings</strong> to persist your configuration. Settings are loaded from the database on startup and override environment variable defaults.</p>
               <p>For Gmail, use an <strong>App Password</strong> (not your account password). Enable 2FA first, then generate an App Password under Google Account → Security.</p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Database Backup & Export ───────────────────────────────────────────── */}
-      {activeTab === 'database' && (
-        <div className="space-y-5">
-          {/* Full Backup */}
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <div className="flex items-center gap-2">
-              <HardDrive size={15} style={{ color: 'hsl(var(--primary))' }} />
-              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Full Database Backup</h2>
-            </div>
-            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Download a complete backup of all database tables as a single JSON file. This includes orders, drivers, customers, vehicles, settings, and all other data.
-            </p>
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                onClick={async () => {
-                  setDbExporting(true);
-                  try {
-                    const res = await fetch('/api/database/export');
-                    if (!res.ok) throw new Error('Export failed');
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `castle_admin_backup_${new Date().toISOString().split('T')[0]}.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    toast.success('Full backup downloaded successfully');
-                  } catch (err: unknown) {
-                    const msg = err instanceof Error ? err.message : 'Export failed';
-                    toast.error(`Backup failed: ${msg}`);
-                  } finally {
-                    setDbExporting(false);
-                  }
-                }}
-                disabled={dbExporting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
-                style={{ backgroundColor: 'hsl(var(--primary))' }}
-              >
-                {dbExporting ? (
-                  <><RefreshCw size={14} className="animate-spin" /> Exporting…</>
-                ) : (
-                  <><Download size={14} /> Download Full Backup</>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Export Individual Tables */}
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-2">
-                <Download size={15} style={{ color: 'hsl(var(--primary))' }} />
-                <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</span>
-                <div className="flex rounded-lg border overflow-hidden text-xs" style={{ borderColor: 'hsl(var(--border))' }}>
-                  {(['json', 'csv'] as const).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => setDbExportFormat(fmt)}
-                      className="px-3 py-1.5 font-medium transition-colors uppercase"
-                      style={{
-                        backgroundColor: dbExportFormat === fmt ? 'hsl(var(--primary))' : 'hsl(var(--background))',
-                        color: dbExportFormat === fmt ? 'white' : 'hsl(var(--foreground))',
-                      }}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Export any individual table as JSON or CSV. Click the download button next to the table you want to export.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {[
-                { key: 'orders', label: 'Orders', icon: '📦' },
-                { key: 'drivers', label: 'Drivers', icon: '🚗' },
-                { key: 'customers', label: 'Customers', icon: '👥' },
-                { key: 'vehicles', label: 'Vehicles', icon: '🚐' },
-                { key: 'driver_shifts', label: 'Driver Shifts', icon: '🕐' },
-                { key: 'driver_performance_logs', label: 'Performance Logs', icon: '📊' },
-                { key: 'driver_documents', label: 'Driver Documents', icon: '📄' },
-                { key: 'driver_cash_allocations', label: 'Cash Allocations', icon: '💵' },
-                { key: 'driver_cash_collections', label: 'Cash Collections', icon: '💰' },
-                { key: 'vehicle_inspections', label: 'Vehicle Inspections', icon: '🔧' },
-                { key: 'vehicle_incidents', label: 'Vehicle Incidents', icon: '⚠️' },
-                { key: 'delivery_zones', label: 'Delivery Zones', icon: '🗺️' },
-                { key: 'message_templates', label: 'Message Templates', icon: '✉️' },
-                { key: 'notifications', label: 'Notifications', icon: '🔔' },
-                { key: 'activity_logs', label: 'Activity Logs', icon: '📋' },
-                { key: 'email_alert_logs', label: 'Email Alert Logs', icon: '📧' },
-                { key: 'sms_alert_logs', label: 'SMS Alert Logs', icon: '📱' },
-                { key: 'woocommerce_sync_log', label: 'WooCommerce Sync Log', icon: '🛒' },
-                { key: 'fleet_config', label: 'Fleet Config', icon: '⚙️' },
-                { key: 'user_roles', label: 'User Roles', icon: '👤' },
-                { key: 'company_profile', label: 'Company Profile', icon: '🏢' },
-              ].map(({ key, label, icon }) => (
-                <div
-                  key={key}
-                  className="flex items-center justify-between px-3 py-2.5 rounded-lg border"
-                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
-                >
-                  <span className="text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-                    <span>{icon}</span> {label}
-                  </span>
-                  <button
-                    onClick={async () => {
-                      setDbTableExporting(key);
-                      try {
-                        const res = await fetch(`/api/database/export?table=${key}&format=${dbExportFormat}`);
-                        if (!res.ok) throw new Error('Export failed');
-                        const blob = await res.blob();
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${key}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        toast.success(`${label} exported successfully`);
-                      } catch (err: unknown) {
-                        const msg = err instanceof Error ? err.message : 'Export failed';
-                        toast.error(`Export failed: ${msg}`);
-                      } finally {
-                        setDbTableExporting(null);
-                      }
-                    }}
-                    disabled={dbTableExporting === key}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
-                    style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
-                  >
-                    {dbTableExporting === key ? (
-                      <RefreshCw size={11} className="animate-spin" />
-                    ) : (
-                      <Download size={11} />
-                    )}
-                    Export
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Info note */}
-          <div className="flex items-start gap-3 p-4 rounded-xl border" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
-            <Database size={15} className="mt-0.5 flex-shrink-0" style={{ color: 'hsl(var(--primary))' }} />
-            <div className="space-y-1">
-              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>About Database Exports</p>
-              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Exports contain a snapshot of your data at the time of download. Sensitive fields such as API keys and passwords are included — store backup files securely. For scheduled automated backups, configure Supabase Point-in-Time Recovery (PITR) in your Supabase project dashboard.
-              </p>
-            </div>
-          </div>
-
-          {/* ── Import Backup ──────────────────────────────────────────────────────── */}
-          <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <div className="flex items-center gap-2">
-              <Upload size={15} style={{ color: 'hsl(var(--primary))' }} />
-              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Import Backup</h2>
-            </div>
-            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Restore data from a previously exported JSON backup file. Existing records with matching IDs will be updated; new records will be inserted. This operation cannot be undone.
-            </p>
-
-            {/* File picker */}
-            <div className="flex items-center gap-3 flex-wrap pt-1">
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  setImportBackupFile(file);
-                  setImportBackupResult(null);
-                }}
-              />
-              <button
-                onClick={() => importFileRef.current?.click()}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
-                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
-              >
-                <Upload size={14} />
-                {importBackupFile ? importBackupFile.name : 'Choose Backup File (.json)'}
-              </button>
-
-              {importBackupFile && (
-                <button
-                  onClick={async () => {
-                    if (!importBackupFile) return;
-                    setImportingBackup(true);
-                    setImportBackupResult(null);
-                    try {
-                      const text = await importBackupFile.text();
-                      const parsed = JSON.parse(text);
-                      // Handle both export formats:
-                      // - Full backup: { exported_at, tables, data: { table: rows[] } }
-                      // - Legacy/direct: { table: rows[] }
-                      const data: Record<string, unknown[]> =
-                        parsed?.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
-                          ? (parsed.data as Record<string, unknown[]>)
-                          : (parsed as Record<string, unknown[]>);
-                      const supabaseClient = createClient();
-                      const tables = Object.keys(data);
-                      let success = 0;
-                      let failed = 0;
-                      const restoredTables: string[] = [];
-
-                      for (const table of tables) {
-                        const rows = data[table];
-                        if (!Array.isArray(rows) || rows.length === 0) continue;
-                        const { error } = await supabaseClient
-                          .from(table)
-                          .upsert(rows as Record<string, unknown>[], { onConflict: 'id' });
-                        if (error) {
-                          failed += rows.length;
-                        } else {
-                          success += rows.length;
-                          restoredTables.push(table);
-                        }
-                      }
-
-                      setImportBackupResult({ success, failed, tables: restoredTables });
-                      if (failed === 0) {
-                        toast.success(`Backup restored: ${success} records across ${restoredTables.length} table(s)`);
-                      } else {
-                        toast.warning(`Restored ${success} records; ${failed} failed`);
-                      }
-                      setImportBackupFile(null);
-                      if (importFileRef.current) importFileRef.current.value = '';
-                    } catch (err: unknown) {
-                      const msg = err instanceof Error ? err.message : 'Import failed';
-                      toast.error(`Import failed: ${msg}`);
-                    } finally {
-                      setImportingBackup(false);
-                    }
-                  }}
-                  disabled={importingBackup}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
-                  style={{ backgroundColor: 'hsl(var(--primary))' }}
-                >
-                  {importingBackup ? (
-                    <><RefreshCw size={14} className="animate-spin" /> Importing…</>
-                  ) : (
-                    <><Upload size={14} /> Restore Backup</>
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* Result summary */}
-            {importBackupResult && (
-              <div className="rounded-lg p-3 text-xs space-y-1" style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--foreground))' }}>
-                <p className="font-semibold">Restore complete</p>
-                <p>✅ {importBackupResult.success} records restored across: {importBackupResult.tables.join(', ') || '—'}</p>
-                {importBackupResult.failed > 0 && (
-                  <p className="text-red-500">⚠️ {importBackupResult.failed} records failed to import</p>
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
