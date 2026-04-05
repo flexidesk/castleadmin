@@ -1258,9 +1258,9 @@ export default function SettingsContent() {
     { id: 'company', label: 'Company Profile', icon: Globe },
     { id: 'fleet', label: 'Fleet Config', icon: Building2 },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'roles', label: 'Team Roles', icon: Users },
     { id: 'driver_rates', label: 'Driver Rates', icon: Car },
     { id: 'alert_thresholds', label: 'Alert Thresholds', icon: AlertTriangle },
+    { id: 'roles', label: 'Team Roles', icon: Users },
     { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'smtp', label: 'SMTP Mail', icon: Mail },
     { id: 'database', label: 'Database', icon: Database },
@@ -1829,6 +1829,137 @@ export default function SettingsContent() {
         </div>
       )}
 
+      {/* ── Driver Rates ──────────────────────────────────────────────────────── */}
+      {activeTab === 'driver_rates' && (
+        <div className="space-y-5">
+          {/* Pay Rates */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <Car size={15} style={{ color: 'hsl(var(--primary))' }} /> Pay Rates
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <NumInput label="Base Rate per Hour (£)" value={driverRates.base_rate_per_hour} onChange={(v) => setDriverRates((r) => ({ ...r, base_rate_per_hour: v }))} step="0.01" suffix="£/hr" />
+              <NumInput label="Rate per KM (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((r) => ({ ...r, rate_per_km: v }))} step="0.01" suffix="£/km" />
+              <NumInput label="Bonus per Delivery (£)" value={driverRates.bonus_per_delivery} onChange={(v) => setDriverRates((r) => ({ ...r, bonus_per_delivery: v }))} step="0.01" suffix="£" />
+              <NumInput label="Fuel Allowance per KM (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((r) => ({ ...r, fuel_allowance_per_km: v }))} step="0.01" suffix="£/km" />
+              <NumInput label="Min Guaranteed Hours" value={driverRates.min_guaranteed_hours} onChange={(v) => setDriverRates((r) => ({ ...r, min_guaranteed_hours: v }))} step="0.5" suffix="hrs" />
+              <NumInput label="Max Hours per Day" value={driverRates.max_hours_per_day} onChange={(v) => setDriverRates((r) => ({ ...r, max_hours_per_day: v }))} step="0.5" suffix="hrs" />
+            </div>
+          </div>
+
+          {/* Multipliers */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Pay Multipliers</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <NumInput label="Overtime Multiplier" value={driverRates.overtime_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, overtime_multiplier: v }))} step="0.05" suffix="×" />
+              <NumInput label="Weekend Multiplier" value={driverRates.weekend_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, weekend_multiplier: v }))} step="0.05" suffix="×" />
+              <NumInput label="Night Shift Multiplier" value={driverRates.night_shift_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, night_shift_multiplier: v }))} step="0.05" suffix="×" />
+            </div>
+          </div>
+
+          {/* Pay Cycle & Currency */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Pay Cycle & Currency</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Pay Cycle</label>
+                <select
+                  value={driverRates.pay_cycle}
+                  onChange={(e) => setDriverRates((r) => ({ ...r, pay_cycle: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  {['daily', 'weekly', 'fortnightly', 'monthly'].map((c) => (
+                    <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Currency</label>
+                <select
+                  value={driverRates.currency}
+                  onChange={(e) => setDriverRates((r) => ({ ...r, currency: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  {['GBP', 'EUR', 'USD', 'CAD', 'AUD'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveDriverRates}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Driver Rates'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Alert Thresholds ──────────────────────────────────────────────────── */}
+      {activeTab === 'alert_thresholds' && (
+        <div className="space-y-5">
+          {/* Driver Availability */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <AlertTriangle size={15} style={{ color: 'hsl(var(--primary))' }} /> Driver Availability
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="Min Active Drivers" value={alertThresholds.min_active_drivers} onChange={(v) => setAlertThresholds((t) => ({ ...t, min_active_drivers: Math.round(v) }))} step="1" suffix="drivers" />
+              <NumInput label="Low Driver Warning (%)" value={alertThresholds.low_driver_warning_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, low_driver_warning_pct: Math.round(v) }))} step="1" min="0" suffix="%" />
+              <NumInput label="Driver Offline Alert (mins)" value={alertThresholds.driver_offline_alert_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, driver_offline_alert_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="GPS Stale Alert (mins)" value={alertThresholds.gps_stale_alert_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, gps_stale_alert_minutes: Math.round(v) }))} step="1" suffix="min" />
+            </div>
+          </div>
+
+          {/* Delivery Performance */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Performance</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <NumInput label="Late Delivery Warning (mins)" value={alertThresholds.late_delivery_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, late_delivery_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="Critical Delay (mins)" value={alertThresholds.critical_delay_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, critical_delay_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="Max Failed Deliveries (%)" value={alertThresholds.max_failed_deliveries_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, max_failed_deliveries_pct: Math.round(v) }))} step="1" suffix="%" />
+            </div>
+          </div>
+
+          {/* Order Volume */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Order Volume</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="High Order Volume (per hour)" value={alertThresholds.high_order_volume_per_hour} onChange={(v) => setAlertThresholds((t) => ({ ...t, high_order_volume_per_hour: Math.round(v) }))} step="1" suffix="orders/hr" />
+              <NumInput label="Unassigned Order Warning" value={alertThresholds.unassigned_order_warning_count} onChange={(v) => setAlertThresholds((t) => ({ ...t, unassigned_order_warning_count: Math.round(v) }))} step="1" suffix="orders" />
+            </div>
+          </div>
+
+          {/* Financial */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Financial Targets</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="Daily Revenue Target (£)" value={alertThresholds.daily_revenue_target} onChange={(v) => setAlertThresholds((t) => ({ ...t, daily_revenue_target: v }))} step="10" suffix="£" />
+              <NumInput label="Low Revenue Warning (%)" value={alertThresholds.low_revenue_warning_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, low_revenue_warning_pct: Math.round(v) }))} step="1" suffix="%" />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveAlertThresholds}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Alert Thresholds'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Team Roles ────────────────────────────────────────────────────────────── */}
       {activeTab === 'roles' && (
         <div className="space-y-5">
@@ -2019,7 +2150,8 @@ export default function SettingsContent() {
                   <div className={`text-xs px-3 py-2 rounded-lg ${wcSettings.last_test_status === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                     {wcSettings.last_test_message}
                     {wcSettings.last_tested_at && (
-                      <span className="ml-2 opacity-60">· {new Date(wcSettings.last_tested_at).toLocaleString()}</span>
+                      <span className="ml-2 opacity-60">· {new Date(wcSettings.last_tested_at).toLocaleString('en-GB')} — Status: {wcSettings.last_test_status ?? 'unknown'}
+                      </span>
                     )}
                   </div>
                 )}
@@ -2105,7 +2237,7 @@ export default function SettingsContent() {
                               {label}
                             </label>
                             <div className="flex items-center gap-2">
-                              <span className="text-xs px-2 py-1.5 rounded-l-lg border-y border-l font-mono shrink-0" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                              <span className="text-xs px-2 py-1 rounded-l-lg border-y border-l font-mono shrink-0" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
                                 WC →
                               </span>
                               <input
@@ -2113,7 +2245,7 @@ export default function SettingsContent() {
                                 value={wcFieldMapping[key]}
                                 onChange={(e) => setWcFieldMapping((m) => ({ ...m, [key]: e.target.value }))}
                                 placeholder={placeholder}
-                                className="flex-1 px-3 py-1.5 rounded-r-lg border text-xs focus:outline-none font-mono"
+                                className="flex-1 px-3 py-1 rounded-r-lg border text-xs focus:outline-none font-mono"
                                 style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                               />
                             </div>
@@ -2149,7 +2281,7 @@ export default function SettingsContent() {
                     disabled={wcTesting || wcSaving}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
                   >
-                    {wcTesting ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                    {wcTesting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                     {wcTesting ? 'Testing…' : 'Test Connection'}
                   </button>
                   <button
@@ -2673,7 +2805,7 @@ export default function SettingsContent() {
           </div>
 
           {/* Info Banner */}
-          <div className="rounded-xl border p-4 flex gap-3" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
+          <div className="rounded-xl border-2 border-red-200 p-4 flex gap-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
             <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: 'hsl(var(--primary))' }} />
             <div className="text-xs space-y-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
               <p className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>SMTP settings are saved to the database</p>
