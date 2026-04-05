@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 export const dynamic = 'force-dynamic';
 
 function hashPassword(password: string): string {
-  const salt = process.env.NEXT_PUBLIC_SUPABASE_URL || 'castle-driver-salt';
+  const salt = 'castle-driver-salt';
   return createHash('sha256').update(salt + password + salt).digest('hex');
 }
 
