@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Truck, Plus, Search, Edit2, UserX, UserCheck, Star, Phone, Mail, X, Loader2, RefreshCw, MapPin, FileText, Upload, Calendar, Eye, ShieldCheck, ShieldAlert, ShieldOff, CreditCard, Car, Hash, User, ChevronRight, CheckCircle2, Trash2, FileImage, KeyRound, EyeOff, ToggleLeft, ToggleRight, ChevronDown, Download, FileSpreadsheet, Archive, ArchiveRestore, TrendingUp, CheckSquare, Square, Users, Zap, BarChart2, Bell, RotateCcw, CalendarCheck, AlertCircle,  } from 'lucide-react';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
@@ -308,6 +309,7 @@ const COMPLIANCE_CONFIG: Record<ComplianceStatus, { label: string; color: string
 
 export default function DriversContent() {
   const supabase = createClient();
+  const { session } = useAuth();
 
   // ─── Shared state ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'profiles' | 'management' | 'vehicles' | 'inspections'>('profiles');
@@ -694,7 +696,7 @@ export default function DriversContent() {
     if (credPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
     setSavingCredentials(true);
     try {
-      const res = await fetch('/api/drivers/set-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ driverId: credentialsDriver.id, email: credEmail.trim(), password: credPassword }) });
+      const res = await fetch('/api/drivers/set-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }, body: JSON.stringify({ driverId: credentialsDriver.id, email: credEmail.trim(), password: credPassword }) });
       const json = await res.json();
       if (!res.ok) toast.error(json.error || 'Failed to set credentials');
       else { toast.success(`Credentials set for ${credentialsDriver.name}`); setShowCredentials(false); fetchDrivers(); }
