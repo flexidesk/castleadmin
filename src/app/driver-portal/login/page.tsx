@@ -274,6 +274,17 @@ export default function DriverLoginPage() {
             Sign in to Admin Dashboard
           </a>
         </p>
+
+        {/* Auth test link */}
+        <p className="mt-3 text-center text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          <a
+            href="/driver-portal/auth-test"
+            className="transition-colors hover:underline opacity-60 hover:opacity-100"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+          >
+            🧪 Auth test suite
+          </a>
+        </p>
       </div>
     </div>
   );
