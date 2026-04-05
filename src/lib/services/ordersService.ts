@@ -10,6 +10,29 @@ function fireWebhookEvent(event: string, data: Record<string, unknown>) {
   }).catch(() => {});
 }
 
+// ─── Driver push notification helper ─────────────────────────────────────────
+function sendDriverPushNotification(
+  driverId: string,
+  orderId: string,
+  wooOrderId: string,
+  addressLine1?: string | null
+) {
+  const orderRef = wooOrderId ? `#${wooOrderId}` : `#${orderId}`;
+  const addressText = addressLine1 || 'See app for details';
+  fetch('/api/push/send-driver', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      driverId,
+      title: '🚚 New Booking Assigned',
+      body: `Order ${orderRef} — ${addressText}`,
+      icon: '/icons/icon-192x192.png',
+      tag: `new-order-${orderId}`,
+      data: { orderId, url: `/driver-portal?order=${orderId}` },
+    }),
+  }).catch(() => {});
+}
+
 // ─── DB Row Types (snake_case) ────────────────────────────────────────────────
 
 export interface DbOrder {
@@ -267,6 +290,22 @@ export const ordersService = {
       return false;
     }
     fireWebhookEvent('driver.assigned', { order_id: orderId, driver_id: driverId });
+
+    // Fetch order details for the notification
+    const { data: orderRow } = await supabase
+      .from('orders')
+      .select('id, woo_order_id, delivery_address_line1')
+      .eq('id', orderId)
+      .single();
+    if (orderRow) {
+      sendDriverPushNotification(
+        driverId,
+        orderRow.id,
+        orderRow.woo_order_id,
+        orderRow.delivery_address_line1
+      );
+    }
+
     return true;
   },
 
@@ -392,6 +431,16 @@ export const ordersService = {
     }
     if (data) {
       fireWebhookEvent('order.created', { order_id: data.id, ...row });
+
+      // Notify driver if one was assigned at creation
+      if (payload.driverId) {
+        sendDriverPushNotification(
+          payload.driverId,
+          data.id,
+          payload.wooOrderId,
+          payload.addressLine1
+        );
+      }
     }
     return data as { id: string };
   },
