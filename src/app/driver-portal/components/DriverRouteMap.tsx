@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { MapIcon, Navigation, Clock, ChevronDown, ExternalLink, Maximize2, Minimize2, Route, Camera, PenLine, FileText, X, Trash2, CheckCircle2, Loader2,  } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
-import { useMapsConfig, DEFAULT_MAP_CENTER } from '@/hooks/useMapsConfig';
+import { useMapsConfig, DEFAULT_MAP_CENTER, getTileLayerConfig } from '@/hooks/useMapsConfig';
 
 
 interface DriverRouteMapProps {
@@ -621,9 +621,11 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
         attributionControl: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
 
       mapInstanceRef.current = map;

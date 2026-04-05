@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
+import { useBranding } from '@/contexts/BrandingContext';
 import dynamic from 'next/dynamic';
 
 const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false });
@@ -1088,6 +1089,7 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { logoUrl, appName } = useBranding();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1135,9 +1137,9 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-3 mb-4">
-            <AppLogo size={40} src="/favicon.ico" />
+            <AppLogo size={40} src={logoUrl ?? '/favicon.ico'} />
             <span className="text-2xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
-              CastleAdmin
+              {appName}
             </span>
           </div>
           <div
@@ -2188,25 +2190,8 @@ interface CashSectionProps {
 
 function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: CashSectionProps) {
   const supabase = createClient();
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const totalCash = cashAllocations.reduce((sum, a) => sum + Number(a.amount || 0), 0);
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try {
-      const { error } = await supabase.from('driver_cash_allocations').delete().eq('id', id);
-      if (error) throw error;
-      toast.success('Cash record removed');
-      onRefresh();
-    } catch (err: any) {
-      toast.error(err.message ?? 'Failed to remove record');
-    } finally {
-      setDeletingId(null);
-      setConfirmDeleteId(null);
-    }
-  };
 
   if (loadingData) {
     return (
@@ -2261,58 +2246,27 @@ function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: Cash
           <div className="space-y-2">
             {cashAllocations.map((alloc) => (
               <div key={alloc.id} className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--border))' }}>
-                {confirmDeleteId === alloc.id ? (
-                  <div className="p-3 space-y-2" style={{ backgroundColor: 'hsl(0 84% 60% / 0.06)' }}>
-                    <p className="text-xs font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Remove this cash record?</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleDelete(alloc.id)}
-                        disabled={deletingId === alloc.id}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold"
-                        style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white' }}
-                      >
-                        {deletingId === alloc.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-                        {deletingId === alloc.id ? 'Removing…' : 'Yes, Remove'}
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="flex-1 py-1.5 rounded-lg text-xs font-medium"
-                        style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                <div className="flex items-start gap-3 p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
+                    <Banknote size={14} style={{ color: 'hsl(142 69% 35%)' }} />
                   </div>
-                ) : (
-                  <div className="flex items-start gap-3 p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
-                      <Banknote size={14} style={{ color: 'hsl(142 69% 35%)' }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(alloc.amount).toFixed(2)}</p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(alloc.amount).toFixed(2)}</p>
-                        <button
-                          onClick={() => setConfirmDeleteId(alloc.id)}
-                          className="p-1 rounded transition-colors hover:bg-secondary"
-                          title="Remove record"
-                        >
-                          <Trash2 size={13} style={{ color: 'hsl(0 84% 60%)' }} />
-                        </button>
-                      </div>
-                      {alloc.order_id && (
-                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Order: {alloc.order_id}</p>
-                      )}
-                      {alloc.notes && (
-                        <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{alloc.notes}</p>
-                      )}
-                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        {' · '}
-                        {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
+                    {alloc.order_id && (
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Order: {alloc.order_id}</p>
+                    )}
+                    {alloc.notes && (
+                      <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{alloc.notes}</p>
+                    )}
+                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {' · '}
+                      {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
-                )}
+                </div>
               </div>
             ))}
           </div>
@@ -2685,6 +2639,7 @@ function DriverDashboard({
   onLogout: () => void;
 }) {
   const supabase = createClient();
+  const { logoUrl } = useBranding();
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2960,7 +2915,7 @@ function DriverDashboard({
               </p>
             </div>
           </div>
-          <AppLogo size={28} src="/favicon.ico" />
+          <AppLogo size={28} src={logoUrl ?? '/favicon.ico'} />
         </div>
       </div>
 
@@ -3028,7 +2983,7 @@ function DriverDashboard({
         {/* KPI Grid */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: "Today's Orders", value: todayOrders.length, icon: Package, color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)' },
+            { label: "Today's Jobs", value: todayOrders.length, icon: Package, color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)' },
             { label: "Today's Deliveries", value: todayActive, icon: Truck, color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)' },
             { label: 'Completed', value: todayComplete, icon: CheckCircle2, color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)' },
             {
