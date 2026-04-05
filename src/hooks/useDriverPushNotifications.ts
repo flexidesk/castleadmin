@@ -19,6 +19,28 @@ interface UseDriverPushOptions {
   driverName?: string;
 }
 
+async function showPushNotification(title: string, options: NotificationOptions) {
+  // Prefer service worker notification (works in background) over Notification API
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, {
+        ...options,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        silent: false,
+      } as NotificationOptions);
+      return;
+    } catch {
+      // Fall through to Notification API
+    }
+  }
+  // Fallback for when service worker is not available
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, options);
+  }
+}
+
 export function useDriverPushNotifications({ driverId, driverName }: UseDriverPushOptions) {
   const supabase = createClient();
   const subscribedRef = useRef(false);
@@ -40,7 +62,12 @@ export function useDriverPushNotifications({ driverId, driverName }: UseDriverPu
       const res = await fetch('/api/push/vapid-public-key');
       if (!res.ok) return false;
       const { publicKey } = await res.json();
-      if (!publicKey || publicKey === 'your-vapid-public-key-here') return false;
+      if (!publicKey || publicKey === 'your-vapid-public-key-here') {
+        // VAPID not configured — still mark subscribed so realtime notifications work
+        subscribedRef.current = true;
+        setIsSubscribed(true);
+        return true;
+      }
 
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
@@ -99,18 +126,24 @@ export function useDriverPushNotifications({ driverId, driverName }: UseDriverPu
     }
   }, []);
 
-  // Auto-subscribe when driver is available and permission is granted
+  // Auto-subscribe when driver is available — request permission if not yet granted
   useEffect(() => {
     if (!driverId) return;
 
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'granted') {
-        subscribe();
-      }
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    if (Notification.permission === 'granted') {
+      // Already granted — subscribe immediately
+      subscribe();
+    } else if (Notification.permission === 'default') {
+      // Not yet asked — request permission and subscribe
+      subscribe();
     }
+    // If 'denied', do nothing — user must change in browser settings
   }, [driverId, subscribe]);
 
   // Listen for new order assignments for this driver via Supabase realtime
+  // This handles both server-sent push (when app is open) and background push (via SW)
   useEffect(() => {
     if (!driverId || !isSubscribed) return;
 
@@ -118,42 +151,65 @@ export function useDriverPushNotifications({ driverId, driverName }: UseDriverPu
       .channel(`driver-push-${driverId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'orders', filter: `driver_id=eq.${driverId}` },
-        (payload) => {
-          const order = payload.new as any;
-          // Show local notification for new assignment
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('🚚 New Order Assigned', {
-              body: `Order #${order.id} for ${order.customer_name || 'Customer'} has been assigned to you.`,
-              icon: '/icons/icon-192x192.png',
-              badge: '/icons/icon-72x72.png',
-              tag: `new-order-${order.id}`,
-            });
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
+        // Listen for UPDATE events — assignments happen when driver_id is set on an existing order
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `driver_id=eq.${driverId}` },
-        (payload) => {
+        async (payload) => {
           const order = payload.new as any;
           const prev = payload.old as any;
 
-          if (order.status !== prev?.status && 'Notification' in window && Notification.permission === 'granted') {
+          if (typeof window === 'undefined' || !('Notification' in window)) return;
+          if (Notification.permission !== 'granted') return;
+
+          // New assignment: driver_id was just set (prev had no driver or different driver)
+          const wasJustAssigned =
+            (!prev?.driver_id || prev.driver_id !== driverId) && order.driver_id === driverId;
+
+          if (wasJustAssigned) {
+            await showPushNotification('🚚 New Booking Assigned', {
+              body: `Order #${order.woo_order_id || order.id} — ${order.delivery_address_line1 || 'See app for details'}`,
+              icon: '/icons/icon-192x192.png',
+              badge: '/icons/icon-72x72.png',
+              tag: `new-order-${order.id}`,
+              data: { orderId: order.id, url: `/driver-portal?order=${order.id}` },
+            });
+            return;
+          }
+
+          // Status change notifications
+          if (order.status !== prev?.status) {
             const statusMessages: Record<string, string> = {
               'Booking Cancelled': '❌ Order Cancelled',
               'Booking Assigned': '📋 Order Assigned to You',
             };
             const title = statusMessages[order.status];
             if (title) {
-              new Notification(title, {
-                body: `Order #${order.id} for ${order.customer_name || 'Customer'} — ${order.status}`,
+              await showPushNotification(title, {
+                body: `Order #${order.woo_order_id || order.id} — ${order.status}`,
                 icon: '/icons/icon-192x192.png',
                 badge: '/icons/icon-72x72.png',
                 tag: `status-${order.id}`,
+                data: { orderId: order.id, url: `/driver-portal?order=${order.id}` },
               });
             }
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        // Also listen for INSERT in case a new order is created directly assigned to this driver
+        { event: 'INSERT', schema: 'public', table: 'orders', filter: `driver_id=eq.${driverId}` },
+        async (payload) => {
+          const order = payload.new as any;
+          if (typeof window === 'undefined' || !('Notification' in window)) return;
+          if (Notification.permission !== 'granted') return;
+
+          await showPushNotification('🚚 New Booking Assigned', {
+            body: `Order #${order.woo_order_id || order.id} — ${order.delivery_address_line1 || 'See app for details'}`,
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/icon-72x72.png',
+            tag: `new-order-${order.id}`,
+            data: { orderId: order.id, url: `/driver-portal?order=${order.id}` },
+          });
         }
       )
       .subscribe();
