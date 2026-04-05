@@ -2491,12 +2491,12 @@ function NotificationsSection({ driverId }: NotificationsSectionProps) {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+      <div className="flex gap-1 p-1.5 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
         {(['all', 'unread', 'read'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className="flex-1 py-1.5 rounded-md text-xs font-medium transition-all capitalize"
+            className="flex-1 py-3 rounded-md text-xs font-medium transition-all capitalize"
             style={{
               backgroundColor: filter === f ? 'hsl(var(--card))' : 'transparent',
               color: filter === f ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
@@ -3019,7 +3019,7 @@ function DriverDashboard({
 
         {/* Section Tabs */}
         <div
-          className="flex gap-1 p-1 rounded-xl overflow-x-auto"
+          className="flex gap-2 p-1.5 rounded-xl overflow-x-auto"
           style={{ backgroundColor: 'hsl(var(--secondary))' }}
         >
           {([
@@ -3036,7 +3036,7 @@ function DriverDashboard({
             <button
               key={tab.key}
               onClick={() => setActiveSection(tab.key)}
-              className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-lg text-sm font-medium transition-all shrink-0"
+              className="flex-1 flex items-center justify-center gap-1 py-3 rounded-lg text-sm font-medium transition-all shrink-0"
               style={{
                 backgroundColor: activeSection === tab.key ? 'hsl(var(--card))' : 'transparent',
                 color: activeSection === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
