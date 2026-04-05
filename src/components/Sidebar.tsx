@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText } from 'lucide-react';
+import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText, LayoutGrid } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -21,6 +21,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Bookings Dashboard', href: '/orders-dashboard', icon: LayoutDashboard, group: 'Operations' },
+  { label: 'Driver Dashboard', href: '/driver-dashboard', icon: LayoutGrid, group: 'Operations' },
   { label: 'Create Booking', href: '/create-order', icon: Plus, group: 'Operations' },
   { label: 'Booking Detail', href: '/order-detail', icon: PackageSearch, group: 'Operations' },
   { label: 'Live Tracking', href: '/admin-live-tracking', icon: MapPin, group: 'Operations' },
