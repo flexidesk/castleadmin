@@ -235,11 +235,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upsert credentials
+    // Check if a credential row already exists for this driver_id
+    const existingDriverCreds = await restGet(
+      `driver_portal_credentials?driver_id=eq.${encodeURIComponent(driverId)}&select=driver_id&limit=1`,
+      true
+    );
+    const credExists = Array.isArray(existingDriverCreds) && existingDriverCreds.length > 0;
+
+    // Update existing row or insert new one
     await restPost(
-      `driver_portal_credentials`,
+      credExists
+        ? `driver_portal_credentials?driver_id=eq.${encodeURIComponent(driverId)}`
+        : `driver_portal_credentials`,
       { driver_id: driverId, email, password_hash: passwordHash },
-      'POST',
+      credExists ? 'PATCH' : 'POST',
       true
     );
 
