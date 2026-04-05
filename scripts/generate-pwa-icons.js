@@ -1,35 +1,37 @@
+#!/usr/bin/env node
 /**
- * PWA Icon Generator
+ * Generates PNG PWA icons from the SVG source.
  * Run: node scripts/generate-pwa-icons.js
- * Generates PNG icons from the SVG source at public/icons/icon.svg
  * Requires: npm install sharp (dev dependency)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
+const SIZES = [72, 96, 128, 144, 152, 192, 384, 512];
+const SVG_PATH = path.join(__dirname, '../public/icons/icon.svg');
+const OUT_DIR = path.join(__dirname, '../public/icons');
 
-// Inline SVG as a data URL fallback — icons are generated at build time
-// For production, replace public/icons/icon.svg with your actual brand icon
-// and run this script once to generate all PNG sizes.
-
-async function generateIcons() {
+async function generate() {
+  let sharp;
   try {
-    const sharp = require('sharp');
-    const svgPath = path?.join(__dirname, '../public/icons/icon.svg');
-    const svgBuffer = fs?.readFileSync(svgPath);
-
-    for (const size of sizes) {
-      const outPath = path?.join(__dirname, `../public/icons/icon-${size}x${size}.png`);
-      await sharp(svgBuffer)?.resize(size, size)?.png()?.toFile(outPath);
-      console.log(`✓ Generated icon-${size}x${size}.png`);
-    }
-    console.log('\nAll PWA icons generated successfully!');
-  } catch (err) {
-    console.error('Error generating icons:', err?.message);
-    console.log('Install sharp: npm install --save-dev sharp');
+    sharp = require('sharp');
+  } catch {
+    console.log('sharp not available — skipping PNG generation');
+    return;
   }
+
+  if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  const svgBuffer = fs.readFileSync(SVG_PATH);
+
+  for (const size of SIZES) {
+    const outPath = path.join(OUT_DIR, `icon-${size}x${size}.png`);
+    await sharp(svgBuffer).resize(size, size).png().toFile(outPath);
+    console.log(`✓ Generated ${outPath}`);
+  }
+
+  console.log('PWA icons generated successfully.');
 }
 
-generateIcons();
+generate().catch(console.error);

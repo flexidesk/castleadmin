@@ -1,10 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+// Module-level capture: grab the event as early as possible, before React mounts
+let _capturedPrompt: BeforeInstallPromptEvent | null = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _capturedPrompt = e as BeforeInstallPromptEvent;
+    // Dispatch a custom event so any mounted component can react
+    window.dispatchEvent(new CustomEvent('pwa-prompt-ready'));
+  });
 }
 
 type Platform = 'android-chrome' | 'ios' | 'other';
@@ -42,6 +53,7 @@ export default function PWAInstallPrompt() {
     geolocation: 'prompt',
   });
   const [requestingPermissions, setRequestingPermissions] = useState(false);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Check current permission states
   const checkPermissions = async (): Promise<PermissionStatus> => {
@@ -50,14 +62,12 @@ export default function PWAInstallPrompt() {
       geolocation: 'prompt',
     };
 
-    // Notifications
     if (!('Notification' in window)) {
       status.notifications = 'unsupported';
     } else {
       status.notifications = Notification.permission;
     }
 
-    // Geolocation
     if (!('geolocation' in navigator)) {
       status.geolocation = 'unsupported';
     } else if ('permissions' in navigator) {
@@ -75,12 +85,9 @@ export default function PWAInstallPrompt() {
   const requestAllPermissions = async () => {
     setRequestingPermissions(true);
     try {
-      // Request notifications
       if ('Notification' in window && Notification.permission === 'default') {
         await Notification.requestPermission();
       }
-
-      // Request geolocation (triggers browser prompt)
       if ('geolocation' in navigator) {
         await new Promise<void>((resolve) => {
           navigator.geolocation.getCurrentPosition(
@@ -90,13 +97,21 @@ export default function PWAInstallPrompt() {
           );
         });
       }
-
-      // Re-check after requesting
       const updated = await checkPermissions();
       setPermissions(updated);
     } finally {
       setRequestingPermissions(false);
       setShowPermissionsDialog(false);
+      sessionStorage.setItem('permissions-asked', 'true');
+    }
+  };
+
+  const triggerBanner = (p: Platform, prompt: BeforeInstallPromptEvent | null) => {
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    if (p === 'ios') {
+      bannerTimerRef.current = setTimeout(() => setShowBanner(true), 3000);
+    } else if (p === 'android-chrome' && prompt) {
+      bannerTimerRef.current = setTimeout(() => setShowBanner(true), 2000);
     }
   };
 
@@ -107,42 +122,44 @@ export default function PWAInstallPrompt() {
     const pwa = isRunningAsPwa();
     setIsInstalled(pwa);
 
-    // On app launch (especially as PWA), check permissions and prompt if needed
+    // Permissions check on launch
     const initPermissions = async () => {
       const current = await checkPermissions();
       setPermissions(current);
-
       const needsNotifications = current.notifications === 'default';
       const needsGeolocation = current.geolocation === 'prompt';
-
-      // Show permissions dialog if any permission hasn't been asked yet
       if ((needsNotifications || needsGeolocation) && !sessionStorage.getItem('permissions-asked')) {
-        // Small delay so the page renders first
         setTimeout(() => setShowPermissionsDialog(true), 1500);
       }
     };
-
     initPermissions();
 
-    if (pwa) return; // Already installed — don't show install banner
+    if (pwa) return; // Already installed — skip install banner
 
-    // Check if dismissed this session
-    if (sessionStorage.getItem('pwa-banner-dismissed')) return;
-
-    if (p === 'ios') {
-      setTimeout(() => setShowBanner(true), 4000);
-      return;
+    // Use module-level captured prompt (may have fired before mount)
+    if (_capturedPrompt) {
+      setDeferredPrompt(_capturedPrompt);
+      triggerBanner(p, _capturedPrompt);
     }
 
-    // Android Chrome: listen for native install prompt
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-      setTimeout(() => setShowBanner(true), 3000);
+    // Also listen for future fires (e.g. after dismissal + re-visit)
+    const onPromptReady = () => {
+      if (_capturedPrompt) {
+        setDeferredPrompt(_capturedPrompt);
+        triggerBanner(p, _capturedPrompt);
+      }
     };
+    window.addEventListener('pwa-prompt-ready', onPromptReady);
 
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    // iOS: show banner after delay regardless of prompt event
+    if (p === 'ios') {
+      triggerBanner(p, null);
+    }
+
+    return () => {
+      window.removeEventListener('pwa-prompt-ready', onPromptReady);
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -151,6 +168,7 @@ export default function PWAInstallPrompt() {
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
       setIsInstalled(true);
+      _capturedPrompt = null;
     }
     setDeferredPrompt(null);
     setShowBanner(false);
@@ -159,12 +177,26 @@ export default function PWAInstallPrompt() {
   const handleDismiss = () => {
     setShowBanner(false);
     setShowIosGuide(false);
-    sessionStorage.setItem('pwa-banner-dismissed', 'true');
+    // Use localStorage so dismissal persists across sessions (not just this tab)
+    // but only for 24 hours — don't permanently suppress
+    const expiry = Date.now() + 24 * 60 * 60 * 1000;
+    localStorage.setItem('pwa-banner-dismissed-until', String(expiry));
   };
 
   const handlePermissionsDismiss = () => {
     setShowPermissionsDialog(false);
     sessionStorage.setItem('permissions-asked', 'true');
+  };
+
+  // Check if banner was recently dismissed
+  const isBannerSuppressed = (): boolean => {
+    try {
+      const until = localStorage.getItem('pwa-banner-dismissed-until');
+      if (!until) return false;
+      return Date.now() < parseInt(until, 10);
+    } catch {
+      return false;
+    }
   };
 
   // ── Permissions Dialog ──────────────────────────────────────────────────────
@@ -287,9 +319,10 @@ export default function PWAInstallPrompt() {
   }
 
   if (isInstalled) return null;
+  if (!showBanner || isBannerSuppressed()) return null;
 
   // iOS guide modal
-  if (platform === 'ios' && showBanner && showIosGuide) {
+  if (platform === 'ios' && showIosGuide) {
     return (
       <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/50">
         <div className="bg-slate-800 text-white rounded-2xl shadow-2xl p-5 w-full max-w-sm">
@@ -325,8 +358,6 @@ export default function PWAInstallPrompt() {
       </div>
     );
   }
-
-  if (!showBanner) return null;
 
   // Android Chrome: native install prompt
   if (platform === 'android-chrome' && deferredPrompt) {

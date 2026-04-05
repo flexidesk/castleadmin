@@ -17,64 +17,66 @@
         "navigation"
     ],
     "prefer_related_applications": false,
-    "permissions": [
-        "geolocation",
-        "notifications"
-    ],
     "icons": [
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
-            "sizes": "48x48",
-            "type": "image/x-icon",
-            "purpose": "any"
-        },
-        {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=72",
             "sizes": "72x72",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=96",
             "sizes": "96x96",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=128",
             "sizes": "128x128",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=144",
             "sizes": "144x144",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=152",
             "sizes": "152x152",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=192",
             "sizes": "192x192",
-            "type": "image/x-icon",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
-            "sizes": "384x384",
-            "type": "image/x-icon",
+            "type": "image/svg+xml",
             "purpose": "any"
         },
         {
-            "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
+            "src": "/api/pwa-icon?size=192",
+            "sizes": "192x192",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        },
+        {
+            "src": "/api/pwa-icon?size=384",
+            "sizes": "384x384",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "/api/pwa-icon?size=512",
             "sizes": "512x512",
-            "type": "image/x-icon",
-            "purpose": "any maskable"
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "/api/pwa-icon?size=512",
+            "sizes": "512x512",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
         }
     ],
     "shortcuts": [
@@ -85,8 +87,9 @@
             "url": "/driver-portal",
             "icons": [
                 {
-                    "src": "/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico",
-                    "sizes": "48x48"
+                    "src": "/api/pwa-icon?size=96",
+                    "sizes": "96x96",
+                    "type": "image/svg+xml"
                 }
             ]
         }
