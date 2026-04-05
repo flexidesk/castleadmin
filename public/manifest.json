@@ -23,6 +23,12 @@
     ],
     "icons": [
         {
+            "src": "/favicon.ico",
+            "sizes": "48x48",
+            "type": "image/x-icon",
+            "purpose": "any"
+        },
+        {
             "src": "/icons/icon-72x72.png",
             "sizes": "72x72",
             "type": "image/png",
@@ -56,13 +62,7 @@
             "src": "/icons/icon-192x192.png",
             "sizes": "192x192",
             "type": "image/png",
-            "purpose": "any"
-        },
-        {
-            "src": "/icons/icon-192x192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "maskable"
+            "purpose": "any maskable"
         },
         {
             "src": "/icons/icon-384x384.png",
@@ -74,13 +74,7 @@
             "src": "/icons/icon-512x512.png",
             "sizes": "512x512",
             "type": "image/png",
-            "purpose": "any"
-        },
-        {
-            "src": "/icons/icon-512x512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "maskable"
+            "purpose": "any maskable"
         }
     ],
     "shortcuts": [
@@ -91,8 +85,8 @@
             "url": "/driver-portal",
             "icons": [
                 {
-                    "src": "/icons/icon-96x96.png",
-                    "sizes": "96x96"
+                    "src": "/favicon.ico",
+                    "sizes": "48x48"
                 }
             ]
         }
