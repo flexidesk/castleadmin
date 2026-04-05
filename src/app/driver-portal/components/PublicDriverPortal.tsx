@@ -1137,7 +1137,7 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-3 mb-4">
-            <AppLogo size={40} src={logoUrl ?? '/favicon.ico'} />
+            <AppLogo size={40} src={logoUrl ?? '/favicon.ico'} className="max-w-[100px]" />
             <span className="text-2xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
               {appName}
             </span>
@@ -2915,7 +2915,7 @@ function DriverDashboard({
               </p>
             </div>
           </div>
-          <AppLogo size={28} src={logoUrl ?? '/favicon.ico'} />
+          <AppLogo size={28} src={logoUrl ?? '/favicon.ico'} className="max-w-[100px]" />
         </div>
       </div>
 
