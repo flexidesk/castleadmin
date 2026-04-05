@@ -459,6 +459,32 @@ export default function OrderDetailContent({ orderId }: Props) {
       setOrder((prev) => prev ? { ...prev, status: pendingStatus } : prev);
       toast.success(`Status updated to "${pendingStatus}"`);
 
+      // Send push notification to assigned driver when status becomes 'Booking Assigned'
+      if (pendingStatus === 'Booking Assigned' && order.driver?.id) {
+        const addressParts = order.deliveryAddress
+          ? [order.deliveryAddress.line1, order.deliveryAddress.city, order.deliveryAddress.postcode].filter(Boolean)
+          : [];
+        const addressText = addressParts.length > 0 ? addressParts.join(', ') : 'See app for details';
+        fetch('/api/push/send-driver', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            driverId: order.driver.id,
+            title: '🚚 New Booking Assigned',
+            body: `📦 Order #${order.wooOrderId}\n📍 ${addressText}\n👤 ${order.customer.name}`,
+            icon: '/icons/icon-192x192.png',
+            tag: `order-assigned-${order.id}`,
+            data: {
+              orderId: order.id,
+              wooOrderId: order.wooOrderId,
+              url: '/driver-portal',
+              deliveryAddress: order.deliveryAddress ?? null,
+              customer: { name: order.customer.name, phone: order.customer.phone },
+            },
+          }),
+        }).catch(() => {});
+      }
+
       // Send status notification email to customer (fire-and-forget)
       fetch('/api/orders/send-status-email', {
         method: 'POST',

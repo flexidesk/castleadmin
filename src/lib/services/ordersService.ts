@@ -15,17 +15,24 @@ function sendDriverPushNotification(
   driverId: string,
   orderId: string,
   wooOrderId: string,
-  addressLine1?: string | null
+  addressLine1?: string | null,
+  customerName?: string | null
 ) {
   const orderRef = wooOrderId ? `#${wooOrderId}` : `#${orderId}`;
   const addressText = addressLine1 || 'See app for details';
+  const customerText = customerName ? `👤 ${customerName}` : null;
+  const bodyParts = [
+    `📦 Order ${orderRef}`,
+    `📍 ${addressText}`,
+    customerText,
+  ].filter(Boolean);
   fetch('/api/push/send-driver', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       driverId,
       title: '🚚 New Booking Assigned',
-      body: `Order ${orderRef} — ${addressText}`,
+      body: bodyParts.join('\n'),
       icon: '/icons/icon-192x192.png',
       tag: `new-order-${orderId}`,
       data: { orderId, url: `/driver-portal?order=${orderId}` },
@@ -276,6 +283,25 @@ export const ordersService = {
     if (status === 'Booking Complete') {
       fireWebhookEvent('order.completed', { order_id: id, status });
     }
+
+    // Send push notification to assigned driver when status becomes 'Booking Assigned'
+    if (status === 'Booking Assigned') {
+      const { data: orderRow } = await supabase
+        .from('orders')
+        .select('id, woo_order_id, delivery_address_line1, customer_name, driver_id')
+        .eq('id', id)
+        .single();
+      if (orderRow?.driver_id) {
+        sendDriverPushNotification(
+          orderRow.driver_id,
+          orderRow.id,
+          orderRow.woo_order_id,
+          orderRow.delivery_address_line1,
+          orderRow.customer_name
+        );
+      }
+    }
+
     return true;
   },
 
@@ -294,7 +320,7 @@ export const ordersService = {
     // Fetch order details for the notification
     const { data: orderRow } = await supabase
       .from('orders')
-      .select('id, woo_order_id, delivery_address_line1')
+      .select('id, woo_order_id, delivery_address_line1, customer_name')
       .eq('id', orderId)
       .single();
     if (orderRow) {
@@ -302,7 +328,8 @@ export const ordersService = {
         driverId,
         orderRow.id,
         orderRow.woo_order_id,
-        orderRow.delivery_address_line1
+        orderRow.delivery_address_line1,
+        orderRow.customer_name
       );
     }
 
