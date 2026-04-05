@@ -2430,7 +2430,7 @@ function DriverDashboard({
   const [submittingFailure, setSubmittingFailure] = useState(false);
 
   // ─── GPS Tracking (via dedicated hook with background sync) ─────────────────
-  const { isTracking: gpsTracking, permissionState: gpsPermission, requestPermission: requestGpsPermission, startTracking } = useDriverGps({
+  const { isTracking: gpsTracking, permissionState: gpsPermission, requestPermission: requestGpsPermission } = useDriverGps({
     driverId: driver.id,
     enabled: true,
     intervalMs: 30000,
@@ -2455,14 +2455,15 @@ function DriverDashboard({
   }, [pushPermission, subscribePush]);
 
   const handleRequestGps = useCallback(async () => {
+    // requestPermission checks current state; if already granted it returns true immediately.
+    // startTracking is called separately to avoid double-starting the watcher.
     const granted = await requestGpsPermission();
     if (granted) {
-      startTracking();
       toast.success('GPS tracking enabled');
     } else {
       toast.error('GPS permission denied. Please enable location access in your browser settings.');
     }
-  }, [requestGpsPermission, startTracking]);
+  }, [requestGpsPermission]);
 
   const handleRequestPush = useCallback(async () => {
     const result = await subscribePush();
