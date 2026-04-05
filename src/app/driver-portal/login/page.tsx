@@ -284,6 +284,14 @@ export default function DriverLoginPage() {
           >
             🧪 Auth test suite
           </a>
+          <span className="mx-2 opacity-40">·</span>
+          <a
+            href="/driver-portal/e2e-test"
+            className="transition-colors hover:underline opacity-60 hover:opacity-100"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+          >
+            🚚 E2E test suite
+          </a>
         </p>
       </div>
     </div>
