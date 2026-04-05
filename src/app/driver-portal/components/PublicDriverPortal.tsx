@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -2394,6 +2394,287 @@ function StatusBanner({ gpsTracking, gpsPermission, pushPermission, onRequestGps
   );
 }
 
+// ─── Notifications Section ────────────────────────────────────────────────────
+
+interface DriverNotification {
+  id: string;
+  alert_type: string;
+  title: string;
+  message: string;
+  order_id: string | null;
+  is_dismissed: boolean;
+  dismissed_at: string | null;
+  created_at: string;
+  metadata: Record<string, unknown> | null;
+}
+
+const NOTIF_TYPE_STYLES: Record<string, { color: string; bg: string; label: string }> = {
+  overdue: { color: 'hsl(0 84% 60%)', bg: 'hsl(0 84% 60% / 0.1)', label: 'Overdue' },
+  pending_payment: { color: 'hsl(38 92% 50%)', bg: 'hsl(38 92% 50% / 0.1)', label: 'Payment' },
+  unassigned: { color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)', label: 'Unassigned' },
+  driver_shift_reminder: { color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)', label: 'Shift' },
+  payment_notification: { color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)', label: 'Payment' },
+  admin_alert: { color: 'hsl(0 84% 60%)', bg: 'hsl(0 84% 60% / 0.1)', label: 'Alert' },
+};
+
+function formatNotifTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+interface NotificationsSectionProps {
+  driverId: string;
+}
+
+function NotificationsSection({ driverId }: NotificationsSectionProps) {
+  const supabase = createClient();
+  const [notifications, setNotifications] = useState<DriverNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
+
+  const loadNotifications = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('driver_id', driverId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (!error && data) {
+        setNotifications(data as DriverNotification[]);
+      }
+    } catch {}
+    setLoading(false);
+  }, [driverId, supabase]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const handleDismiss = async (id: string) => {
+    setDismissingId(id);
+    try {
+      await supabase
+        .from('notifications')
+        .update({ is_dismissed: true, dismissed_at: new Date().toISOString() })
+        .eq('id', id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_dismissed: true, dismissed_at: new Date().toISOString() } : n))
+      );
+    } catch {}
+    setDismissingId(null);
+  };
+
+  const handleDismissAll = async () => {
+    const unread = notifications.filter((n) => !n.is_dismissed);
+    if (unread.length === 0) return;
+    try {
+      const ids = unread.map((n) => n.id);
+      await supabase
+        .from('notifications')
+        .update({ is_dismissed: true, dismissed_at: new Date().toISOString() })
+        .in('id', ids);
+      setNotifications((prev) =>
+        prev.map((n) => ids.includes(n.id) ? { ...n, is_dismissed: true, dismissed_at: new Date().toISOString() } : n)
+      );
+    } catch {}
+  };
+
+  const filtered = notifications.filter((n) => {
+    if (filter === 'unread') return !n.is_dismissed;
+    if (filter === 'read') return n.is_dismissed;
+    return true;
+  });
+
+  const unreadCount = notifications.filter((n) => !n.is_dismissed).length;
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>Notifications</h2>
+          {unreadCount > 0 && (
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded-full"
+              style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white' }}
+            >
+              {unreadCount}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button
+              onClick={handleDismissAll}
+              className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+              style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
+            >
+              <CheckCheck size={12} />
+              Mark all read
+            </button>
+          )}
+          <button
+            onClick={loadNotifications}
+            disabled={loading}
+            className="p-2 rounded-lg transition-colors hover:bg-secondary"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} style={{ color: 'hsl(var(--muted-foreground))' }} />
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+        {(['all', 'unread', 'read'] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className="flex-1 py-1.5 rounded-md text-xs font-medium transition-all capitalize"
+            style={{
+              backgroundColor: filter === f ? 'hsl(var(--card))' : 'transparent',
+              color: filter === f ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
+            }}
+          >
+            {f === 'all' ? `All (${notifications.length})` : f === 'unread' ? `Unread (${unreadCount})` : `Read (${notifications.length - unreadCount})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Notifications List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(var(--muted-foreground))' }} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div
+          className="rounded-xl border p-10 text-center"
+          style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+        >
+          <BellRing size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+          <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
+            {filter === 'unread' ? 'No unread notifications' : filter === 'read' ? 'No read notifications' : 'No notifications yet'}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            {filter === 'all' ? 'Notifications from dispatch will appear here.' : 'Switch to "All" to see all notifications.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((notif) => {
+            const typeStyle = NOTIF_TYPE_STYLES[notif.alert_type] ?? { color: 'hsl(var(--muted-foreground))', bg: 'hsl(var(--secondary))', label: notif.alert_type };
+            return (
+              <div
+                key={notif.id}
+                className="rounded-xl border p-4 transition-all"
+                style={{
+                  backgroundColor: 'hsl(var(--card))',
+                  borderColor: notif.is_dismissed ? 'hsl(var(--border))' : typeStyle.color + '55',
+                  opacity: notif.is_dismissed ? 0.7 : 1,
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Icon */}
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                    style={{ backgroundColor: typeStyle.bg }}
+                  >
+                    <Bell size={16} style={{ color: typeStyle.color }} />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold leading-tight" style={{ color: 'hsl(var(--foreground))' }}>
+                          {notif.title}
+                        </p>
+                        <span
+                          className="text-xs font-medium px-1.5 py-0.5 rounded-md"
+                          style={{ backgroundColor: typeStyle.bg, color: typeStyle.color }}
+                        >
+                          {typeStyle.label}
+                        </span>
+                        {!notif.is_dismissed && (
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: typeStyle.color }}
+                          />
+                        )}
+                      </div>
+                      <span className="text-xs shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {formatNotifTime(notif.created_at)}
+                      </span>
+                    </div>
+
+                    <p className="text-xs mt-1 leading-relaxed" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {notif.message}
+                    </p>
+
+                    {notif.order_id && (
+                      <p className="text-xs mt-1.5 font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Order: <span style={{ color: 'hsl(var(--foreground))' }}>#{notif.order_id}</span>
+                      </p>
+                    )}
+
+                    {notif.metadata && Object.keys(notif.metadata).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {Object.entries(notif.metadata).map(([k, v]) => (
+                          <span
+                            key={k}
+                            className="text-xs px-2 py-0.5 rounded-md"
+                            style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
+                          >
+                            {k}: {String(v)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {!notif.is_dismissed && (
+                      <button
+                        onClick={() => handleDismiss(notif.id)}
+                        disabled={dismissingId === notif.id}
+                        className="mt-2.5 flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
+                        style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
+                      >
+                        {dismissingId === notif.id ? (
+                          <Loader2 size={10} className="animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={10} />
+                        )}
+                        Mark as read
+                      </button>
+                    )}
+
+                    {notif.is_dismissed && notif.dismissed_at && (
+                      <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Read {formatNotifTime(notif.dismissed_at)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Driver Dashboard (after login) ──────────────────────────────────────
 
 function DriverDashboard({
@@ -2407,7 +2688,7 @@ function DriverDashboard({
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading' | 'earnings' | 'cash'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading' | 'earnings' | 'cash' | 'notifications'>('orders');
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -2794,6 +3075,7 @@ function DriverDashboard({
             { key: 'cash', label: 'Cash', icon: Banknote },
             { key: 'vehicle', label: 'Vehicle', icon: Car },
             { key: 'map', label: 'Map', icon: MapPin },
+            { key: 'notifications', label: 'Alerts', icon: Bell },
             { key: 'profile', label: 'Profile', icon: User },
           ] as const).map((tab) => (
             <button
@@ -3632,6 +3914,11 @@ function DriverDashboard({
               driverName={driver.name}
             />
           </div>
+        )}
+
+        {/* ── NOTIFICATIONS SECTION ── */}
+        {activeSection === 'notifications' && (
+          <NotificationsSection driverId={driver.id} />
         )}
 
         {/* ── PROFILE SECTION ── */}
