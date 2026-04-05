@@ -33,6 +33,60 @@ export default function OrderDetailsTab({ order, wcActive = false }: Props) {
     if (ok) {
       setAssignedDriver(driver);
       toast.success(`Driver assigned: ${driver.name}`);
+
+      // Build notification payload
+      const addressParts = order.deliveryAddress
+        ? [
+            order.deliveryAddress.line1,
+            order.deliveryAddress.line2,
+            order.deliveryAddress.city,
+            order.deliveryAddress.postcode,
+          ].filter(Boolean)
+        : [];
+      const addressStr = addressParts.length > 0 ? addressParts.join(', ') : 'No address provided';
+
+      const productSummary = order.products
+        .slice(0, 3)
+        .map((p: any) => `${p.name ?? p.title ?? 'Item'}${p.quantity ? ` ×${p.quantity}` : ''}`)
+        .join(', ');
+      const moreProducts = order.products.length > 3 ? ` +${order.products.length - 3} more` : '';
+
+      const notificationBody = [
+        `📦 Order #${order.wooOrderId}`,
+        `📍 ${addressStr}`,
+        `👤 ${order.customer.name} | ${order.customer.phone}`,
+        productSummary ? `🛒 ${productSummary}${moreProducts}` : null,
+        order.deliveryWindow ? `🕐 ${order.deliveryWindow}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      fetch('/api/push/send-driver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: driver.id,
+          title: `New Order Assigned — #${order.wooOrderId}`,
+          body: notificationBody,
+          tag: `order-assigned-${order.id}`,
+          icon: '/icons/icon-192x192.png',
+          data: {
+            orderId: order.id,
+            wooOrderId: order.wooOrderId,
+            url: '/driver-portal',
+            deliveryAddress: order.deliveryAddress ?? null,
+            customer: {
+              name: order.customer.name,
+              phone: order.customer.phone,
+              email: order.customer.email,
+            },
+            deliveryWindow: order.deliveryWindow,
+            products: order.products,
+          },
+        }),
+      }).catch(() => {
+        // Non-blocking — push failure should not affect assignment
+      });
     } else {
       toast.error('Failed to assign driver. Please try again.');
     }
