@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import dynamic from 'next/dynamic';
@@ -1135,7 +1135,7 @@ function PinLoginScreen({ onLogin }: EmailLoginProps) {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-3 mb-4">
-            <AppLogo size={40} />
+            <AppLogo size={40} src="/favicon.ico" />
             <span className="text-2xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
               CastleAdmin
             </span>
@@ -1922,6 +1922,478 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, past
   );
 }
 
+// ─── Earnings Section Component ──────────────────────────────────────────────
+
+interface EarningsSectionProps {
+  earnings: EarningsSummary | null;
+  pastShifts: any[];
+  driverPayments: any[];
+  allOrders: AppOrder[];
+  loadingData: boolean;
+}
+
+function EarningsSection({ earnings, pastShifts, driverPayments, allOrders, loadingData }: EarningsSectionProps) {
+  // Calculate hourly earnings from shifts
+  const totalHoursWorked = pastShifts.reduce((sum, s) => {
+    if (!s.clock_out) return sum;
+    const durationMs = new Date(s.clock_out).getTime() - new Date(s.clock_in).getTime();
+    const hrs = Math.max(0, durationMs / 3600000 - (s.break_minutes || 0) / 60);
+    return sum + hrs;
+  }, 0);
+
+  const totalGrossPay = pastShifts.reduce((sum, s) => sum + (Number(s.gross_pay) || 0), 0);
+  const avgHourlyRate = totalHoursWorked > 0 ? totalGrossPay / totalHoursWorked : 0;
+
+  // This week's shifts
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const weekShifts = pastShifts.filter((s) => new Date(s.clock_in) >= weekStart);
+  const weekHours = weekShifts.reduce((sum, s) => {
+    if (!s.clock_out) return sum;
+    const durationMs = new Date(s.clock_out).getTime() - new Date(s.clock_in).getTime();
+    return sum + Math.max(0, durationMs / 3600000 - (s.break_minutes || 0) / 60);
+  }, 0);
+  const weekPay = weekShifts.reduce((sum, s) => sum + (Number(s.gross_pay) || 0), 0);
+
+  // This month's shifts
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const monthShifts = pastShifts.filter((s) => new Date(s.clock_in) >= monthStart);
+  const monthHours = monthShifts.reduce((sum, s) => {
+    if (!s.clock_out) return sum;
+    const durationMs = new Date(s.clock_out).getTime() - new Date(s.clock_in).getTime();
+    return sum + Math.max(0, durationMs / 3600000 - (s.break_minutes || 0) / 60);
+  }, 0);
+  const monthPay = monthShifts.reduce((sum, s) => sum + (Number(s.gross_pay) || 0), 0);
+
+  const totalPaid = driverPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const amountDue = Math.max(0, totalGrossPay - totalPaid);
+
+  if (loadingData) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border p-4 animate-pulse h-20" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Hourly Earnings Summary */}
+      <div className="rounded-2xl border p-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
+            <PoundSterling size={16} style={{ color: 'hsl(142 69% 35%)' }} />
+          </div>
+          <h3 className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Hourly Earnings</h3>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: 'This Week', hours: weekHours, pay: weekPay },
+            { label: 'This Month', hours: monthHours, pay: monthPay },
+            { label: 'All Time', hours: totalHoursWorked, pay: totalGrossPay },
+          ].map((period) => (
+            <div key={period.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+              <p className="text-lg font-bold leading-none" style={{ color: 'hsl(142 69% 35%)' }}>
+                £{period.pay.toFixed(2)}
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {period.hours.toFixed(1)}h
+              </p>
+              <p className="text-xs font-medium mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{period.label}</p>
+            </div>
+          ))}
+        </div>
+        {avgHourlyRate > 0 && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(var(--primary) / 0.08)' }}>
+            <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Avg Hourly Rate</span>
+            <span className="text-sm font-bold" style={{ color: 'hsl(var(--primary))' }}>£{avgHourlyRate.toFixed(2)}/hr</span>
+          </div>
+        )}
+      </div>
+
+      {/* Delivery Earnings */}
+      {earnings && (
+        <div className="rounded-2xl border p-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'hsl(217 91% 60% / 0.12)' }}>
+              <Truck size={16} style={{ color: 'hsl(217 91% 60%)' }} />
+            </div>
+            <h3 className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Earnings</h3>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Today', deliveries: earnings.todayDeliveries, amount: earnings.todayEarnings },
+              { label: 'This Week', deliveries: earnings.weekDeliveries, amount: earnings.weekEarnings },
+              { label: 'This Month', deliveries: earnings.monthDeliveries, amount: earnings.monthEarnings },
+            ].map((period) => (
+              <div key={period.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <p className="text-lg font-bold leading-none" style={{ color: 'hsl(var(--foreground))' }}>
+                  £{period.amount.toFixed(2)}
+                </p>
+                <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  {period.deliveries} {period.deliveries === 1 ? 'delivery' : 'deliveries'}
+                </p>
+                <p className="text-xs font-medium mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{period.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Completion Rate */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp size={13} style={{ color: 'hsl(142 69% 35%)' }} />
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Completion Rate</span>
+              </div>
+              <span className="text-xs font-bold" style={{ color: 'hsl(142 69% 35%)' }}>{earnings.completionRate}%</span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${earnings.completionRate}%`,
+                  backgroundColor: earnings.completionRate >= 90 ? 'hsl(142 69% 35%)' : earnings.completionRate >= 70 ? 'hsl(38 92% 50%)' : 'hsl(0 84% 60%)',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Summary */}
+      <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Payment Summary</h3>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+            <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Gross Pay</p>
+            <p className="text-base font-bold" style={{ color: 'hsl(var(--foreground))' }}>£{totalGrossPay.toFixed(2)}</p>
+          </div>
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+            <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Paid</p>
+            <p className="text-base font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{totalPaid.toFixed(2)}</p>
+          </div>
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: amountDue > 0 ? 'hsl(38 92% 50% / 0.12)' : 'hsl(142 69% 35% / 0.1)' }}>
+            <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Amount Due</p>
+            <p className="text-base font-bold" style={{ color: amountDue > 0 ? 'hsl(38 92% 50%)' : 'hsl(142 69% 35%)' }}>£{amountDue.toFixed(2)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Past Shifts */}
+      <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Past Shifts</h3>
+        {pastShifts.length === 0 ? (
+          <div className="text-center py-6">
+            <Clock size={32} className="mx-auto mb-2" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>No shifts recorded yet. Use Clock In to start tracking.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pastShifts.map((shift) => {
+              const clockIn = new Date(shift.clock_in);
+              const clockOut = shift.clock_out ? new Date(shift.clock_out) : null;
+              const durationMs = clockOut ? clockOut.getTime() - clockIn.getTime() : null;
+              const durationHrs = durationMs ? (durationMs / 3600000 - (shift.break_minutes || 0) / 60) : null;
+              return (
+                <div key={shift.id} className="flex items-start justify-between gap-3 p-3 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                        {clockIn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{
+                          backgroundColor: shift.shift_type === 'overtime' ? 'hsl(262 83% 58% / 0.15)' : 'hsl(217 91% 60% / 0.12)',
+                          color: shift.shift_type === 'overtime' ? 'hsl(262 83% 58%)' : 'hsl(217 91% 60%)',
+                        }}
+                      >
+                        {shift.shift_type ?? 'regular'}
+                      </span>
+                      {shift.pay_type && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full capitalize" style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                          {shift.pay_type}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {clockIn.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {clockOut ? ` – ${clockOut.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' (ongoing)'}
+                      {durationHrs !== null && ` · ${durationHrs.toFixed(1)}h`}
+                      {shift.break_minutes > 0 && ` (${shift.break_minutes}m break)`}
+                    </p>
+                    {shift.notes && (
+                      <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{shift.notes}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    {shift.gross_pay != null ? (
+                      <p className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(shift.gross_pay).toFixed(2)}</p>
+                    ) : durationHrs !== null && shift.hourly_rate ? (
+                      <p className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>£{(durationHrs * Number(shift.hourly_rate)).toFixed(2)}</p>
+                    ) : (
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>—</p>
+                    )}
+                    {shift.hourly_rate && (
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>£{Number(shift.hourly_rate).toFixed(2)}/hr</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Payment History */}
+      <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Payment History</h3>
+        {driverPayments.length === 0 ? (
+          <p className="text-xs text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No payments recorded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {driverPayments.map((payment) => (
+              <div key={payment.id} className="flex items-start justify-between gap-3 p-3 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                    {new Date(payment.payment_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                  <p className="text-xs capitalize mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {(payment.payment_method ?? '').replace(/_/g, ' ')}
+                    {payment.reference ? ` · Ref: ${payment.reference}` : ''}
+                  </p>
+                  {payment.notes && (
+                    <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{payment.notes}</p>
+                  )}
+                </div>
+                <p className="text-sm font-bold shrink-0" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(payment.amount).toFixed(2)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Cash Management Section ──────────────────────────────────────────────────
+
+interface CashSectionProps {
+  driverId: string;
+  loadingData: boolean;
+  cashAllocations: any[];
+  onRefresh: () => void;
+}
+
+function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: CashSectionProps) {
+  const supabase = createClient();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const totalCash = cashAllocations.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      const { error } = await supabase.from('driver_cash_allocations').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Cash record removed');
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to remove record');
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+
+  if (loadingData) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border p-4 animate-pulse h-16" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary Card */}
+      <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
+            <Banknote size={20} style={{ color: 'hsl(142 69% 35%)' }} />
+          </div>
+          <div>
+            <p className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Cash Management</p>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Cash collected from customers</p>
+          </div>
+          <button onClick={onRefresh} className="ml-auto p-2 rounded-lg transition-colors hover:bg-secondary">
+            <RefreshCw size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'hsl(142 69% 35% / 0.08)' }}>
+            <p className="text-2xl font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{totalCash.toFixed(2)}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Cash Held</p>
+          </div>
+          <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+            <p className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>{cashAllocations.length}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Transactions</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Cash Allocations List */}
+      <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Cash Records</h3>
+        {cashAllocations.length === 0 ? (
+          <div className="text-center py-8">
+            <Banknote size={36} className="mx-auto mb-2" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No cash records</p>
+            <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Cash collected from orders will appear here. Record payment via the order details.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cashAllocations.map((alloc) => (
+              <div key={alloc.id} className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--border))' }}>
+                {confirmDeleteId === alloc.id ? (
+                  <div className="p-3 space-y-2" style={{ backgroundColor: 'hsl(0 84% 60% / 0.06)' }}>
+                    <p className="text-xs font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Remove this cash record?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDelete(alloc.id)}
+                        disabled={deletingId === alloc.id}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold"
+                        style={{ backgroundColor: 'hsl(0 84% 60%)', color: 'white' }}
+                      >
+                        {deletingId === alloc.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                        {deletingId === alloc.id ? 'Removing…' : 'Yes, Remove'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
+                      <Banknote size={14} style={{ color: 'hsl(142 69% 35%)' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(alloc.amount).toFixed(2)}</p>
+                        <button
+                          onClick={() => setConfirmDeleteId(alloc.id)}
+                          className="p-1 rounded transition-colors hover:bg-secondary"
+                          title="Remove record"
+                        >
+                          <Trash2 size={13} style={{ color: 'hsl(0 84% 60%)' }} />
+                        </button>
+                      </div>
+                      {alloc.order_id && (
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Order: {alloc.order_id}</p>
+                      )}
+                      {alloc.notes && (
+                        <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{alloc.notes}</p>
+                      )}
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {' · '}
+                        {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── GPS & Notifications Status Banner ───────────────────────────────────────
+
+interface StatusBannerProps {
+  gpsTracking: boolean;
+  gpsPermission: string;
+  pushPermission: string;
+  onRequestGps: () => void;
+  onRequestPush: () => void;
+}
+
+function StatusBanner({ gpsTracking, gpsPermission, pushPermission, onRequestGps, onRequestPush }: StatusBannerProps) {
+  const gpsOk = gpsTracking && gpsPermission === 'granted';
+  const pushOk = pushPermission === 'granted';
+
+  if (gpsOk && pushOk) return null;
+
+  return (
+    <div className="space-y-2">
+      {!gpsOk && (
+        <button
+          onClick={onRequestGps}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors hover:bg-secondary"
+          style={{
+            backgroundColor: gpsPermission === 'denied' ? 'hsl(0 84% 60% / 0.06)' : 'hsl(38 92% 50% / 0.08)',
+            borderColor: gpsPermission === 'denied' ? 'hsl(0 84% 60% / 0.3)' : 'hsl(38 92% 50% / 0.3)',
+          }}
+        >
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: gpsPermission === 'denied' ? 'hsl(0 84% 60% / 0.12)' : 'hsl(38 92% 50% / 0.12)' }}>
+            {gpsTracking ? <Navigation size={15} style={{ color: 'hsl(142 69% 35%)' }} /> : <WifiOff size={15} style={{ color: gpsPermission === 'denied' ? 'hsl(0 84% 60%)' : 'hsl(38 92% 50%)' }} />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold" style={{ color: gpsPermission === 'denied' ? 'hsl(0 84% 60%)' : 'hsl(38 92% 50%)' }}>
+              {gpsPermission === 'denied' ? 'GPS Blocked' : gpsTracking ? 'GPS Active' : 'Enable GPS Tracking'}
+            </p>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {gpsPermission === 'denied' ? 'Allow location in browser settings to enable tracking' : 'Tap to start broadcasting your location'}
+            </p>
+          </div>
+          {gpsPermission !== 'denied' && (
+            <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ backgroundColor: 'hsl(38 92% 50%)', color: 'white' }}>Enable</span>
+          )}
+        </button>
+      )}
+      {!pushOk && (
+        <button
+          onClick={onRequestPush}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors hover:bg-secondary"
+          style={{
+            backgroundColor: pushPermission === 'denied' ? 'hsl(0 84% 60% / 0.06)' : 'hsl(217 91% 60% / 0.08)',
+            borderColor: pushPermission === 'denied' ? 'hsl(0 84% 60% / 0.3)' : 'hsl(217 91% 60% / 0.3)',
+          }}
+        >
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: pushPermission === 'denied' ? 'hsl(0 84% 60% / 0.12)' : 'hsl(217 91% 60% / 0.12)' }}>
+            {pushPermission === 'denied' ? <BellOff size={15} style={{ color: 'hsl(0 84% 60%)' }} /> : <Bell size={15} style={{ color: 'hsl(217 91% 60%)' }} />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold" style={{ color: pushPermission === 'denied' ? 'hsl(0 84% 60%)' : 'hsl(217 91% 60%)' }}>
+              {pushPermission === 'denied' ? 'Notifications Blocked' : 'Enable Notifications'}
+            </p>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {pushPermission === 'denied' ? 'Allow notifications in browser settings' : 'Get alerted when new orders are assigned'}
+            </p>
+          </div>
+          {pushPermission !== 'denied' && (
+            <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ backgroundColor: 'hsl(217 91% 60%)', color: 'white' }}>Enable</span>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Driver Dashboard (after login) ──────────────────────────────────────
 
 function DriverDashboard({
@@ -1935,7 +2407,7 @@ function DriverDashboard({
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading' | 'earnings' | 'cash'>('orders');
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -1948,6 +2420,7 @@ function DriverDashboard({
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [pastShifts, setPastShifts] = useState<any[]>([]);
   const [driverPayments, setDriverPayments] = useState<any[]>([]);
+  const [cashAllocations, setCashAllocations] = useState<any[]>([]);
   const [vehicleLoadingDate, setVehicleLoadingDate] = useState<string>(getTodayStr());
 
   // ── Delivery Failed state ──────────────────────────────────────────────────
@@ -1957,7 +2430,7 @@ function DriverDashboard({
   const [submittingFailure, setSubmittingFailure] = useState(false);
 
   // ─── GPS Tracking (via dedicated hook with background sync) ─────────────────
-  const { isTracking: gpsTracking, permissionState: gpsPermission } = useDriverGps({
+  const { isTracking: gpsTracking, permissionState: gpsPermission, requestPermission: requestGpsPermission, startTracking } = useDriverGps({
     driverId: driver.id,
     enabled: true,
     intervalMs: 30000,
@@ -1980,6 +2453,25 @@ function DriverDashboard({
       return () => document.removeEventListener('click', handleFirstInteraction);
     }
   }, [pushPermission, subscribePush]);
+
+  const handleRequestGps = useCallback(async () => {
+    const granted = await requestGpsPermission();
+    if (granted) {
+      startTracking();
+      toast.success('GPS tracking enabled');
+    } else {
+      toast.error('GPS permission denied. Please enable location access in your browser settings.');
+    }
+  }, [requestGpsPermission, startTracking]);
+
+  const handleRequestPush = useCallback(async () => {
+    const result = await subscribePush();
+    if (result) {
+      toast.success('Notifications enabled');
+    } else {
+      toast.error('Notification permission denied. Please enable in browser settings.');
+    }
+  }, [subscribePush]);
 
   // ─── Data Loading ──────────────────────────────────────────────────────────
 
@@ -2051,6 +2543,15 @@ function DriverDashboard({
         .order('payment_date', { ascending: false })
         .limit(20);
       setDriverPayments(paymentsData ?? []);
+
+      // Load cash allocations
+      const { data: cashData } = await supabase
+        .from('driver_cash_allocations')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .order('allocated_at', { ascending: false })
+        .limit(50);
+      setCashAllocations(cashData ?? []);
     } catch (err) {
       console.error('Driver portal load error:', err);
     } finally {
@@ -2177,7 +2678,7 @@ function DriverDashboard({
               </p>
             </div>
           </div>
-          <AppLogo size={28} />
+          <AppLogo size={28} src="/favicon.ico" />
         </div>
       </div>
 
@@ -2288,6 +2789,8 @@ function DriverDashboard({
             { key: 'orders', label: 'Orders', icon: Package },
             { key: 'past-bookings', label: 'History', icon: History },
             { key: 'loading', label: 'Loading', icon: Truck },
+            { key: 'earnings', label: 'Earnings', icon: PoundSterling },
+            { key: 'cash', label: 'Cash', icon: Banknote },
             { key: 'vehicle', label: 'Vehicle', icon: Car },
             { key: 'map', label: 'Map', icon: MapPin },
             { key: 'profile', label: 'Profile', icon: User },
@@ -2308,6 +2811,17 @@ function DriverDashboard({
             </button>
           ))}
         </div>
+
+        {/* ── GPS & PUSH STATUS BANNER ── */}
+        {activeSection === 'orders' && (
+          <StatusBanner
+            gpsTracking={gpsTracking}
+            gpsPermission={gpsPermission}
+            pushPermission={pushPermission}
+            onRequestGps={handleRequestGps}
+            onRequestPush={handleRequestPush}
+          />
+        )}
 
         {/* ── VEHICLE LOADING SECTION ── */}
         {activeSection === 'loading' && (() => {
@@ -2520,6 +3034,27 @@ function DriverDashboard({
             </div>
           );
         })()}
+
+        {/* ── EARNINGS SECTION ── */}
+        {activeSection === 'earnings' && (
+          <EarningsSection
+            earnings={earnings}
+            pastShifts={pastShifts}
+            driverPayments={driverPayments}
+            allOrders={allOrders}
+            loadingData={loading}
+          />
+        )}
+
+        {/* ── CASH MANAGEMENT SECTION ── */}
+        {activeSection === 'cash' && (
+          <CashSection
+            driverId={driver.id}
+            loadingData={loading}
+            cashAllocations={cashAllocations}
+            onRefresh={loadData}
+          />
+        )}
 
         {/* ── ORDERS SECTION ── */}
         {activeSection === 'orders' && (
