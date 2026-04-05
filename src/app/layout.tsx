@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   description:
     'Operations dashboard for managing bouncy castle delivery bookings, drivers, and proof of delivery.',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/icons/icon-192x192.png',
+    icon: '/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico',
+    apple: '/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico',
   },
 };
 
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Driver Portal" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/assets/images/6d6fa2b6-1585-446c-829f-98f77a217c48-e1773489759386-rkhuhl202e5c61bjljl69lmhxq0maylfx3zbtm0qdm-1775404153876.ico" />
 
         <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fcastleadmi7836back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.17" />
         <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
