@@ -2185,13 +2185,26 @@ interface CashSectionProps {
   driverId: string;
   loadingData: boolean;
   cashAllocations: any[];
+  cashCollections: any[];
   onRefresh: () => void;
 }
 
-function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: CashSectionProps) {
+function CashSection({ driverId, loadingData, cashAllocations, cashCollections, onRefresh }: CashSectionProps) {
   const supabase = createClient();
 
-  const totalCash = cashAllocations.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+  const totalAllocated = cashAllocations.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+  const totalCollected = cashCollections.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const balance = totalAllocated - totalCollected;
+
+  // Merge all logs sorted by date descending
+  const allLogs = [
+    ...cashAllocations.map((a) => ({ ...a, _type: 'allocation' as const })),
+    ...cashCollections.map((c) => ({ ...c, _type: 'collection' as const })),
+  ].sort((a, b) => {
+    const dateA = new Date(a.allocated_at ?? a.collected_at ?? a.created_at).getTime();
+    const dateB = new Date(b.allocated_at ?? b.collected_at ?? b.created_at).getTime();
+    return dateB - dateA;
+  });
 
   if (loadingData) {
     return (
@@ -2219,22 +2232,26 @@ function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: Cash
             <RefreshCw size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'hsl(142 69% 35% / 0.08)' }}>
-            <p className="text-2xl font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{totalCash.toFixed(2)}</p>
-            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Total Cash Held</p>
+            <p className="text-xl font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{balance.toFixed(2)}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Balance</p>
           </div>
           <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-            <p className="text-2xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>{cashAllocations.length}</p>
-            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Transactions</p>
+            <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>£{totalAllocated.toFixed(2)}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Collected</p>
+          </div>
+          <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
+            <p className="text-xl font-bold" style={{ color: 'hsl(0 84% 60%)' }}>£{totalCollected.toFixed(2)}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Handed Over</p>
           </div>
         </div>
       </div>
 
-      {/* Cash Allocations List */}
+      {/* All Cash Logs */}
       <div className="rounded-2xl border p-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Cash Records</h3>
-        {cashAllocations.length === 0 ? (
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'hsl(var(--foreground))' }}>Cash Log ({allLogs.length})</h3>
+        {allLogs.length === 0 ? (
           <div className="text-center py-8">
             <Banknote size={36} className="mx-auto mb-2" style={{ color: 'hsl(var(--muted-foreground))' }} />
             <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No cash records</p>
@@ -2244,31 +2261,56 @@ function CashSection({ driverId, loadingData, cashAllocations, onRefresh }: Cash
           </div>
         ) : (
           <div className="space-y-2">
-            {cashAllocations.map((alloc) => (
-              <div key={alloc.id} className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-start gap-3 p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(142 69% 35% / 0.12)' }}>
-                    <Banknote size={14} style={{ color: 'hsl(142 69% 35%)' }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-bold" style={{ color: 'hsl(142 69% 35%)' }}>£{Number(alloc.amount).toFixed(2)}</p>
+            {allLogs.map((log) => {
+              const isCollection = log._type === 'collection';
+              const logDate = log.allocated_at ?? log.collected_at ?? log.created_at;
+              return (
+                <div key={log.id} className="rounded-xl overflow-hidden border" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <div className="flex items-start gap-3 p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: isCollection ? 'hsl(0 84% 60% / 0.12)' : 'hsl(142 69% 35% / 0.12)' }}
+                    >
+                      {isCollection ? (
+                        <ArrowRight size={14} style={{ color: 'hsl(0 84% 60%)' }} />
+                      ) : (
+                        <Banknote size={14} style={{ color: 'hsl(142 69% 35%)' }} />
+                      )}
                     </div>
-                    {alloc.order_id && (
-                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Order: {alloc.order_id}</p>
-                    )}
-                    {alloc.notes && (
-                      <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{alloc.notes}</p>
-                    )}
-                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      {' · '}
-                      {new Date(alloc.allocated_at ?? alloc.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold" style={{ color: isCollection ? 'hsl(0 84% 60%)' : 'hsl(142 69% 35%)' }}>
+                          {isCollection ? '-' : '+'}£{Number(log.amount).toFixed(2)}
+                        </p>
+                        <span
+                          className="text-xs font-medium px-2 py-0.5 rounded-md"
+                          style={{
+                            backgroundColor: isCollection ? 'hsl(0 84% 60% / 0.1)' : 'hsl(142 69% 35% / 0.1)',
+                            color: isCollection ? 'hsl(0 84% 60%)' : 'hsl(142 69% 35%)',
+                          }}
+                        >
+                          {isCollection ? 'Handed Over' : 'Collected'}
+                        </span>
+                      </div>
+                      {!isCollection && log.order_id && (
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Order: {log.order_id}</p>
+                      )}
+                      {isCollection && log.collected_by && (
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Collected by: {log.collected_by}</p>
+                      )}
+                      {log.notes && (
+                        <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{log.notes}</p>
+                      )}
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {new Date(logDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {' · '}
+                        {new Date(logDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -2405,10 +2447,15 @@ function NotificationsSection({ driverId }: NotificationsSectionProps) {
         .eq('driver_id', driverId)
         .order('created_at', { ascending: false })
         .limit(100);
+      if (error) {
+        console.error('Failed to load driver notifications:', error);
+      }
       if (!error && data) {
         setNotifications(data as DriverNotification[]);
       }
-    } catch {}
+    } catch (err) {
+      console.error('Notifications load exception:', err);
+    }
     setLoading(false);
   }, [driverId, supabase]);
 
@@ -2657,6 +2704,7 @@ function DriverDashboard({
   const [pastShifts, setPastShifts] = useState<any[]>([]);
   const [driverPayments, setDriverPayments] = useState<any[]>([]);
   const [cashAllocations, setCashAllocations] = useState<any[]>([]);
+  const [cashCollections, setCashCollections] = useState<any[]>([]);
   const [vehicleLoadingDate, setVehicleLoadingDate] = useState<string>(getTodayStr());
 
   // ── Delivery Failed state ──────────────────────────────────────────────────
@@ -2743,6 +2791,23 @@ function DriverDashboard({
         .select('booking_date, status')
         .eq('driver_id', driver.id);
 
+      // Load driver pay rate (per-driver override first, then global settings)
+      const { data: driverPayRate } = await supabase
+        .from('driver_pay_rates')
+        .select('rate_per_delivery')
+        .eq('driver_id', driver.id)
+        .order('effective_from', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const { data: globalRateSettings } = await supabase
+        .from('driver_rate_settings')
+        .select('bonus_per_delivery')
+        .limit(1)
+        .maybeSingle();
+
+      const ratePerDelivery = Number(driverPayRate?.rate_per_delivery ?? globalRateSettings?.bonus_per_delivery ?? 0);
+
       const todayCompleted = (completedOrders ?? []).filter((o: any) => o.booking_date === today);
       const weekCompleted = (completedOrders ?? []).filter((o: any) => new Date(o.booking_date) >= weekStart);
       const monthCompleted = (completedOrders ?? []).filter((o: any) => new Date(o.booking_date) >= monthStart);
@@ -2754,12 +2819,12 @@ function DriverDashboard({
         todayDeliveries: todayCompleted.length,
         weekDeliveries: weekCompleted.length,
         monthDeliveries: monthCompleted.length,
-        todayEarnings: todayCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
-        weekEarnings: weekCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
-        monthEarnings: monthCompleted.reduce((s: number, o: any) => s + Number(o.payment_amount ?? 0), 0),
+        todayEarnings: todayCompleted.length * ratePerDelivery,
+        weekEarnings: weekCompleted.length * ratePerDelivery,
+        monthEarnings: monthCompleted.length * ratePerDelivery,
         avgRating: 0,
         completionRate: totalOrders > 0 ? Math.round((totalCompleted / totalOrders) * 100) : 0,
-        bonusPerDelivery: 0,
+        bonusPerDelivery: ratePerDelivery,
       });
 
       // Load past shifts
@@ -2786,9 +2851,16 @@ function DriverDashboard({
         .from('driver_cash_allocations')
         .select('*')
         .eq('driver_id', driver.id)
-        .order('allocated_at', { ascending: false })
-        .limit(50);
+        .order('allocated_at', { ascending: false });
       setCashAllocations(cashData ?? []);
+
+      // Load cash collections (admin handovers)
+      const { data: collectionsData } = await supabase
+        .from('driver_cash_collections')
+        .select('*')
+        .eq('driver_id', driver.id)
+        .order('collected_at', { ascending: false });
+      setCashCollections(collectionsData ?? []);
     } catch (err) {
       console.error('Driver portal load error:', err);
     } finally {
@@ -3298,6 +3370,7 @@ function DriverDashboard({
             driverId={driver.id}
             loadingData={loading}
             cashAllocations={cashAllocations}
+            cashCollections={cashCollections}
             onRefresh={loadData}
           />
         )}
