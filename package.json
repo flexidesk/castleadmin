@@ -39,7 +39,7 @@
     "warning": "🚨 CRITICAL: DO NOT REMOVE OR MODIFY ABOVE DEPENDENCIES - Required for Next.js 15 TypeScript app functionality"
   },
   "scripts": {
-    "dev": "next dev -p 4028",
+    "dev": "NODE_OPTIONS='--max-http-header-size=32768' next dev -p 4028",
     "build": "next build",
     "start": "next start -p 4028",
     "lint": "next lint",

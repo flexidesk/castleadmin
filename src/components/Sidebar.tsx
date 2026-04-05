@@ -6,6 +6,7 @@ import AppLogo from '@/components/ui/AppLogo';
 import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
@@ -59,6 +60,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { logoUrl, appName } = useBranding();
   const [liveDriverCount, setLiveDriverCount] = useState(0);
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       const { count } = await supabase
         .from('driver_locations')
         .select('*', { count: 'exact', head: true })
-        .gte('updated_at', fiveMinutesAgo);
+        .gte('recorded_at', fiveMinutesAgo);
       setLiveDriverCount(count ?? 0);
     };
 
@@ -116,13 +118,18 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         style={{ borderColor: 'hsl(var(--border))', minHeight: '65px' }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <AppLogo size={32} />
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="Logo" width={32} height={32} className="flex-shrink-0 rounded object-contain" style={{ width: 32, height: 32 }} />
+          ) : (
+            <AppLogo size={32} />
+          )}
           {!collapsed && (
             <span
               className="font-semibold text-base whitespace-nowrap overflow-hidden transition-all duration-300"
               style={{ color: 'hsl(var(--primary))' }}
             >
-              CastleAdmin
+              {appName || 'CastleAdmin'}
             </span>
           )}
         </div>

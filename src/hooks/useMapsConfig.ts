@@ -121,7 +121,7 @@ export function getTileLayerConfig(useGoogleMaps: boolean): {
     };
   }
   return {
-    url: "https://images.unsplash.com/photo-1631039083522-722523622381",
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19
   };

@@ -113,6 +113,38 @@ function getSessionFromCookies(request: NextRequest): { user: any } | null {
   return null;
 }
 
+/**
+ * Prune stale/duplicate Supabase auth cookies to prevent HTTP 431.
+ * Supabase SSR can leave behind chunked cookie fragments (.0, .1, …)
+ * that accumulate across sessions and inflate the request header.
+ */
+function pruneAuthCookies(request: NextRequest, response: NextResponse, secure: boolean): void {
+  const allCookies = request.cookies.getAll();
+  const authCookies = allCookies.filter((c) => c.name.includes('auth-token'));
+  if (authCookies.length <= 3) return;
+
+  const baseName = authCookies.find((c) => !c.name.match(/\.\d+$/))?.name;
+  const chunks = authCookies
+    .filter((c) => c.name.match(/\.\d+$/))
+    .sort((a, b) => {
+      const aIdx = parseInt(a.name.match(/\.(\d+)$/)![1]);
+      const bIdx = parseInt(b.name.match(/\.(\d+)$/)![1]);
+      return aIdx - bIdx;
+    });
+
+  const maxChunks = 5;
+  if (chunks.length > maxChunks) {
+    for (const chunk of chunks.slice(maxChunks)) {
+      response.cookies.set(chunk.name, '', {
+        maxAge: 0,
+        path: '/',
+        sameSite: secure ? 'none' : 'lax',
+        secure,
+      });
+    }
+  }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const secure = isSecureRequest(request);
@@ -135,6 +167,17 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Emergency cookie-clear endpoint to recover from HTTP 431
+  if (pathname === '/api/clear-cookies') {
+    const response = NextResponse.json({ cleared: true });
+    request.cookies.getAll().forEach(({ name }) => {
+      if (name.startsWith('sb-') || name.includes('auth-token') || name.includes('supabase')) {
+        response.cookies.set(name, '', { maxAge: 0, path: '/' });
+      }
+    });
+    return response;
+  }
+
   // Driver portal is publicly accessible — skip auth check entirely
   if (pathname.startsWith('/driver-portal')) {
     return NextResponse.next({ request });
@@ -146,9 +189,12 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/reset-password') ||
     pathname.startsWith('/track') ||
     pathname.startsWith('/auth');
+  const isPublicApi =
+    pathname.startsWith('/api/woocommerce/webhook') ||
+    pathname.startsWith('/api/webhook-test') ||
+    pathname.startsWith('/api/webhooks/fire');
 
-  // Fully public pages that never need auth checking
-  if (isPublicPage) {
+  if (isPublicPage || isPublicApi) {
     return NextResponse.next({ request });
   }
 
@@ -163,7 +209,9 @@ export async function middleware(request: NextRequest) {
       dashboardUrl.pathname = '/orders-dashboard';
       return NextResponse.redirect(dashboardUrl);
     }
-    return NextResponse.next({ request });
+    const response = NextResponse.next({ request });
+    pruneAuthCookies(request, response, secure);
+    return response;
   }
 
   // --- User is NOT authenticated ---

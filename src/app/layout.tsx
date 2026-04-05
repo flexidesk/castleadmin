@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import '../styles/tailwind.css';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { BrandingProvider } from '@/contexts/BrandingContext';
 
 export const metadata: Metadata = {
   title: 'CastleAdmin — Bouncy Castle Delivery Management',
@@ -28,7 +29,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <AuthProvider>
+          <BrandingProvider>
           {children}
+          </BrandingProvider>
           <Toaster
             position="bottom-right"
             richColors

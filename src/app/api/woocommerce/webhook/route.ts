@@ -405,7 +405,7 @@ async function logRequest(
   durationMs: number
 ) {
   try {
-    await supabase.from('webhook_request_logs').insert({
+    const { error } = await supabase.from('webhook_request_logs').insert({
       method,
       endpoint: '/api/woocommerce/webhook',
       payload,
@@ -415,6 +415,7 @@ async function logRequest(
       user_agent: req.headers.get('user-agent') ?? null,
       duration_ms: durationMs,
     });
+    if (error) console.error('[webhook_request_logs]', error.message);
   } catch {
     // Non-blocking — logging failure should never break the webhook
   }

@@ -1,73 +1,93 @@
 {
     "name": "Castle Driver Portal",
     "short_name": "Driver Portal",
-    "description": "Castle Bouncy Castle Driver Portal \u2014 manage deliveries, update order status, and upload proof of delivery.",
+    "description": "Castle Bouncy Castle Driver Portal — manage deliveries, update order status, upload proof of delivery, and track GPS location.",
     "start_url": "/driver-portal",
     "scope": "/driver-portal",
     "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
     "orientation": "portrait",
     "background_color": "#0f172a",
     "theme_color": "#3b82f6",
     "lang": "en-GB",
+    "dir": "ltr",
     "categories": [
         "logistics",
-        "productivity"
+        "productivity",
+        "navigation"
+    ],
+    "prefer_related_applications": false,
+    "permissions": [
+        "geolocation",
+        "notifications"
     ],
     "icons": [
         {
             "src": "/icons/icon-72x72.png",
             "sizes": "72x72",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-96x96.png",
             "sizes": "96x96",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-128x128.png",
             "sizes": "128x128",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-144x144.png",
             "sizes": "144x144",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-152x152.png",
             "sizes": "152x152",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-192x192.png",
             "sizes": "192x192",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
         },
         {
             "src": "/icons/icon-384x384.png",
             "sizes": "384x384",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-512x512.png",
             "sizes": "512x512",
             "type": "image/png",
-            "purpose": "any maskable"
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
         }
     ],
     "shortcuts": [
         {
             "name": "My Deliveries",
             "short_name": "Deliveries",
-            "description": "View your assigned deliveries",
+            "description": "View your assigned deliveries for today",
             "url": "/driver-portal",
             "icons": [
                 {
@@ -76,5 +96,16 @@
                 }
             ]
         }
-    ]
+    ],
+    "screenshots": [],
+    "related_applications": [],
+    "share_target": {
+        "action": "/driver-portal",
+        "method": "GET",
+        "params": {
+            "title": "title",
+            "text": "text",
+            "url": "url"
+        }
+    }
 }

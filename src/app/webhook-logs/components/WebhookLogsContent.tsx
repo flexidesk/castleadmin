@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import AppLayout from '@/components/AppLayout';
 import {
   RefreshCw,
   Search,
@@ -296,6 +297,7 @@ export default function WebhookLogsContent() {
       : null;
 
   return (
+    <AppLayout>
     <div className="flex-1 flex flex-col min-h-0 p-6 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -566,5 +568,6 @@ export default function WebhookLogsContent() {
         <DetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
       )}
     </div>
+    </AppLayout>
   );
 }

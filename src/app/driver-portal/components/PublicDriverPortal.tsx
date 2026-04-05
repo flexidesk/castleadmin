@@ -11,6 +11,8 @@ import dynamic from 'next/dynamic';
 
 const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false });
 import DriverPODUpload from './DriverPODUpload';
+import { useDriverGps } from '@/hooks/useDriverGps';
+import { useDriverPushNotifications } from '@/hooks/useDriverPushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1561,8 +1563,15 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, past
             {driver.avatar || driver.name.slice(0, 2).toUpperCase()}
           </div>
           <div>
-            <p className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>{driver.name}</p>
-            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{driver.vehicle} · {driver.plate}</p>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {getGreeting()},
+            </p>
+            <p className="font-bold text-base leading-tight" style={{ color: 'hsl(var(--foreground))' }}>
+              {driver.name}
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {driver.vehicle} · {driver.plate}
+            </p>
           </div>
         </div>
 
@@ -1629,7 +1638,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, past
                 className="rounded-xl border p-3 text-center"
                 style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
               >
-                <p className="text-xl font-bold" style={{ color: 'hsl(var(--foreground))' }}>
+                <p className="text-2xl font-bold leading-none" style={{ color: 'hsl(var(--foreground))' }}>
                   £{period.amount.toFixed(2)}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -1807,7 +1816,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, past
                             {clockIn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                           <span
-                            className="text-xs px-1.5 py-0.5 rounded-full capitalize"
+                            className="text-xs px-2 py-0.5 rounded-full font-medium"
                             style={{
                               backgroundColor: shift.shift_type === 'overtime' ? 'hsl(262 83% 58% / 0.15)' : 'hsl(217 91% 60% / 0.12)',
                               color: shift.shift_type === 'overtime' ? 'hsl(262 83% 58%)' : 'hsl(217 91% 60%)',
@@ -1821,7 +1830,7 @@ function DriverProfileSection({ driver, onDriverUpdate, onLogout, earnings, past
                             </span>
                           )}
                         </div>
-                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
                           {clockIn.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                           {clockOut ? ` – ${clockOut.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' (ongoing)'}
                           {durationHrs !== null && ` · ${durationHrs.toFixed(1)}h`}
@@ -1947,6 +1956,31 @@ function DriverDashboard({
   const [failureNotes, setFailureNotes] = useState('');
   const [submittingFailure, setSubmittingFailure] = useState(false);
 
+  // ─── GPS Tracking (via dedicated hook with background sync) ─────────────────
+  const { isTracking: gpsTracking, permissionState: gpsPermission } = useDriverGps({
+    driverId: driver.id,
+    enabled: true,
+    intervalMs: 30000,
+  });
+
+  // ─── Push Notifications (driver-specific) ──────────────────────────────────
+  const { subscribe: subscribePush, permissionState: pushPermission } = useDriverPushNotifications({
+    driverId: driver.id,
+    driverName: driver.name,
+  });
+
+  // Request push permission on first interaction
+  useEffect(() => {
+    if (pushPermission === 'default') {
+      const handleFirstInteraction = () => {
+        subscribePush();
+        document.removeEventListener('click', handleFirstInteraction);
+      };
+      document.addEventListener('click', handleFirstInteraction, { once: true });
+      return () => document.removeEventListener('click', handleFirstInteraction);
+    }
+  }, [pushPermission, subscribePush]);
+
   // ─── Data Loading ──────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -2027,66 +2061,7 @@ function DriverDashboard({
   useEffect(() => { loadData(); }, [loadData]);
 
   // ─── Live Location Tracking ─────────────────────────────────────────────────
-  const locationWatchRef = useRef<number | null>(null);
-  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const broadcastLocation = useCallback(async (lat: number, lng: number, heading: number | null, speed: number | null, accuracy: number | null) => {
-    try {
-      await supabase.from('driver_locations').insert({
-        driver_id: driver.id,
-        latitude: lat,
-        longitude: lng,
-        heading: heading ?? null,
-        speed: speed ?? null,
-        accuracy: accuracy ?? null,
-        recorded_at: new Date().toISOString(),
-      });
-    } catch {
-      // silent — don't interrupt driver workflow for tracking errors
-    }
-  }, [driver.id, supabase]);
-
-  // Start live GPS tracking when driver is logged in
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-
-    const handlePosition = (pos: GeolocationPosition) => {
-      broadcastLocation(
-        pos.coords.latitude,
-        pos.coords.longitude,
-        pos.coords.heading,
-        pos.coords.speed,
-        pos.coords.accuracy,
-      );
-    };
-
-    // Watch position for continuous updates
-    locationWatchRef.current = navigator.geolocation.watchPosition(
-      handlePosition,
-      () => { /* silent on error */ },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-    );
-
-    // Also broadcast every 30 seconds as a heartbeat
-    locationIntervalRef.current = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(
-        handlePosition,
-        () => { /* silent */ },
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-      );
-    }, 30000);
-
-    return () => {
-      if (locationWatchRef.current !== null) {
-        navigator.geolocation.clearWatch(locationWatchRef.current);
-        locationWatchRef.current = null;
-      }
-      if (locationIntervalRef.current !== null) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-    };
-  }, [broadcastLocation]);
+  // GPS tracking is handled by useDriverGps hook above
 
   // ─── Order Status Update ───────────────────────────────────────────────────
 
@@ -2165,7 +2140,7 @@ function DriverDashboard({
     }
   };
 
-  // ─── Derived State ─────────────────────────────────────────────────────────
+  // ── Derived State ─────────────────────────────────────────────────────────
 
   const today = getTodayStr();
   const tomorrow = getTomorrowStr();
@@ -2214,7 +2189,7 @@ function DriverDashboard({
           className="rounded-2xl border p-4"
           style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mb-4">
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
               style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
@@ -2426,7 +2401,9 @@ function DriverDashboard({
                 <div className="rounded-xl border p-10 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
                   <Package size={36} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
                   <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>No orders for this date</p>
-                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>No bookings have been assigned for the selected date.</p>
+                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    No bookings have been assigned for the selected date.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">

@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-const WEBHOOK_BASE_URL = 'https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook';
+const WEBHOOK_DISPLAY_URL = '/api/woocommerce/webhook';
 
 interface KeyValuePair {
   id: string;
@@ -154,12 +154,11 @@ export default function WebhookTesterContent() {
   const [showHeaders, setShowHeaders] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
 
-  // Build URL with query params
-  const buildUrl = useCallback(() => {
+  const buildDisplayUrl = useCallback(() => {
     const enabled = queryParams.filter(p => p.enabled && p.key.trim());
-    if (enabled.length === 0) return WEBHOOK_BASE_URL;
+    if (enabled.length === 0) return WEBHOOK_DISPLAY_URL;
     const qs = enabled.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&');
-    return `${WEBHOOK_BASE_URL}?${qs}`;
+    return `${WEBHOOK_DISPLAY_URL}?${qs}`;
   }, [queryParams]);
 
   const addParam = () => {
@@ -242,7 +241,6 @@ export default function WebhookTesterContent() {
     setResponse(null);
     setValidationErrors([]);
 
-    // Pre-flight validation for POST
     if (method === 'POST') {
       const result = validatePostBody(postBody);
       if (!result.valid) {
@@ -256,38 +254,35 @@ export default function WebhookTesterContent() {
       }
     }
 
-    const url = buildUrl();
     const start = Date.now();
 
     try {
-      const options: RequestInit = {
-        method,
-        headers: method === 'POST' ? { 'Content-Type': 'application/json' } : {},
-      };
-      if (method === 'POST') {
-        options.body = postBody;
+      const enabledParams = queryParams.filter(p => p.enabled && p.key.trim());
+      const qp: Record<string, string> = {};
+      enabledParams.forEach(p => { qp[p.key] = p.value; });
+
+      const proxyBody: Record<string, unknown> = { method };
+      if (method === 'GET') {
+        proxyBody.queryParams = qp;
+      } else {
+        proxyBody.postBody = JSON.parse(postBody);
       }
 
-      const res = await fetch(url, options);
+      const res = await fetch('/api/webhook-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(proxyBody),
+      });
+
+      const data = await res.json();
       const duration = Date.now() - start;
 
-      const responseHeaders: Record<string, string> = {};
-      res.headers.forEach((value, key) => { responseHeaders[key] = value; });
-
-      let body: unknown;
-      const contentType = res.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
-        body = await res.json();
-      } else {
-        body = await res.text();
-      }
-
       setResponse({
-        status: res.status,
-        statusText: res.statusText,
-        headers: responseHeaders,
-        body,
-        duration,
+        status: data.status,
+        statusText: data.statusText,
+        headers: data.headers ?? {},
+        body: data.body,
+        duration: data.duration ?? duration,
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
@@ -381,7 +376,7 @@ export default function WebhookTesterContent() {
                 color: 'hsl(var(--muted-foreground))',
               }}
             >
-              {buildUrl()}
+              {buildDisplayUrl()}
             </div>
 
             {/* Presets button */}

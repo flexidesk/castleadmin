@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, Download, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-
+import { useBranding } from '@/contexts/BrandingContext';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -455,6 +455,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 export default function SettingsContent() {
   const supabase = createClient();
+  const { refresh: refreshBranding } = useBranding();
   const [activeTab, setActiveTab] = useState<TabId>('fleet');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -600,6 +601,10 @@ export default function SettingsContent() {
         setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
         if (wcRes.data.field_mapping) setWcFieldMapping(wcRes.data.field_mapping as WooCommerceFieldMapping);
       }
+
+      // Load webhook configs
+      const { data: whData } = await supabase.from('webhook_configs').select('*').order('created_at');
+      if (whData) setWebhooks(whData);
 
       // Load terms of hire from system_config
       const { data: termsData } = await supabase
@@ -1076,6 +1081,7 @@ export default function SettingsContent() {
         if (upsertError) throw upsertError;
       }
       setFleet((prev) => ({ ...prev, [column]: publicUrl }));
+      if (assetType === 'logo') refreshBranding();
       toast.success(`App ${assetType} updated successfully`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -2307,98 +2313,179 @@ export default function SettingsContent() {
               <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-2">
-                    <Download size={15} style={{ color: 'hsl(var(--primary))' }} />
-                    <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</h2>
+                    <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} />
+                    <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Outgoing Webhooks</h2>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</span>
-                    <div className="flex rounded-lg border overflow-hidden text-xs" style={{ borderColor: 'hsl(var(--border))' }}>
-                      {(['json', 'csv'] as const).map((fmt) => (
-                        <button
-                          key={fmt}
-                          onClick={() => setDbExportFormat(fmt)}
-                          className="px-3 py-1.5 font-medium transition-colors uppercase"
-                          style={{
-                            backgroundColor: dbExportFormat === fmt ? 'hsl(var(--primary))' : 'hsl(var(--background))',
-                            color: dbExportFormat === fmt ? 'white' : 'hsl(var(--foreground))',
-                          }}
-                        >
-                          {fmt}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => setShowNewWebhookForm(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                  >
+                    + Add Webhook
+                  </button>
                 </div>
                 <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  Export any individual table as JSON or CSV. Click the download button next to the table you want to export.
+                  Configure endpoints to receive real-time notifications when events occur (order created, status updated, driver assigned, etc.).
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {[
-                    { key: 'orders', label: 'Orders', icon: '📦' },
-                    { key: 'drivers', label: 'Drivers', icon: '🚗' },
-                    { key: 'customers', label: 'Customers', icon: '👥' },
-                    { key: 'vehicles', label: 'Vehicles', icon: '🚐' },
-                    { key: 'driver_shifts', label: 'Driver Shifts', icon: '🕐' },
-                    { key: 'driver_performance_logs', label: 'Performance Logs', icon: '📊' },
-                    { key: 'driver_documents', label: 'Driver Documents', icon: '📄' },
-                    { key: 'driver_cash_allocations', label: 'Cash Allocations', icon: '💵' },
-                    { key: 'driver_cash_collections', label: 'Cash Collections', icon: '💰' },
-                    { key: 'vehicle_inspections', label: 'Vehicle Inspections', icon: '🔧' },
-                    { key: 'vehicle_incidents', label: 'Vehicle Incidents', icon: '⚠️' },
-                    { key: 'delivery_zones', label: 'Delivery Zones', icon: '🗺️' },
-                    { key: 'message_templates', label: 'Message Templates', icon: '✉️' },
-                    { key: 'notifications', label: 'Notifications', icon: '🔔' },
-                    { key: 'activity_logs', label: 'Activity Logs', icon: '📋' },
-                    { key: 'email_alert_logs', label: 'Email Alert Logs', icon: '📧' },
-                    { key: 'sms_alert_logs', label: 'SMS Alert Logs', icon: '📱' },
-                    { key: 'woocommerce_sync_log', label: 'WooCommerce Sync Log', icon: '🛒' },
-                    { key: 'fleet_config', label: 'Fleet Config', icon: '⚙️' },
-                    { key: 'user_roles', label: 'User Roles', icon: '👤' },
-                    { key: 'company_profile', label: 'Company Profile', icon: '🏢' },
-                  ].map(({ key, label, icon }) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg border"
-                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
-                    >
-                      <span className="text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-                        <span>{icon}</span> {label}
-                      </span>
-                      <button
-                        onClick={async () => {
-                          setDbTableExporting(key);
-                          try {
-                            const res = await fetch(`/api/database/export?table=${key}&format=${dbExportFormat}`);
-                            if (!res.ok) throw new Error('Export failed');
-                            const blob = await res.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `${key}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                            toast.success(`${label} exported successfully`);
-                          } catch (err: unknown) {
-                            const msg = err instanceof Error ? err.message : 'Export failed';
-                            toast.error(`Export failed: ${msg}`);
-                          } finally {
-                            setDbTableExporting(null);
-                          }
-                        }}
-                        disabled={dbTableExporting === key}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
-                        style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
-                      >
-                        {dbTableExporting === key ? (
-                          <RefreshCw size={11} className="animate-spin" />
-                        ) : (
-                          <Download size={11} />
-                        )}
-                        Export
-                      </button>
+
+                {webhooks.length === 0 && !showNewWebhookForm && (
+                  <div className="text-center py-8">
+                    <Webhook size={32} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No webhooks configured yet.</p>
+                  </div>
+                )}
+
+                {showNewWebhookForm && (
+                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                    <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
+                      <div>
+                        <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
+                        <div className="flex gap-2">
+                          {(['POST', 'GET'] as const).map((m) => (
+                            <button
+                              key={m}
+                              onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
+                              className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
+                              style={newWebhookForm.method === m
+                                ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                                : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                            >{m}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
+                      </div>
+                      <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="HMAC signing secret" />
                     </div>
-                  ))}
-                </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
+                          <button
+                            key={ev}
+                            onClick={() => setNewWebhookForm((f) => ({
+                              ...f,
+                              events: f.events.includes(ev)
+                                ? f.events.filter((e) => e !== ev)
+                                : [...f.events, ev],
+                            }))}
+                            className="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all"
+                            style={newWebhookForm.events.includes(ev)
+                              ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                              : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                          >{ev}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2">
+                      <button onClick={() => { setShowNewWebhookForm(false); setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true }); }} className="btn-secondary text-xs">Cancel</button>
+                      <button
+                        disabled={!newWebhookForm.name || !newWebhookForm.url || newWebhookForm.events.length === 0}
+                        onClick={async () => {
+                          setSaving(true);
+                          try {
+                            const { error } = await supabase.from('webhook_configs').insert({
+                              name: newWebhookForm.name, url: newWebhookForm.url,
+                              method: newWebhookForm.method, secret: newWebhookForm.secret,
+                              events: newWebhookForm.events, is_active: true,
+                            });
+                            if (error) throw error;
+                            const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                            setWebhooks(all ?? []);
+                            setShowNewWebhookForm(false);
+                            setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
+                            toast.success('Webhook created');
+                          } catch (err: unknown) {
+                            toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                          } finally { setSaving(false); }
+                        }}
+                        className="btn-primary text-xs"
+                      ><Save size={12} /> Save Webhook</button>
+                    </div>
+                  </div>
+                )}
+
+                {webhooks.map((wh) => (
+                  <div key={wh.id} className="border rounded-lg p-4" style={{ borderColor: 'hsl(var(--border))' }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {wh.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{wh.method}</span>
+                        </div>
+                        <p className="text-xs font-mono truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {wh.events?.map((ev: string) => (
+                            <span key={ev} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{ev}</span>
+                          ))}
+                        </div>
+                        {wh.last_triggered_at && (
+                          <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            Last fired: {new Date(wh.last_triggered_at).toLocaleString('en-GB')} — Status: {wh.last_status ?? 'unknown'}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={async () => {
+                            setTestingWebhook(wh.id ?? null);
+                            try {
+                              const res = await fetch('/api/webhooks/fire', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ event: 'webhook.test', data: { test: true, timestamp: new Date().toISOString() }, webhook_id: wh.id }),
+                              });
+                              const result = await res.json();
+                              if (result.fired > 0) toast.success('Test webhook sent');
+                              else toast.info('No delivery (webhook may not subscribe to webhook.test)');
+                              const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                              setWebhooks(all ?? []);
+                            } catch { toast.error('Test failed'); }
+                            finally { setTestingWebhook(null); }
+                          }}
+                          disabled={testingWebhook === wh.id}
+                          className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                          style={{ borderColor: 'hsl(var(--border))' }}
+                          title="Test webhook"
+                        >
+                          {testingWebhook === wh.id ? <RefreshCw size={12} className="animate-spin" /> : <Webhook size={12} />}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await supabase.from('webhook_configs').update({ is_active: !wh.is_active }).eq('id', wh.id);
+                            const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                            setWebhooks(all ?? []);
+                            toast.success(wh.is_active ? 'Webhook paused' : 'Webhook activated');
+                          }}
+                          className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                          style={{ borderColor: 'hsl(var(--border))' }}
+                          title={wh.is_active ? 'Pause' : 'Activate'}
+                        >
+                          {wh.is_active ? <XCircle size={12} /> : <CheckCircle size={12} />}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Delete webhook "${wh.name}"?`)) return;
+                            await supabase.from('webhook_configs').delete().eq('id', wh.id);
+                            setWebhooks((prev) => prev.filter((w) => w.id !== wh.id));
+                            toast.success('Webhook deleted');
+                          }}
+                          className="p-1.5 rounded-md border text-xs hover:bg-red-50 transition-colors"
+                          style={{ borderColor: 'hsl(var(--border))' }}
+                          title="Delete"
+                        >
+                          <Trash2 size={12} style={{ color: 'hsl(var(--destructive))' }} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

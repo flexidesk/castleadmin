@@ -2,6 +2,14 @@
 
 import { createClient } from '@/lib/supabase/client';
 
+function fireWebhookEvent(event: string, data: Record<string, unknown>) {
+  fetch('/api/webhooks/fire', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, data }),
+  }).catch(() => {});
+}
+
 // ─── DB Row Types (snake_case) ────────────────────────────────────────────────
 
 export interface DbOrder {
@@ -212,6 +220,7 @@ export const ordersService = {
       console.error('deleteOrder error:', error.message);
       return false;
     }
+    fireWebhookEvent('order.cancelled', { order_id: id });
     return true;
   },
 
@@ -240,6 +249,10 @@ export const ordersService = {
       console.error('updateOrderStatus error:', error.message);
       return false;
     }
+    fireWebhookEvent('order.updated', { order_id: id, status, changed_field: 'status' });
+    if (status === 'Booking Complete') {
+      fireWebhookEvent('order.completed', { order_id: id, status });
+    }
     return true;
   },
 
@@ -253,6 +266,7 @@ export const ordersService = {
       console.error('assignDriver error:', error.message);
       return false;
     }
+    fireWebhookEvent('driver.assigned', { order_id: orderId, driver_id: driverId });
     return true;
   },
 
@@ -375,6 +389,9 @@ export const ordersService = {
     if (error) {
       console.error('createOrder error:', error.message);
       throw new Error(error.message);
+    }
+    if (data) {
+      fireWebhookEvent('order.created', { order_id: data.id, ...row });
     }
     return data as { id: string };
   },
