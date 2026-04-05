@@ -6,8 +6,7 @@ const PRECACHE_URLS = [
   '/driver-portal/login',
   '/manifest.json',
   '/favicon.ico',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+  '/icons/icon.svg',
 ];
 
 // ── Background Sync Queue ─────────────────────────────────────────────────────
@@ -189,8 +188,8 @@ self.addEventListener('push', (event) => {
     payload = {
       title: 'Castle Driver Portal',
       body: event.data.text(),
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
       tag: 'castle-driver',
       data: {},
     };
@@ -198,8 +197,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: payload.body || '',
-    icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/icon-72x72.png',
+    icon: payload.icon || '/icons/icon.svg',
+    badge: payload.badge || '/icons/icon.svg',
     tag: payload.tag || 'castle-driver',
     data: payload.data || {},
     requireInteraction: payload.requireInteraction !== undefined ? payload.requireInteraction : true,

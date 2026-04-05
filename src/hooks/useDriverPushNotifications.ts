@@ -119,7 +119,7 @@ export function useDriverPushNotifications({ driverId, driverName }: UseDriverPu
         });
       }
 
-      await fetch('/api/push/subscribe', {
+      const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -129,6 +129,11 @@ export function useDriverPushNotifications({ driverId, driverName }: UseDriverPu
           context: 'driver_portal',
         }),
       });
+
+      if (!saveRes.ok) {
+        console.warn('Push subscription could not be saved to server:', await saveRes.text().catch(() => ''));
+        return false;
+      }
 
       subscribedRef.current = true;
       setIsSubscribed(true);

@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
     const payload = JSON.stringify({
       title,
       body,
-      icon: icon || '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
+      icon: icon || '/icons/icon.svg',
+      badge: '/icons/icon.svg',
       tag: tag || 'castle-driver',
       data: data || {},
       requireInteraction: true,

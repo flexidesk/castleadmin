@@ -44,25 +44,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }}
           />
         </AuthProvider>
-
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.getRegistrations().then(function(regs) {
-                    regs.forEach(function(r) {
-                      if (r.scope === location.origin + '/') r.unregister();
-                    });
-                  });
-                  navigator.serviceWorker.register('/sw.js', { scope: '/driver-portal' })
-                    .then(function(reg) { console.log('SW registered:', reg.scope); })
-                    .catch(function(err) { console.log('SW registration failed:', err); });
-                });
-              }
-            `,
-          }}
-        />
 </body>
     </html>
   );
