@@ -2798,6 +2798,14 @@ function DriverDashboard({
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ─── Auto Background Refresh (every 30 seconds) ──────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   // ─── Live Location Tracking ─────────────────────────────────────────────────
   // GPS tracking is handled by useDriverGps hook above
 
