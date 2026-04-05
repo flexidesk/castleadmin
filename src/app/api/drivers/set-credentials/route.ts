@@ -1,25 +1,127 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 
-// Simple password hashing using SHA-256 with a salt
-// For production with service role key, Supabase Auth is used instead
+export const dynamic = 'force-dynamic';
+
 function hashPassword(password: string): string {
-  const salt = process.env.NEXT_PUBLIC_SUPABASE_URL || 'castle-driver-salt';
+  const salt = 'castle-driver-salt';
   return createHash('sha256').update(salt + password + salt).digest('hex');
+}
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+async function restGet(path: string, useServiceRole = false) {
+  const key = useServiceRole && SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') ? SERVICE_ROLE_KEY : ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase GET error ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+async function restPost(path: string, body: object, method = 'POST', useServiceRole = false) {
+  const key = useServiceRole && SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') ? SERVICE_ROLE_KEY : ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: method === 'POST' ? 'resolution=merge-duplicates,return=minimal' : 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase ${method} error ${res.status}: ${text}`);
+  }
+  return res;
+}
+
+async function verifyAdminSession(request: NextRequest): Promise<boolean> {
+  // Check Authorization header (Bearer token from Supabase Auth)
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      const user = await res.json();
+      return !!user?.id;
+    }
+  }
+
+  // Check cookie-based session (sb-* cookies set by Supabase Auth)
+  const cookieHeader = request.headers.get('cookie') || '';
+  const cookies = Object.fromEntries(
+    cookieHeader.split(';').map((c) => {
+      const [k, ...v] = c.trim().split('=');
+      return [k, v.join('=')];
+    })
+  );
+
+  // Try to find Supabase auth token in cookies
+  const tokenKeys = Object.keys(cookies).filter(
+    (k) => k.includes('auth-token') || k.startsWith('sb-')
+  );
+
+  for (const key of tokenKeys) {
+    try {
+      const val = decodeURIComponent(cookies[key]);
+      const parsed = JSON.parse(val);
+      const accessToken = parsed?.access_token || parsed?.[0]?.access_token;
+      if (accessToken) {
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+          headers: {
+            apikey: ANON_KEY,
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (res.ok) {
+          const user = await res.json();
+          if (user?.id) return true;
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  return false;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify the requesting user is an authenticated admin
-    const supabaseServer = await createServerClient();
-    const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
-    if (authError || !user) {
+    // Verify admin session
+    const isAdmin = await verifyAdminSession(request);
+    if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { driverId, email, password } = await request.json();
+    let driverId: string, email: string, password: string;
+    try {
+      const body = await request.json();
+      driverId = body?.driverId;
+      email = body?.email;
+      password = body?.password;
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
     if (!driverId || !email || !password) {
       return NextResponse.json({ error: 'driverId, email, and password are required' }, { status: 400 });
@@ -29,27 +131,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
     }
 
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const hasAdminKey = serviceRoleKey && !serviceRoleKey.startsWith('your-') && serviceRoleKey !== '';
+    const hasServiceRole =
+      SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') && SERVICE_ROLE_KEY !== '';
 
     // Fetch driver record
-    const { data: driver, error: driverError } = await supabaseServer
-      .from('drivers')
-      .select('id, name, email, auth_user_id')
-      .eq('id', driverId)
-      .single();
-
-    if (driverError || !driver) {
+    const drivers = await restGet(
+      `drivers?id=eq.${encodeURIComponent(driverId)}&select=id,name,email,auth_user_id&limit=1`,
+      true
+    );
+    const driver = Array.isArray(drivers) ? drivers[0] : null;
+    if (!driver) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
     }
 
-    if (hasAdminKey) {
-      // ── Admin path: full Supabase Auth control via service role key ──────────
-      const supabaseAdmin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        serviceRoleKey!,
-        { auth: { autoRefreshToken: false, persistSession: false } }
-      );
+    // ── Admin path: Supabase Auth via service role key ──────────────────────
+    if (hasServiceRole) {
+      const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY!, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
 
       let authUserId: string;
 
@@ -59,7 +158,10 @@ export async function POST(request: NextRequest) {
           { email, password, email_confirm: true }
         );
         if (updateError) {
-          return NextResponse.json({ error: 'Failed to update credentials: ' + updateError.message }, { status: 400 });
+          return NextResponse.json(
+            { error: 'Failed to update credentials: ' + updateError.message },
+            { status: 400 }
+          );
         }
         authUserId = updatedUser.user.id;
       } else {
@@ -67,11 +169,11 @@ export async function POST(request: NextRequest) {
         const existingUser = existingUsers?.users?.find((u) => u.email === email);
 
         if (existingUser) {
-          const { data: linkedDriver } = await supabaseAdmin
-            .from('drivers')
-            .select('id, name')
-            .eq('auth_user_id', existingUser.id)
-            .maybeSingle();
+          const linkedDrivers = await restGet(
+            `drivers?auth_user_id=eq.${encodeURIComponent(existingUser.id)}&select=id,name&limit=1`,
+            true
+          );
+          const linkedDriver = Array.isArray(linkedDrivers) ? linkedDrivers[0] : null;
 
           if (linkedDriver && linkedDriver.id !== driverId) {
             return NextResponse.json(
@@ -85,7 +187,10 @@ export async function POST(request: NextRequest) {
             { password, email_confirm: true }
           );
           if (updateError) {
-            return NextResponse.json({ error: 'Failed to update password: ' + updateError.message }, { status: 400 });
+            return NextResponse.json(
+              { error: 'Failed to update password: ' + updateError.message },
+              { status: 400 }
+            );
           }
           authUserId = existingUser.id;
         } else {
@@ -95,33 +200,33 @@ export async function POST(request: NextRequest) {
             email_confirm: true,
           });
           if (createError) {
-            return NextResponse.json({ error: 'Failed to create auth user: ' + createError.message }, { status: 400 });
+            return NextResponse.json(
+              { error: 'Failed to create auth user: ' + createError.message },
+              { status: 400 }
+            );
           }
           authUserId = newUser.user.id;
         }
       }
 
       // Link auth_user_id and email to driver record
-      const { error: linkError } = await supabaseServer
-        .from('drivers')
-        .update({ auth_user_id: authUserId, email })
-        .eq('id', driverId);
-
-      if (linkError) {
-        return NextResponse.json({ error: 'Failed to link credentials to driver: ' + linkError.message }, { status: 500 });
-      }
+      await restPost(
+        `drivers?id=eq.${encodeURIComponent(driverId)}`,
+        { auth_user_id: authUserId, email },
+        'PATCH',
+        true
+      );
     }
 
-    // ── Always store credentials in driver_portal_credentials table ──────────
-    // This enables driver portal login regardless of whether Supabase Auth is configured
+    // ── Always store credentials in driver_portal_credentials ───────────────
     const passwordHash = hashPassword(password);
 
     // Check if another driver already uses this email
-    const { data: existingCred } = await supabaseServer
-      .from('driver_portal_credentials')
-      .select('driver_id')
-      .eq('email', email)
-      .maybeSingle();
+    const existingCreds = await restGet(
+      `driver_portal_credentials?email=eq.${encodeURIComponent(email)}&select=driver_id&limit=1`,
+      true
+    );
+    const existingCred = Array.isArray(existingCreds) ? existingCreds[0] : null;
 
     if (existingCred && existingCred.driver_id !== driverId) {
       return NextResponse.json(
@@ -130,29 +235,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { error: credError } = await supabaseServer
-      .from('driver_portal_credentials')
-      .upsert(
-        { driver_id: driverId, email, password_hash: passwordHash },
-        { onConflict: 'driver_id' }
-      );
-
-    if (credError) {
-      return NextResponse.json({ error: 'Failed to save credentials: ' + credError.message }, { status: 500 });
-    }
+    // Upsert credentials
+    await restPost(
+      `driver_portal_credentials`,
+      { driver_id: driverId, email, password_hash: passwordHash },
+      'POST',
+      true
+    );
 
     // Update driver email
-    const { error: emailError } = await supabaseServer
-      .from('drivers')
-      .update({ email })
-      .eq('id', driverId);
-
-    if (emailError) {
-      return NextResponse.json({ error: 'Failed to update driver email: ' + emailError.message }, { status: 500 });
-    }
+    await restPost(
+      `drivers?id=eq.${encodeURIComponent(driverId)}`,
+      { email },
+      'PATCH',
+      true
+    );
 
     return NextResponse.json({ success: true, message: 'Driver credentials set successfully' });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
+    console.error('[set-credentials] error:', err);
+    return NextResponse.json(
+      { error: err?.message || 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
