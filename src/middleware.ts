@@ -192,7 +192,9 @@ export async function middleware(request: NextRequest) {
   const isPublicApi =
     pathname.startsWith('/api/woocommerce/webhook') ||
     pathname.startsWith('/api/webhook-test') ||
-    pathname.startsWith('/api/webhooks/fire');
+    pathname.startsWith('/api/webhooks/fire') ||
+    pathname.startsWith('/api/drivers/portal-login') ||
+    pathname.startsWith('/api/push/vapid-public-key');
 
   if (isPublicPage || isPublicApi) {
     return NextResponse.next({ request });
