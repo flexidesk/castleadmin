@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter, ChevronDown } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -713,6 +713,9 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
   const [loadingInspections, setLoadingInspections] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [expandedInspectionId, setExpandedInspectionId] = useState<string | null>(null);
+  const [inspectionItems, setInspectionItems] = useState<Record<string, any[]>>({});
+  const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
 
   const checks = inspectionType === 'interim' ? INTERIM_CHECKS : FULL_CHECKS;
 
@@ -739,6 +742,27 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
     };
     load();
   }, [driverId, loadInspections]);
+
+  const loadInspectionItems = useCallback(async (inspectionId: string) => {
+    if (inspectionItems[inspectionId]) return;
+    setLoadingItems((prev) => ({ ...prev, [inspectionId]: true }));
+    const { data } = await supabase
+      .from('vehicle_inspection_items')
+      .select('*')
+      .eq('inspection_id', inspectionId)
+      .order('sort_order', { ascending: true });
+    setInspectionItems((prev) => ({ ...prev, [inspectionId]: data ?? [] }));
+    setLoadingItems((prev) => ({ ...prev, [inspectionId]: false }));
+  }, [supabase, inspectionItems]);
+
+  const handleToggleInspection = useCallback(async (inspectionId: string) => {
+    if (expandedInspectionId === inspectionId) {
+      setExpandedInspectionId(null);
+    } else {
+      setExpandedInspectionId(inspectionId);
+      await loadInspectionItems(inspectionId);
+    }
+  }, [expandedInspectionId, loadInspectionItems]);
 
   const handleResultChange = (check: string, result: CheckResult) => {
     setCheckResults((prev) => ({ ...prev, [check]: result }));
@@ -1041,32 +1065,131 @@ function SafetyCheckSection({ driverId }: SafetyCheckSectionProps) {
             {pastInspections.map((insp) => {
               const res = overallResultLabel(insp.overall_result);
               const driverName = (insp.drivers as any)?.name;
+              const isExpanded = expandedInspectionId === insp.id;
+              const items: any[] = inspectionItems[insp.id] ?? [];
+              const isLoadingItems = loadingItems[insp.id] ?? false;
               return (
-                <div key={insp.id} className="rounded-xl border p-3 flex items-center gap-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: res.bg }}>
-                    {insp.overall_result === 'pass' ? (
-                      <CheckCircle2 size={18} style={{ color: res.color }} />
-                    ) : insp.overall_result === 'fail' ? (
-                      <XCircle size={18} style={{ color: res.color }} />
-                    ) : (
-                      <AlertCircle size={18} style={{ color: res.color }} />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                        {(insp.vehicles as any)?.registration ?? 'Unknown Vehicle'}
-                      </p>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: res.bg, color: res.color }}>
-                        {res.label}
-                      </span>
+                <div key={insp.id} className="rounded-xl border overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                  {/* Summary row — clickable to expand */}
+                  <button
+                    onClick={() => handleToggleInspection(insp.id)}
+                    className="w-full flex items-center gap-3 p-3 text-left transition-colors hover:bg-secondary"
+                  >
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: res.bg }}>
+                      {insp.overall_result === 'pass' ? (
+                        <CheckCircle2 size={18} style={{ color: res.color }} />
+                      ) : insp.overall_result === 'fail' ? (
+                        <XCircle size={18} style={{ color: res.color }} />
+                      ) : (
+                        <AlertCircle size={18} style={{ color: res.color }} />
+                      )}
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {insp.inspection_type === 'interim' ? 'Interim' : 'Full'} check ·{' '}
-                      {new Date(insp.completed_at ?? insp.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      {driverName ? ` · ${driverName}` : ''}
-                    </p>
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                          {(insp.vehicles as any)?.registration ?? 'Unknown Vehicle'}
+                        </p>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: res.bg, color: res.color }}>
+                          {res.label}
+                        </span>
+                      </div>
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {insp.inspection_type === 'interim' ? 'Interim' : 'Full'} check ·{' '}
+                        {new Date(insp.completed_at ?? insp.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {driverName ? ` · ${driverName}` : ''}
+                      </p>
+                    </div>
+                    <ChevronDown
+                      size={16}
+                      className="shrink-0 transition-transform duration-200"
+                      style={{
+                        color: 'hsl(var(--muted-foreground))',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    />
+                  </button>
+
+                  {/* Expanded details */}
+                  {isExpanded && (
+                    <div className="border-t px-3 pb-3 pt-3 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                      {isLoadingItems ? (
+                        <div className="space-y-2">
+                          {[1, 2, 3].map((i) => (
+                            <div key={i} className="h-8 rounded-lg animate-pulse" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Check items */}
+                          {items.length > 0 && (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                                Check Items ({items.length})
+                              </p>
+                              <div className="space-y-1">
+                                {items.map((item) => {
+                                  const itemResult = item.result as string;
+                                  const itemColor =
+                                    itemResult === 'good' ? 'hsl(142 69% 35%)' :
+                                    itemResult === 'needs_attention' ? 'hsl(38 92% 50%)' :
+                                    itemResult === 'immediate' ? 'hsl(0 84% 60%)' :
+                                    'hsl(var(--muted-foreground))';
+                                  const itemBg =
+                                    itemResult === 'good' ? 'hsl(142 69% 35% / 0.1)' :
+                                    itemResult === 'needs_attention' ? 'hsl(38 92% 50% / 0.1)' :
+                                    itemResult === 'immediate' ? 'hsl(0 84% 60% / 0.1)' :
+                                    'hsl(var(--secondary))';
+                                  const itemLabel =
+                                    itemResult === 'good' ? 'Good' :
+                                    itemResult === 'needs_attention' ? 'Advisory' :
+                                    itemResult === 'immediate'? 'Fail' : itemResult ??'—';
+                                  return (
+                                    <div key={item.id} className="flex items-start gap-2">
+                                      <div className="flex-1 flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                                        <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{item.check_name}</span>
+                                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ backgroundColor: itemBg, color: itemColor }}>
+                                          {itemLabel}
+                                        </span>
+                                      </div>
+                                      {item.image_url && (
+                                        <a
+                                          href={item.image_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="w-8 h-8 rounded-lg overflow-hidden shrink-0 border"
+                                          style={{ borderColor: 'hsl(var(--border))' }}
+                                          title={item.image_name ?? 'View image'}
+                                        >
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img src={item.image_url} alt={item.image_name ?? 'Check image'} className="w-full h-full object-cover" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Notes */}
+                          {insp.notes && (
+                            <div className="rounded-lg p-2.5" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                              <p className="text-xs font-semibold mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Notes</p>
+                              <p className="text-xs" style={{ color: 'hsl(var(--foreground))' }}>{insp.notes}</p>
+                            </div>
+                          )}
+
+                          {/* Vehicle info */}
+                          {(insp.vehicles as any)?.make && (
+                            <div className="flex items-center gap-2 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              <Car size={12} />
+                              <span>{(insp.vehicles as any).make} {(insp.vehicles as any).model} · {(insp.vehicles as any).registration}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

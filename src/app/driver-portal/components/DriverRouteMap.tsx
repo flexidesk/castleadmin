@@ -4,10 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AppOrder } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { MapIcon, Navigation, Clock, ChevronDown, ExternalLink, Maximize2, Minimize2, Route, Camera, PenLine, FileText, X, Trash2, CheckCircle2, Loader2,  } from 'lucide-react';
-import Icon from '@/components/ui/AppIcon';
-import { useMapsConfig, DEFAULT_MAP_CENTER, getTileLayerConfig } from '@/hooks/useMapsConfig';
-
+import { MapIcon, Navigation, Clock, ChevronDown, ExternalLink, Maximize2, Minimize2, Route, Camera, PenLine, FileText, X, Trash2, CheckCircle2, Loader2 } from 'lucide-react';
+import { useMapsConfig, DEFAULT_MAP_CENTER, googleGeocode } from '@/hooks/useMapsConfig';
 
 interface DriverRouteMapProps {
   orders: AppOrder[];
@@ -50,7 +48,7 @@ function buildWazeUrl(address: AppOrder['deliveryAddress']): string {
   return `https://waze.com/ul?q=${query}&navigate=yes`;
 }
 
-async function geocodeAddress(address: string): Promise<[number, number] | null> {
+async function geocodeAddressNominatim(address: string): Promise<[number, number] | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
     const res = await fetch(url, {
@@ -319,7 +317,7 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
           className="flex border-b shrink-0"
           style={{ borderColor: 'hsl(var(--border))' }}
         >
-          {tabs.map(({ key, label, icon: Icon }) => (
+          {tabs.map(({ key, label, icon: TabIcon }) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
@@ -329,7 +327,7 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
                 backgroundColor: activeTab === key ? 'hsl(var(--primary) / 0.06)' : 'transparent',
               }}
             >
-              <Icon size={13} />
+              <TabIcon size={13} />
               {label}
               {key === 'photo' && photos.length > 0 && (
                 <span
@@ -340,16 +338,10 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
                 </span>
               )}
               {key === 'signature' && hasSignature && (
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: 'hsl(142 69% 35%)' }}
-                />
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(142 69% 35%)' }} />
               )}
               {key === 'notes' && notes.trim() && (
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: 'hsl(var(--primary))' }}
-                />
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(var(--primary))' }} />
               )}
               {activeTab === key && (
                 <span
@@ -363,8 +355,6 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
 
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto p-4">
-
-          {/* Photo Tab */}
           {activeTab === 'photo' && (
             <div className="space-y-3">
               <input
@@ -382,22 +372,15 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
                 style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
               >
                 <Camera size={28} style={{ color: 'hsl(var(--primary))' }} />
-                <span className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                  Take Photo or Upload
-                </span>
+                <span className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Take Photo or Upload</span>
                 <span className="text-xs">Tap to open camera or choose from gallery</span>
               </button>
-
               {photos.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   {photos.map((photo) => (
                     <div key={photo.id} className="relative rounded-lg overflow-hidden aspect-square">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={photo.url}
-                        alt={photo.caption}
-                        className="w-full h-full object-cover"
-                      />
+                      <img src={photo.url} alt={photo.caption} className="w-full h-full object-cover" />
                       <button
                         onClick={() => setPhotos((prev) => prev.filter((p) => p.id !== photo.id))}
                         className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center"
@@ -409,54 +392,35 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
                   ))}
                 </div>
               )}
-
               {photos.length === 0 && (
-                <p className="text-center text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  No photos added yet
-                </p>
+                <p className="text-center text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>No photos added yet</p>
               )}
             </div>
           )}
 
-          {/* Signature Tab */}
           {activeTab === 'signature' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>
-                  Received by
-                </label>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>Received by</label>
                 <input
                   type="text"
                   value={signedBy}
                   onChange={(e) => setSignedBy(e.target.value)}
                   placeholder={order.customer.name}
                   className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-                  style={{
-                    backgroundColor: 'hsl(var(--background))',
-                    borderColor: 'hsl(var(--border))',
-                    color: 'hsl(var(--foreground))',
-                  }}
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                 />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                    Customer Signature
-                  </label>
+                  <label className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Customer Signature</label>
                   {hasSignature && (
-                    <button
-                      onClick={clearSignature}
-                      className="text-xs flex items-center gap-1"
-                      style={{ color: 'hsl(var(--muted-foreground))' }}
-                    >
+                    <button onClick={clearSignature} className="text-xs flex items-center gap-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       <Trash2 size={11} /> Clear
                     </button>
                   )}
                 </div>
-                <div
-                  className="rounded-xl border overflow-hidden"
-                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: '#fff' }}
-                >
+                <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'hsl(var(--border))', backgroundColor: '#fff' }}>
                   <canvas
                     ref={canvasRef}
                     width={600}
@@ -473,39 +437,27 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
                   />
                 </div>
                 {!hasSignature && (
-                  <p className="text-xs text-center mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                    Draw signature above
-                  </p>
+                  <p className="text-xs text-center mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Draw signature above</p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Notes Tab */}
           {activeTab === 'notes' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>
-                  Delivery Notes
-                </label>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>Delivery Notes</label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. Left with neighbour, left at door, access code used…"
                   rows={5}
                   className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 resize-none"
-                  style={{
-                    backgroundColor: 'hsl(var(--background))',
-                    borderColor: 'hsl(var(--border))',
-                    color: 'hsl(var(--foreground))',
-                  }}
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                 />
               </div>
               {order.deliveryAddress?.notes && (
-                <div
-                  className="rounded-lg p-3 text-xs"
-                  style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
-                >
+                <div className="rounded-lg p-3 text-xs" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
                   <span className="font-semibold">Customer note: </span>
                   {order.deliveryAddress.notes}
                 </div>
@@ -515,27 +467,15 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
         </div>
 
         {/* Summary bar */}
-        <div
-          className="px-4 py-2 border-t flex items-center gap-3 shrink-0"
-          style={{ borderColor: 'hsl(var(--border))' }}
-        >
+        <div className="px-4 py-2 border-t flex items-center gap-3 shrink-0" style={{ borderColor: 'hsl(var(--border))' }}>
           <div className="flex items-center gap-2 flex-1">
-            <span
-              className="flex items-center gap-1 text-[11px]"
-              style={{ color: photos.length > 0 ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}
-            >
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: photos.length > 0 ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}>
               <Camera size={11} /> {photos.length}
             </span>
-            <span
-              className="flex items-center gap-1 text-[11px]"
-              style={{ color: hasSignature ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}
-            >
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: hasSignature ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}>
               <PenLine size={11} /> {hasSignature ? '✓' : '–'}
             </span>
-            <span
-              className="flex items-center gap-1 text-[11px]"
-              style={{ color: notes.trim() ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}
-            >
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: notes.trim() ? 'hsl(142 69% 35%)' : 'hsl(var(--muted-foreground))' }}>
               <FileText size={11} /> {notes.trim() ? '✓' : '–'}
             </span>
           </div>
@@ -554,14 +494,228 @@ function PODModal({ order, onClose, onSubmitted }: PODModalProps) {
   );
 }
 
-// ─── Main Map Component ───────────────────────────────────────────────────────
+// ─── Google Maps Component ────────────────────────────────────────────────────
 
-export default function DriverRouteMap({ orders, driverName }: DriverRouteMapProps) {
+interface GoogleMapViewProps {
+  ordersWithCoords: OrderWithCoords[];
+  center: [number, number];
+  apiKey: string;
+  onSelectOrder: (order: OrderWithCoords) => void;
+  expanded: boolean;
+}
+
+function GoogleMapView({ ordersWithCoords, center, apiKey, onSelectOrder, expanded }: GoogleMapViewProps) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const [mapsLoaded, setMapsLoaded] = useState(false);
+
+  // Load Google Maps script
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if ((window as any).google?.maps) {
+      setMapsLoaded(true);
+      return;
+    }
+    const existingScript = document.getElementById('google-maps-script');
+    if (existingScript) {
+      existingScript.addEventListener('load', () => setMapsLoaded(true));
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'google-maps-script';
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setMapsLoaded(true);
+    document.head.appendChild(script);
+  }, [apiKey]);
+
+  // Init map
+  useEffect(() => {
+    if (!mapsLoaded || !mapRef.current || mapInstanceRef.current) return;
+    const google = (window as any).google;
+    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+      center: { lat: center[0], lng: center[1] },
+      zoom: 11,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      styles: [
+        { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+      ],
+    });
+  }, [mapsLoaded, center]);
+
+  // Update markers & polyline
+  useEffect(() => {
+    if (!mapsLoaded || !mapInstanceRef.current) return;
+    const google = (window as any).google;
+    const map = mapInstanceRef.current;
+
+    // Clear existing markers
+    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current.clear();
+    if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
+    }
+
+    const validOrders = ordersWithCoords.filter((o) => o.coords);
+    const bounds = new google.maps.LatLngBounds();
+
+    validOrders.forEach((order, idx) => {
+      if (!order.coords) return;
+      const color = STATUS_COLOR[order.status] ?? '#6b7280';
+      const urgent = isWindowUrgent(order.deliveryWindow);
+      const position = { lat: order.coords[0], lng: order.coords[1] };
+
+      const markerLabel = {
+        text: String(idx + 1),
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: '12px',
+      };
+
+      const marker = new google.maps.Marker({
+        position,
+        map,
+        label: markerLabel,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 16,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: 'white',
+          strokeWeight: 2.5,
+        },
+        title: `${order.customer.name} — ${order.deliveryAddress?.postcode ?? ''}`,
+        zIndex: urgent ? 10 : 5,
+      });
+
+      marker.addListener('click', () => onSelectOrder(order));
+      markersRef.current.set(order.id, marker);
+      bounds.extend(position);
+    });
+
+    if (validOrders.length >= 2) {
+      const path = validOrders.filter((o) => o.coords).map((o) => ({ lat: o.coords![0], lng: o.coords![1] }));
+      polylineRef.current = new google.maps.Polyline({
+        path,
+        geodesic: true,
+        strokeColor: '#8b5cf6',
+        strokeOpacity: 0.7,
+        strokeWeight: 3,
+        icons: [{
+          icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 4 },
+          offset: '0',
+          repeat: '20px',
+        }],
+        map,
+      });
+    }
+
+    if (validOrders.length > 0) {
+      try { map.fitBounds(bounds, 60); } catch {}
+    }
+  }, [mapsLoaded, ordersWithCoords, onSelectOrder]);
+
+  if (!mapsLoaded) {
+    return (
+      <div className="w-full h-full flex items-center justify-center" style={{ minHeight: expanded ? '500px' : '280px' }}>
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
+          <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Loading Google Maps…</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <div ref={mapRef} className="w-full h-full" style={{ minHeight: expanded ? '500px' : '280px' }} />;
+}
+
+// ─── Leaflet Fallback Component ───────────────────────────────────────────────
+
+interface LeafletMapViewProps {
+  ordersWithCoords: OrderWithCoords[];
+  center: [number, number];
+  onSelectOrder: (order: OrderWithCoords) => void;
+  expanded: boolean;
+}
+
+function LeafletMapView({ ordersWithCoords, center, onSelectOrder, expanded }: LeafletMapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
   const routeLayerRef = useRef<any>(null);
 
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    import('leaflet').then((leafletModule) => {
+      const L = leafletModule.default;
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+      if (!mapRef.current || mapInstanceRef.current) return;
+      const map = L.map(mapRef.current, { center, zoom: 11, zoomControl: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+      mapInstanceRef.current = map;
+    });
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markersRef.current.clear();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    import('leaflet').then((leafletModule) => {
+      const L = leafletModule.default;
+      const map = mapInstanceRef.current;
+      const bounds: [number, number][] = [];
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current.clear();
+      if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
+      const validOrders = ordersWithCoords.filter((o) => o.coords);
+      validOrders.forEach((order, idx) => {
+        if (!order.coords) return;
+        const color = STATUS_COLOR[order.status] ?? '#6b7280';
+        const urgent = isWindowUrgent(order.deliveryWindow);
+        const iconHtml = `<div style="width:32px;height:32px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;cursor:pointer;position:relative;">${idx + 1}${urgent ? `<span style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;background:#ef4444;border-radius:50%;border:2px solid white;"></span>` : ''}</div>`;
+        const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+        const marker = L.marker(order.coords, { icon }).addTo(map).on('click', () => onSelectOrder(order));
+        markersRef.current.set(order.id, marker);
+        bounds.push(order.coords);
+      });
+      if (validOrders.length >= 2) {
+        const latlngs = validOrders.filter((o) => o.coords).map((o) => o.coords as [number, number]);
+        routeLayerRef.current = L.polyline(latlngs, { color: '#8b5cf6', weight: 3, opacity: 0.7, dashArray: '8, 6' }).addTo(map);
+      }
+      if (bounds.length > 0) { try { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 }); } catch {} }
+    });
+  }, [ordersWithCoords, onSelectOrder]);
+
+  return (
+    <>
+      <style>{`@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');`}</style>
+      <div ref={mapRef} className="w-full h-full" style={{ minHeight: expanded ? '500px' : '280px' }} />
+    </>
+  );
+}
+
+// ─── Main Map Component ───────────────────────────────────────────────────────
+
+export default function DriverRouteMap({ orders, driverName }: DriverRouteMapProps) {
   const [ordersWithCoords, setOrdersWithCoords] = useState<OrderWithCoords[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<OrderWithCoords | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -580,144 +734,39 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
       setOrdersWithCoords([]);
       return;
     }
-
     setGeocoding(true);
-
     const geocodeAll = async () => {
       const results: OrderWithCoords[] = await Promise.all(
         activeOrders.map(async (order) => {
           if (!order.deliveryAddress) return { ...order, geocodeError: true };
           const addr = `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}, ${order.deliveryAddress.postcode}, UK`;
-          const coords = await geocodeAddress(addr);
+          let coords: [number, number] | null = null;
+          if (mapsConfig.useGoogleMaps && mapsConfig.apiKey) {
+            coords = await googleGeocode(addr, mapsConfig.apiKey);
+          }
+          if (!coords) {
+            coords = await geocodeAddressNominatim(addr);
+          }
           return coords ? { ...order, coords } : { ...order, geocodeError: true };
         })
       );
       setOrdersWithCoords(results);
       setGeocoding(false);
     };
-
     geocodeAll();
-  }, [orders.length, orders.map((o) => o.id).join(',')]);
-
-  useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-
-    import('leaflet').then((leafletModule) => {
-      const L = leafletModule.default;
-
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
-      if (!mapRef.current || mapInstanceRef.current) return;
-
-      const map = L.map(mapRef.current, {
-        center: mapsConfig.loading ? DEFAULT_MAP_CENTER : mapsConfig.defaultCenter,
-        zoom: 11,
-        zoomControl: true,
-        attributionControl: true,
-      });
-
-      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
-      L.tileLayer(tileConfig.url, {
-        attribution: tileConfig.attribution,
-        maxZoom: tileConfig.maxZoom,
-        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
-      }).addTo(map);
-
-      mapInstanceRef.current = map;
-    });
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-        markersRef.current.clear();
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-
-    import('leaflet').then((leafletModule) => {
-      const L = leafletModule.default;
-      const map = mapInstanceRef.current;
-      const bounds: [number, number][] = [];
-
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current.clear();
-
-      if (routeLayerRef.current) {
-        routeLayerRef.current.remove();
-        routeLayerRef.current = null;
-      }
-
-      const validOrders = ordersWithCoords.filter((o) => o.coords);
-
-      validOrders.forEach((order, idx) => {
-        if (!order.coords) return;
-        const color = STATUS_COLOR[order.status] ?? '#6b7280';
-        const isUrgent = isWindowUrgent(order.deliveryWindow);
-
-        const iconHtml = `
-          <div style="
-            width:32px;height:32px;border-radius:50%;
-            background:${color};border:3px solid white;
-            box-shadow:0 2px 8px rgba(0,0,0,0.3);
-            display:flex;align-items:center;justify-content:center;
-            font-size:12px;font-weight:700;color:white;
-            cursor:pointer;position:relative;
-          ">
-            ${idx + 1}
-            ${isUrgent ? `<span style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;background:#ef4444;border-radius:50%;border:2px solid white;"></span>` : ''}
-          </div>
-        `;
-
-        const icon = L.divIcon({
-          html: iconHtml,
-          className: '',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        });
-
-        const marker = L.marker(order.coords, { icon })
-          .addTo(map)
-          .on('click', () => {
-            setSelectedOrder(order);
-            setShowNavPanel(true);
-          });
-
-        markersRef.current.set(order.id, marker);
-        bounds.push(order.coords);
-      });
-
-      if (validOrders.length >= 2) {
-        const latlngs = validOrders.filter((o) => o.coords).map((o) => o.coords as [number, number]);
-        routeLayerRef.current = L.polyline(latlngs, {
-          color: 'hsl(262, 83%, 58%)',
-          weight: 3,
-          opacity: 0.7,
-          dashArray: '8, 6',
-        }).addTo(map);
-      }
-
-      if (bounds.length > 0) {
-        try {
-          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-        } catch {}
-      }
-    });
-  }, [ordersWithCoords]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders.length, orders.map((o) => o.id).join(','), mapsConfig.useGoogleMaps, mapsConfig.apiKey]);
 
   const geocodedCount = ordersWithCoords.filter((o) => o.coords).length;
+  const mapCenter = mapsConfig.loading ? DEFAULT_MAP_CENTER : mapsConfig.defaultCenter;
+
+  const handleSelectOrder = useCallback((order: OrderWithCoords) => {
+    setSelectedOrder(order);
+    setShowNavPanel(true);
+  }, []);
 
   return (
     <>
-      {/* POD Modal */}
       {podOrder && (
         <PODModal
           order={podOrder}
@@ -739,24 +788,22 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
         }}
       >
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-          style={{ borderColor: 'hsl(var(--border))' }}
-        >
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: 'hsl(var(--border))' }}>
           <div className="flex items-center gap-2">
             <Route size={16} style={{ color: 'hsl(var(--primary))' }} />
-            <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-              Route Map
-            </h3>
+            <h3 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Route Map</h3>
+            {mapsConfig.useGoogleMaps && !mapsConfig.loading && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'hsl(217 91% 60% / 0.1)', color: 'hsl(217 91% 60%)' }}>
+                Google Maps
+              </span>
+            )}
             {geocoding && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full animate-pulse"
-                style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+              <span className="text-[10px] px-2 py-0.5 rounded-full animate-pulse" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
                 Locating…
               </span>
             )}
             {!geocoding && geocodedCount > 0 && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: 'hsl(262 83% 58% / 0.1)', color: 'hsl(262 83% 58%)' }}>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'hsl(262 83% 58% / 0.1)', color: 'hsl(262 83% 58%)' }}>
                 {geocodedCount} stop{geocodedCount !== 1 ? 's' : ''}
               </span>
             )}
@@ -782,16 +829,34 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
 
         {/* Map */}
         <div className="flex-1 relative" style={{ minHeight: 0 }}>
-          <style>{`
-            @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-          `}</style>
+          {!mapsConfig.loading && (
+            mapsConfig.useGoogleMaps && mapsConfig.apiKey ? (
+              <GoogleMapView
+                ordersWithCoords={ordersWithCoords}
+                center={mapCenter}
+                apiKey={mapsConfig.apiKey}
+                onSelectOrder={handleSelectOrder}
+                expanded={expanded}
+              />
+            ) : (
+              <LeafletMapView
+                ordersWithCoords={ordersWithCoords}
+                center={mapCenter}
+                onSelectOrder={handleSelectOrder}
+                expanded={expanded}
+              />
+            )
+          )}
 
-          <div ref={mapRef} className="w-full h-full" style={{ minHeight: expanded ? '500px' : '280px' }} />
+          {mapsConfig.loading && (
+            <div className="w-full h-full flex items-center justify-center" style={{ minHeight: expanded ? '500px' : '280px' }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
+            </div>
+          )}
 
           {/* Empty state overlay */}
-          {!geocoding && activeOrders.length === 0 && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none"
-              style={{ backgroundColor: 'hsl(var(--card) / 0.85)' }}>
+          {!geocoding && !mapsConfig.loading && activeOrders.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none" style={{ backgroundColor: 'hsl(var(--card) / 0.85)' }}>
               <MapIcon size={32} style={{ color: 'hsl(var(--muted-foreground))' }} />
               <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No active deliveries</p>
               <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Assigned orders will appear here</p>
@@ -817,8 +882,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
                       {STATUS_LABEL[selectedOrder.status] ?? selectedOrder.status}
                     </span>
                     {isWindowUrgent(selectedOrder.deliveryWindow) && (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                        style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>
                         Urgent
                       </span>
                     )}
@@ -844,10 +908,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => setShowNavPanel(false)}
-                  className="p-1.5 rounded-md hover:bg-secondary shrink-0"
-                >
+                <button onClick={() => setShowNavPanel(false)} className="p-1.5 rounded-md hover:bg-secondary shrink-0">
                   <ChevronDown size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
                 </button>
               </div>
@@ -879,10 +940,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
               </div>
 
               {/* POD Capture buttons */}
-              <div
-                className="flex gap-2 pt-2 border-t"
-                style={{ borderColor: 'hsl(var(--border))' }}
-              >
+              <div className="flex gap-2 pt-2 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
                 <button
                   onClick={() => setPodOrder(selectedOrder)}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-colors hover:bg-secondary"
@@ -892,7 +950,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
                   Photo
                 </button>
                 <button
-                  onClick={() => { setPodOrder(selectedOrder); }}
+                  onClick={() => setPodOrder(selectedOrder)}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-colors hover:bg-secondary"
                   style={{ borderColor: 'hsl(262 83% 58% / 0.4)', color: 'hsl(262 83% 58%)' }}
                 >
@@ -900,7 +958,7 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
                   Signature
                 </button>
                 <button
-                  onClick={() => { setPodOrder(selectedOrder); }}
+                  onClick={() => setPodOrder(selectedOrder)}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-colors hover:bg-secondary"
                   style={{ borderColor: 'hsl(262 83% 58% / 0.4)', color: 'hsl(262 83% 58%)' }}
                 >
@@ -914,33 +972,23 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
 
         {/* Stop list */}
         {ordersWithCoords.length > 0 && (
-          <div
-            className="border-t shrink-0 overflow-y-auto"
-            style={{ borderColor: 'hsl(var(--border))', maxHeight: '160px' }}
-          >
+          <div className="border-t shrink-0 overflow-y-auto" style={{ borderColor: 'hsl(var(--border))', maxHeight: '160px' }}>
             {ordersWithCoords.map((order, idx) => (
               <button
                 key={order.id}
                 onClick={() => {
                   setSelectedOrder(order);
                   setShowNavPanel(true);
-                  if (order.coords && mapInstanceRef.current) {
-                    mapInstanceRef.current.setView(order.coords, 15);
-                  }
                 }}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-left border-b last:border-b-0 transition-colors hover:bg-secondary"
                 style={{ borderColor: 'hsl(var(--border))' }}
               >
                 <span
                   className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                  style={{
-                    backgroundColor: STATUS_COLOR[order.status] ?? '#6b7280',
-                    color: 'white',
-                  }}
+                  style={{ backgroundColor: STATUS_COLOR[order.status] ?? '#6b7280', color: 'white' }}
                 >
                   {idx + 1}
                 </span>
-
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
                     {order.customer.name}
@@ -951,7 +999,6 @@ export default function DriverRouteMap({ orders, driverName }: DriverRouteMapPro
                     </p>
                   )}
                 </div>
-
                 <div className="flex flex-col items-end gap-0.5 shrink-0">
                   <span className="text-[11px] font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
                     {order.deliveryWindow}
