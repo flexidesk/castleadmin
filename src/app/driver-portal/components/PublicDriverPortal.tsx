@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
-import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter, ChevronDown } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Clock, MapPin, Phone, RefreshCw, Loader2, Navigation, AlertCircle, Calendar, User, ArrowRight, PoundSterling, TrendingUp, Star, Shield, Timer, X, Mail, Lock, Eye, EyeOff, History, Car, Wrench, Search, CheckSquare, XCircle, Info, Camera, Trash2, CreditCard, FileCheck, XOctagon, Banknote, WifiOff, Bell, BellOff, BellRing, CheckCheck, Filter, ChevronDown, Settings2 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import AppLogo from '@/components/ui/AppLogo';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -14,6 +14,7 @@ const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false })
 import DriverPODUpload from './DriverPODUpload';
 import { useDriverGps } from '@/hooks/useDriverGps';
 import { useDriverPushNotifications } from '@/hooks/useDriverPushNotifications';
+import DriverNotificationSettings from './DriverNotificationSettings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2813,7 +2814,7 @@ function DriverDashboard({
   const [driver, setDriver] = useState(initialDriver);
   const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading' | 'earnings' | 'cash' | 'notifications'>('orders');
+  const [activeSection, setActiveSection] = useState<'orders' | 'past-bookings' | 'vehicle' | 'map' | 'profile' | 'loading' | 'earnings' | 'cash' | 'notifications' | 'notif-settings'>('orders');
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'all'>('today');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -3234,6 +3235,7 @@ function DriverDashboard({
             { key: 'vehicle', label: 'Vehicle', icon: Car },
             { key: 'map', label: 'Map', icon: MapPin },
             { key: 'notifications', label: 'Alerts', icon: Bell },
+            { key: 'notif-settings', label: 'Notif.', icon: Settings2 },
             { key: 'profile', label: 'Profile', icon: User },
           ] as const).map((tab) => (
             <button
@@ -4078,6 +4080,11 @@ function DriverDashboard({
         {/* ── NOTIFICATIONS SECTION ── */}
         {activeSection === 'notifications' && (
           <NotificationsSection driverId={driver.id} />
+        )}
+
+        {/* ── NOTIFICATION SETTINGS SECTION ── */}
+        {activeSection === 'notif-settings' && (
+          <DriverNotificationSettings driverId={driver.id} />
         )}
 
         {/* ── PROFILE SECTION ── */}
