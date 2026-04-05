@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppOrder } from '@/lib/services/ordersService';
 import { ordersService } from '@/lib/services/ordersService';
+import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { ArrowLeft, MapPin, Clock, Package, Phone, MessageSquare, CheckCircle2, Truck, Navigation, FileCheck, ChevronRight,  } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import DriverPODUpload from './DriverPODUpload';
 import Icon from '@/components/ui/AppIcon';
+import DeliveryStatusButtons from './DeliveryStatusButtons';
 
 
 interface Props {
@@ -29,6 +31,39 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
   const [activeTab, setActiveTab] = useState<TabKey>('details');
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<AppOrder>(order);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [statusUpdates, setStatusUpdates] = useState<any[]>([]);
+
+  const supabase = createClient();
+
+  useEffect(() => {
+    const loadDriverAndUpdates = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: driverData } = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (driverData) {
+        setDriverId(driverData.id);
+      }
+
+      const { data: updates } = await supabase
+        .from('delivery_status_updates')
+        .select('*')
+        .eq('order_id', order.id)
+        .order('timestamp', { ascending: true });
+
+      if (updates) {
+        setStatusUpdates(updates);
+      }
+    };
+
+    loadDriverAndUpdates();
+  }, [order.id]);
 
   const currentStatusIdx = STATUS_FLOW.findIndex(s => s.key === currentOrder.status);
   const nextStatus = currentStatusIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentStatusIdx + 1] : null;
@@ -192,6 +227,14 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
       {/* Tab Content */}
       {activeTab === 'details' && (
         <div className="space-y-3">
+          {/* Delivery Status Buttons */}
+          <DeliveryStatusButtons
+            orderId={currentOrder.id}
+            driverId={driverId}
+            existingUpdates={statusUpdates}
+            onUpdate={(update) => setStatusUpdates((prev) => [...prev, update])}
+          />
+
           {/* Customer Info */}
           <div
             className="rounded-xl border p-4 space-y-3"
