@@ -117,20 +117,27 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         className="flex items-center border-b px-3 py-4 overflow-hidden"
         style={{ borderColor: 'hsl(var(--border))', minHeight: '65px' }}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 w-full">
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="Logo" width={32} height={32} className="flex-shrink-0 rounded object-contain" style={{ width: 32, height: 32 }} />
+            <img
+              src={logoUrl}
+              alt="Logo"
+              className="flex-shrink-0 rounded object-contain"
+              style={collapsed ? { width: 40, height: 40 } : { maxWidth: '100%', maxHeight: '48px', width: 'auto', height: 'auto' }}
+            />
           ) : (
-            <AppLogo size={32} />
-          )}
-          {!collapsed && (
-            <span
-              className="font-semibold text-base whitespace-nowrap overflow-hidden transition-all duration-300"
-              style={{ color: 'hsl(var(--primary))' }}
-            >
-              {appName || 'CastleAdmin'}
-            </span>
+            <>
+              <AppLogo size={32} />
+              {!collapsed && (
+                <span
+                  className="font-semibold text-base whitespace-nowrap overflow-hidden transition-all duration-300"
+                  style={{ color: 'hsl(var(--primary))' }}
+                >
+                  {appName || 'CastleAdmin'}
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>

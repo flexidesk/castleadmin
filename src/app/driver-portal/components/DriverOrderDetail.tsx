@@ -69,6 +69,11 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
   const nextStatus = currentStatusIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentStatusIdx + 1] : null;
   const isComplete = currentOrder.status === 'Booking Complete';
 
+  const ALL_TASK_KEYS = ['departed', 'arrived_at_location', 'started_delivery', 'completed'];
+  const allTasksDone = ALL_TASK_KEYS.every(key => statusUpdates.some(u => u.status === key));
+  const isMarkingComplete = nextStatus?.key === 'Booking Complete';
+  const canAdvance = !isMarkingComplete || allTasksDone;
+
   const handleAdvanceStatus = async () => {
     if (!nextStatus) return;
     setUpdatingStatus(true);
@@ -175,12 +180,13 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
         {!isComplete && nextStatus && (
           <button
             onClick={handleAdvanceStatus}
-            disabled={updatingStatus}
+            disabled={updatingStatus || !canAdvance}
             className="w-full mt-2 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2"
             style={{
-              backgroundColor: 'hsl(var(--primary))',
-              color: 'white',
+              backgroundColor: canAdvance ? 'hsl(var(--primary))' : 'hsl(var(--muted))',
+              color: canAdvance ? 'white' : 'hsl(var(--muted-foreground))',
               opacity: updatingStatus ? 0.7 : 1,
+              cursor: canAdvance ? 'pointer' : 'not-allowed',
             }}
           >
             {updatingStatus ? (
@@ -192,6 +198,11 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
               </>
             )}
           </button>
+        )}
+        {!isComplete && isMarkingComplete && !allTasksDone && (
+          <p className="text-xs text-center mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            Complete all delivery status updates above before marking as complete
+          </p>
         )}
         {isComplete && (
           <div
