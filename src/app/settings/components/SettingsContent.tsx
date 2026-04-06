@@ -157,6 +157,7 @@ interface WooCommerceSettings {
   consumer_key: string;
   consumer_secret: string;
   is_connected: boolean;
+  is_enabled?: boolean;
   last_tested_at?: string | null;
   last_test_status?: string | null;
   last_test_message?: string | null;
@@ -332,7 +333,7 @@ const DEFAULT_WC_FIELD_MAPPING: WooCommerceFieldMapping = {
 };
 
 const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
-  store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
+  store_url: '', consumer_key: '', consumer_secret: '', is_connected: false, is_enabled: true,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1119,6 +1120,7 @@ export default function SettingsContent() {
           store_url: wcSettings.store_url,
           consumer_key: wcSettings.consumer_key,
           consumer_secret: wcSettings.consumer_secret,
+          is_enabled: wcSettings.is_enabled ?? true,
           updated_at: new Date().toISOString(),
         }).eq('id', wcSettings.id);
         if (error) throw error;
@@ -1128,6 +1130,7 @@ export default function SettingsContent() {
           consumer_key: wcSettings.consumer_key,
           consumer_secret: wcSettings.consumer_secret,
           is_connected: false,
+          is_enabled: wcSettings.is_enabled ?? true,
         }).select().single();
         if (error) throw error;
         if (data) setWcSettings((s) => ({ ...s, ...data }));
@@ -1138,6 +1141,27 @@ export default function SettingsContent() {
       toast.error(`Failed to save WooCommerce settings: ${msg}`);
     } finally {
       setWcSaving(false);
+    }
+  };
+
+  const toggleWcEnabled = async () => {
+    const newEnabled = !(wcSettings.is_enabled ?? true);
+    setWcSettings((s) => ({ ...s, is_enabled: newEnabled }));
+    if (wcSettings.id) {
+      try {
+        const { error } = await supabase.from('woocommerce_settings').update({
+          is_enabled: newEnabled,
+          updated_at: new Date().toISOString(),
+        }).eq('id', wcSettings.id);
+        if (error) throw error;
+        toast.success(newEnabled ? 'WooCommerce integration enabled' : 'WooCommerce integration disabled');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        toast.error(`Failed to update WooCommerce status: ${msg}`);
+        setWcSettings((s) => ({ ...s, is_enabled: !newEnabled }));
+      }
+    } else {
+      toast.success(newEnabled ? 'WooCommerce integration enabled' : 'WooCommerce integration disabled');
     }
   };
 
@@ -1465,8 +1489,8 @@ export default function SettingsContent() {
                   type="button"
                   onClick={() => logoInputRef.current?.click()}
                   disabled={logoUploading}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
-                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
                 >
                   <Upload size={12} /> {logoUploading ? 'Uploading…' : 'Choose Logo File'}
                 </button>
@@ -1529,8 +1553,8 @@ export default function SettingsContent() {
                   type="button"
                   onClick={() => faviconInputRef.current?.click()}
                   disabled={faviconUploading}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
-                  style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
                 >
                   <Upload size={12} /> {faviconUploading ? 'Uploading…' : 'Choose Favicon File'}
                 </button>
@@ -1633,11 +1657,7 @@ export default function SettingsContent() {
                       className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
                         fleet.fee_structure === type ? 'border-primary' : ''
                       }`}
-                      style={fleet.fee_structure === type ? {
-                        backgroundColor: 'hsl(var(--primary) / 0.1)',
-                        borderColor: 'hsl(var(--primary))',
-                        color: 'hsl(var(--primary))',
-                      } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                      style={fleet.fee_structure === type ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
                     >
                       {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per Mile' : 'Tiered'}
                     </button>
@@ -2009,20 +2029,20 @@ export default function SettingsContent() {
                     <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{role.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Toggle checked={role.is_active} onChange={(v) => updateUserRole(role.id, { is_active: v })} />
-                    <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Permissions</button>
-                    <button onClick={() => deleteUserRole(role.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Remove</button>
+                    <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                      {expandedRole === role.id ? 'Hide' : 'Show'}
+                    </button>
+                    {expandedRole === role.id && (
+                      <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                        {(['can_create_orders', 'can_edit_orders', 'can_delete_orders', 'can_manage_drivers', 'can_view_analytics', 'can_manage_settings'] as (keyof UserRole)[]).map((perm) => (
+                          <label key={perm} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'hsl(var(--foreground))' }}>
+                            <input type="checkbox" checked={!!role[perm]} onChange={(e) => updateUserRole(role.id, { [perm]: e.target.checked } as Partial<UserRole>)} />
+                            {perm.replace(/_/g, ' ')}
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {expandedRole === role.id && (
-                    <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
-                      {(['can_create_orders', 'can_edit_orders', 'can_delete_orders', 'can_manage_drivers', 'can_view_analytics', 'can_manage_settings'] as (keyof UserRole)[]).map((perm) => (
-                        <label key={perm} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'hsl(var(--foreground))' }}>
-                          <input type="checkbox" checked={!!role[perm]} onChange={(e) => updateUserRole(role.id, { [perm]: e.target.checked } as Partial<UserRole>)} />
-                          {perm.replace(/_/g, ' ')}
-                        </label>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))}
               {userRoles.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No team members added yet.</p>}
@@ -2071,7 +2091,23 @@ export default function SettingsContent() {
                       <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Connect your WooCommerce store to sync orders automatically</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    {/* Enable/Disable toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {(wcSettings.is_enabled ?? true) ? 'Enabled' : 'Disabled'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={toggleWcEnabled}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${(wcSettings.is_enabled ?? true) ? 'bg-green-500' : 'bg-gray-300'}`}
+                        title={(wcSettings.is_enabled ?? true) ? 'Disable WooCommerce integration' : 'Enable WooCommerce integration'}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${(wcSettings.is_enabled ?? true) ? 'translate-x-4' : 'translate-x-1'}`}
+                        />
+                      </button>
+                    </div>
                     {wcSettings.last_test_status === 'success' ? (
                       <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
                         <CheckCircle size={11} /> Connected
@@ -2085,6 +2121,13 @@ export default function SettingsContent() {
                     )}
                   </div>
                 </div>
+
+                {!(wcSettings.is_enabled ?? true) && (
+                  <div className="rounded-lg px-4 py-3 flex items-center gap-2 text-sm" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                    <XCircle size={15} />
+                    <span>WooCommerce integration is disabled. Order syncing and webhooks are paused. Toggle the switch above to re-enable.</span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4">
                   <div>
