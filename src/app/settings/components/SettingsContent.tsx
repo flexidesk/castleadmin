@@ -2412,258 +2412,258 @@ export default function SettingsContent() {
               {integrations.length === 0 && <p className="text-sm text-center py-8" style={{ color: 'hsl(var(--muted-foreground))' }}>No integrations available.</p>}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── API Keys sub-tab ── */}
-          {integrationsSubTab === 'api_keys' && (
-            <div className="space-y-5">
-              <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Key size={15} style={{ color: 'hsl(var(--primary))' }} /> API Keys</h2>
-                  <button onClick={() => setShowNewKeyForm((v) => !v)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                    <Key size={13} /> New Key
+      {/* ── API Keys sub-tab ── */}
+      {integrationsSubTab === 'api_keys' && (
+        <div className="space-y-5">
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Key size={15} style={{ color: 'hsl(var(--primary))' }} /> API Keys</h2>
+              <button onClick={() => setShowNewKeyForm((v) => !v)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                <Key size={13} /> New Key
+              </button>
+            </div>
+            {generatedKey && (
+              <div className="p-3 rounded-lg border border-yellow-300 bg-yellow-50 text-xs space-y-1">
+                <p className="font-semibold text-yellow-800">Copy your API key now — it will not be shown again.</p>
+                <code className="block break-all text-yellow-900">{generatedKey}</code>
+                <button onClick={() => { navigator.clipboard.writeText(generatedKey); toast.success('Copied!'); }} className="px-3 py-1 rounded bg-yellow-200 text-yellow-800 font-medium">Copy</button>
+                <button onClick={() => setGeneratedKey(null)} className="ml-2 px-3 py-1 rounded bg-gray-200 text-gray-700 font-medium">Dismiss</button>
+              </div>
+            )}
+            {showNewKeyForm && (
+              <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextInput label="Key Name" value={newKeyForm.name} onChange={(v) => setNewKeyForm((f) => ({ ...f, name: v }))} placeholder="My Integration Key" />
+                  <TextInput label="Description" value={newKeyForm.description} onChange={(v) => setNewKeyForm((f) => ({ ...f, description: v }))} placeholder="Optional description" />
+                  <TextInput label="Expires At (optional)" value={newKeyForm.expires_at} onChange={(v) => setNewKeyForm((f) => ({ ...f, expires_at: v }))} type="date" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes</label>
+                  <div className="flex flex-wrap gap-2">
+                    {API_SCOPES.map((scope) => (
+                      <button key={scope} onClick={() => toggleScopeOnNewKey(scope)} className={`px-2 py-1 rounded text-xs border ${newKeyForm.scopes.includes(scope) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                        style={newKeyForm.scopes.includes(scope) ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                          {scope}
+                        </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                    {saving ? 'Creating…' : 'Create Key'}
+                  </button>
+                  <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                    Cancel
                   </button>
                 </div>
-                {generatedKey && (
-                  <div className="p-3 rounded-lg border border-yellow-300 bg-yellow-50 text-xs space-y-1">
-                    <p className="font-semibold text-yellow-800">Copy your API key now — it will not be shown again.</p>
-                    <code className="block break-all text-yellow-900">{generatedKey}</code>
-                    <button onClick={() => { navigator.clipboard.writeText(generatedKey); toast.success('Copied!'); }} className="px-3 py-1 rounded bg-yellow-200 text-yellow-800 font-medium">Copy</button>
-                    <button onClick={() => setGeneratedKey(null)} className="ml-2 px-3 py-1 rounded bg-gray-200 text-gray-700 font-medium">Dismiss</button>
-                  </div>
-                )}
-                {showNewKeyForm && (
-                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput label="Key Name" value={newKeyForm.name} onChange={(v) => setNewKeyForm((f) => ({ ...f, name: v }))} placeholder="My Integration Key" />
-                      <TextInput label="Description" value={newKeyForm.description} onChange={(v) => setNewKeyForm((f) => ({ ...f, description: v }))} placeholder="Optional description" />
-                      <TextInput label="Expires At (optional)" value={newKeyForm.expires_at} onChange={(v) => setNewKeyForm((f) => ({ ...f, expires_at: v }))} type="date" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes</label>
-                      <div className="flex flex-wrap gap-2">
-                        {API_SCOPES.map((scope) => (
-                          <button key={scope} onClick={() => toggleScopeOnNewKey(scope)} className={`px-2 py-1 rounded text-xs border ${newKeyForm.scopes.includes(scope) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-                            style={newKeyForm.scopes.includes(scope) ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                            {scope}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                        {saving ? 'Creating…' : 'Create Key'}
-                      </button>
-                      <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  {apiKeys.map((k) => (
-                    <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{k.name} {!k.is_active && <span className="ml-2 text-xs text-red-500">Revoked</span>}</p>
-                        <p className="text-xs font-mono" style={{ color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? k.key_preview : k.key_preview}</p>
-                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                          {revealedKeys.has(k.id) ? 'Hide' : 'Show'}
-                        </button>
-                        {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
-                        <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                  {apiKeys.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No API keys yet.</p>}
-                </div>
               </div>
-            </div>
-          )}
-
-          {/* ── Webhooks sub-tab ── */}
-          {integrationsSubTab === 'webhooks' && (
-            <div className="space-y-4">
-              <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-center justify-between flex-wrap gap-3">
+            )}
+            <div className="space-y-2">
+              {apiKeys.map((k) => (
+                <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{k.name} {!k.is_active && <span className="ml-2 text-xs text-red-500">Revoked</span>}</p>
+                    <p className="text-xs font-mono" style={{ color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? k.key_preview : k.key_preview}</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} />
-                    <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Outgoing Webhooks</h2>
+                    <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                      {revealedKeys.has(k.id) ? 'Hide' : 'Show'}
+                    </button>
+                    {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
+                    <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
                   </div>
-                  <button
-                    onClick={() => setShowNewWebhookForm(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                    style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
-                  >
-                    + Add Webhook
-                  </button>
                 </div>
-                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  Configure endpoints to receive real-time notifications when events occur (order created, status updated, driver assigned, etc.).
-                </p>
-
-                {webhooks.length === 0 && !showNewWebhookForm && (
-                  <div className="text-center py-8">
-                    <Webhook size={32} className="mx-auto mb-2 opacity-30" />
-                    <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No webhooks configured yet.</p>
-                  </div>
-                )}
-
-                {showNewWebhookForm && (
-                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
-                      <div>
-                        <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
-                        <div className="flex gap-2">
-                          {(['POST', 'GET'] as const).map((m) => (
-                            <button
-                              key={m}
-                              onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
-                              className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
-                              style={newWebhookForm.method === m
-                                ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
-                                : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                            >{m}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
-                      </div>
-                      <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="HMAC signing secret" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
-                      <div className="flex flex-wrap gap-2">
-                        {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
-                          <button
-                            key={ev}
-                            onClick={() => setNewWebhookForm((f) => ({
-                              ...f,
-                              events: f.events.includes(ev)
-                                ? f.events.filter((e) => e !== ev)
-                                : [...f.events, ev],
-                            }))}
-                            className="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all"
-                            style={newWebhookForm.events.includes(ev)
-                              ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
-                              : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                          >{ev}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 justify-end pt-2">
-                      <button onClick={() => { setShowNewWebhookForm(false); setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true }); }} className="btn-secondary text-xs">Cancel</button>
-                      <button
-                        disabled={!newWebhookForm.name || !newWebhookForm.url || newWebhookForm.events.length === 0}
-                        onClick={async () => {
-                          setSaving(true);
-                          try {
-                            const { error } = await supabase.from('webhook_configs').insert({
-                              name: newWebhookForm.name, url: newWebhookForm.url,
-                              method: newWebhookForm.method, secret: newWebhookForm.secret,
-                              events: newWebhookForm.events, is_active: true,
-                            });
-                            if (error) throw error;
-                            const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
-                            setWebhooks(all ?? []);
-                            setShowNewWebhookForm(false);
-                            setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
-                            toast.success('Webhook created');
-                          } catch (err: unknown) {
-                            toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                          } finally { setSaving(false); }
-                        }}
-                        className="btn-primary text-xs"
-                      ><Save size={12} /> Save Webhook</button>
-                    </div>
-                  </div>
-                )}
-
-                {webhooks.map((wh) => (
-                  <div key={wh.id} className="border rounded-lg p-4" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</span>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                            {wh.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{wh.method}</span>
-                        </div>
-                        <p className="text-xs font-mono truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {wh.events?.map((ev: string) => (
-                            <span key={ev} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{ev}</span>
-                          ))}
-                        </div>
-                        {wh.last_triggered_at && (
-                          <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                            Last fired: {new Date(wh.last_triggered_at).toLocaleString('en-GB')} — Status: {wh.last_status ?? 'unknown'}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={async () => {
-                            setTestingWebhook(wh.id ?? null);
-                            try {
-                              const res = await fetch('/api/webhooks/fire', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ event: 'webhook.test', data: { test: true, timestamp: new Date().toISOString() }, webhook_id: wh.id }),
-                              });
-                              const result = await res.json();
-                              if (result.fired > 0) toast.success('Test webhook sent');
-                              else toast.info('No delivery (webhook may not subscribe to webhook.test)');
-                              const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
-                              setWebhooks(all ?? []);
-                            } catch { toast.error('Test failed'); }
-                            finally { setTestingWebhook(null); }
-                          }}
-                          disabled={testingWebhook === wh.id}
-                          className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
-                          style={{ borderColor: 'hsl(var(--border))' }}
-                          title="Test webhook"
-                        >
-                          {testingWebhook === wh.id ? <RefreshCw size={12} className="animate-spin" /> : <Webhook size={12} />}
-                        </button>
-                        <button
-                          onClick={async () => {
-                            await supabase.from('webhook_configs').update({ is_active: !wh.is_active }).eq('id', wh.id);
-                            const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
-                            setWebhooks(all ?? []);
-                            toast.success(wh.is_active ? 'Webhook paused' : 'Webhook activated');
-                          }}
-                          className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
-                          style={{ borderColor: 'hsl(var(--border))' }}
-                          title={wh.is_active ? 'Pause' : 'Activate'}
-                        >
-                          {wh.is_active ? <XCircle size={12} /> : <CheckCircle size={12} />}
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (!confirm(`Delete webhook "${wh.name}"?`)) return;
-                            await supabase.from('webhook_configs').delete().eq('id', wh.id);
-                            setWebhooks((prev) => prev.filter((w) => w.id !== wh.id));
-                            toast.success('Webhook deleted');
-                          }}
-                          className="p-1.5 rounded-md border text-xs hover:bg-red-50 transition-colors"
-                          style={{ borderColor: 'hsl(var(--border))' }}
-                          title="Delete"
-                        >
-                          <Trash2 size={12} style={{ color: 'hsl(var(--destructive))' }} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              ))}
+              {apiKeys.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No API keys yet.</p>}
             </div>
-          )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Webhooks sub-tab ── */}
+      {integrationsSubTab === 'webhooks' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} />
+                <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Outgoing Webhooks</h2>
+              </div>
+              <button
+                onClick={() => setShowNewWebhookForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+              >
+                + Add Webhook
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Configure endpoints to receive real-time notifications when events occur (order created, status updated, driver assigned, etc.).
+            </p>
+
+            {webhooks.length === 0 && !showNewWebhookForm && (
+              <div className="text-center py-8">
+                <Webhook size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No webhooks configured yet.</p>
+              </div>
+            )}
+
+            {showNewWebhookForm && (
+              <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
+                  <div>
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
+                    <div className="flex gap-2">
+                      {(['POST', 'GET'] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
+                          className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
+                          style={newWebhookForm.method === m
+                            ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                            : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                        >{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
+                  </div>
+                  <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="HMAC signing secret" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
+                      <button
+                        key={ev}
+                        onClick={() => setNewWebhookForm((f) => ({
+                          ...f,
+                          events: f.events.includes(ev)
+                            ? f.events.filter((e) => e !== ev)
+                            : [...f.events, ev],
+                        }))}
+                        className="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all"
+                        style={newWebhookForm.events.includes(ev)
+                          ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                          : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                      >{ev}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end pt-2">
+                  <button onClick={() => { setShowNewWebhookForm(false); setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true }); }} className="btn-secondary text-xs">Cancel</button>
+                  <button
+                    disabled={!newWebhookForm.name || !newWebhookForm.url || newWebhookForm.events.length === 0}
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        const { error } = await supabase.from('webhook_configs').insert({
+                          name: newWebhookForm.name, url: newWebhookForm.url,
+                          method: newWebhookForm.method, secret: newWebhookForm.secret,
+                          events: newWebhookForm.events, is_active: true,
+                        });
+                        if (error) throw error;
+                        const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                        setWebhooks(all ?? []);
+                        setShowNewWebhookForm(false);
+                        setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
+                        toast.success('Webhook created');
+                      } catch (err: unknown) {
+                        toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                      } finally { setSaving(false); }
+                    }}
+                    className="btn-primary text-xs"
+                  ><Save size={12} /> Save Webhook</button>
+                </div>
+              </div>
+            )}
+
+            {webhooks.map((wh) => (
+              <div key={wh.id} className="border rounded-lg p-4" style={{ borderColor: 'hsl(var(--border))' }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {wh.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{wh.method}</span>
+                    </div>
+                    <p className="text-xs font-mono truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {wh.events?.map((ev: string) => (
+                        <span key={ev} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{ev}</span>
+                      ))}
+                    </div>
+                    {wh.last_triggered_at && (
+                      <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Last fired: {new Date(wh.last_triggered_at).toLocaleString('en-GB')} — Status: {wh.last_status ?? 'unknown'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={async () => {
+                        setTestingWebhook(wh.id ?? null);
+                        try {
+                          const res = await fetch('/api/webhooks/fire', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ event: 'webhook.test', data: { test: true, timestamp: new Date().toISOString() }, webhook_id: wh.id }),
+                          });
+                          const result = await res.json();
+                          if (result.fired > 0) toast.success('Test webhook sent');
+                          else toast.info('No delivery (webhook may not subscribe to webhook.test)');
+                          const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                          setWebhooks(all ?? []);
+                        } catch { toast.error('Test failed'); }
+                        finally { setTestingWebhook(null); }
+                      }}
+                      disabled={testingWebhook === wh.id}
+                      className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title="Test webhook"
+                    >
+                      {testingWebhook === wh.id ? <RefreshCw size={12} className="animate-spin" /> : <Webhook size={12} />}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await supabase.from('webhook_configs').update({ is_active: !wh.is_active }).eq('id', wh.id);
+                        const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                        setWebhooks(all ?? []);
+                        toast.success(wh.is_active ? 'Webhook paused' : 'Webhook activated');
+                      }}
+                      className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title={wh.is_active ? 'Pause' : 'Activate'}
+                    >
+                      {wh.is_active ? <XCircle size={12} /> : <CheckCircle size={12} />}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Delete webhook "${wh.name}"?`)) return;
+                        await supabase.from('webhook_configs').delete().eq('id', wh.id);
+                        setWebhooks((prev) => prev.filter((w) => w.id !== wh.id));
+                        toast.success('Webhook deleted');
+                      }}
+                      className="p-1.5 rounded-md border text-xs hover:bg-red-50 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title="Delete"
+                    >
+                      <Trash2 size={12} style={{ color: 'hsl(var(--destructive))' }} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2861,121 +2861,312 @@ export default function SettingsContent() {
 
       {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
       {activeTab === 'database' && (
-        <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-          <div className="flex items-center gap-2">
-            <RefreshCw size={15} style={{ color: 'hsl(var(--primary))' }} />
-            <h2 className="font-semibold text-sm text-red-600">Force Clear Cache</h2>
-          </div>
-          <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            Clears all locally stored data including browser cache, localStorage, sessionStorage, and service worker caches. Use this if you are experiencing stale data or display issues. The page will automatically reload after clearing.
-          </p>
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              onClick={clearCache}
-              disabled={clearingCache}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
-              style={{ backgroundColor: 'hsl(var(--primary))' }}
-            >
-              {clearingCache ? (
-                <><RefreshCw size={14} className="animate-spin" /> Clearing…</>
-              ) : (
-                <><RefreshCw size={14} /> Clear Cache</>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
+        <>
+          {/* ── Backup & Export ──────────────────────────────────────────────────── */}
+          <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Database size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Backup &amp; Export</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Download a full backup of all your data as a JSON file, or export individual tables as JSON or CSV.
+            </p>
 
-      {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
-      <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-6" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={16} className="text-red-500" />
-          <h2 className="font-semibold text-sm text-red-600">Danger Zone</h2>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-red-50 border border-red-100">
-          <div>
-            <p className="text-sm font-medium text-red-700">Reset App Data</p>
-            <p className="text-xs text-red-500 mt-0.5">Permanently removes all demo data — bookings, drivers, staff, vehicles, customers, and logs. Your admin account will be preserved.</p>
-          </div>
-          <button
-            onClick={() => { setShowResetModal(true); setResetConfirmText(''); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
-          >
-            <Trash2 size={14} /> Reset App
-          </button>
-        </div>
-      </div>
-
-      {/* ── Reset Confirmation Modal ───────────────────────────────────────────── */}
-      {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            {/* Header */}
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-full bg-red-100 flex-shrink-0">
-                <AlertTriangle size={20} className="text-red-600" />
+            {/* Format selector + full backup */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</label>
+                <select
+                  value={dbExportFormat}
+                  onChange={(e) => setDbExportFormat(e.target.value as 'json' | 'csv')}
+                  className="px-2 py-1.5 rounded-lg border text-xs focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                </select>
               </div>
-              <div>
-                <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Reset App Data</h3>
-                <p className="text-sm mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>This action is <strong>irreversible</strong>. The following data will be permanently deleted:</p>
-              </div>
-            </div>
-
-            {/* What will be deleted */}
-            <ul className="text-sm space-y-1 pl-4 list-disc" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              <li>All bookings &amp; orders</li>
-              <li>All drivers &amp; driver data</li>
-              <li>All staff / team roles (except your admin account)</li>
-              <li>All vehicles, inspections &amp; incidents</li>
-              <li>All customers</li>
-              <li>All activity logs, notifications &amp; alerts</li>
-            </ul>
-
-            {/* What is preserved */}
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
-              <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
-              <p className="text-xs text-green-700 font-medium">Your admin account and all settings will be preserved.</p>
-            </div>
-
-            {/* Confirm input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                Type <span className="font-bold text-red-600">RESET</span> to confirm
-              </label>
-              <input
-                type="text"
-                value={resetConfirmText}
-                onChange={(e) => setResetConfirmText(e.target.value)}
-                placeholder="Type RESET here"
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-red-300"
-                style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-1">
               <button
-                onClick={() => { setShowResetModal(false); setResetConfirmText(''); }}
-                disabled={resetting}
-                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50"
-                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                onClick={async () => {
+                  setDbExporting(true);
+                  try {
+                    const res = await fetch(`/api/database/export?format=${dbExportFormat}`);
+                    if (!res.ok) throw new Error('Export failed');
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `castle_admin_backup_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success('Full backup downloaded successfully');
+                  } catch {
+                    toast.error('Failed to export database');
+                  } finally {
+                    setDbExporting(false);
+                  }
+                }}
+                disabled={dbExporting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
               >
-                Cancel
+                {dbExporting ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
+                {dbExporting ? 'Exporting…' : 'Download Full Backup'}
               </button>
+            </div>
+
+            {/* Per-table exports */}
+            <div className="space-y-2 pt-1">
+              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {['orders', 'drivers', 'customers', 'vehicles', 'driver_shifts', 'driver_earnings', 'delivery_zones', 'notifications', 'activity_logs'].map((tbl) => (
+                  <button
+                    key={tbl}
+                    onClick={async () => {
+                      setDbTableExporting(tbl);
+                      try {
+                        const res = await fetch(`/api/database/export?format=${dbExportFormat}&table=${tbl}`);
+                        if (!res.ok) throw new Error('Export failed');
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${tbl}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast.success(`${tbl} exported`);
+                      } catch {
+                        toast.error(`Failed to export ${tbl}`);
+                      } finally {
+                        setDbTableExporting(null);
+                      }
+                    }}
+                    disabled={dbTableExporting === tbl}
+                    className="flex items-center justify-between gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-60"
+                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+                  >
+                    <span className="truncate">{tbl.replace(/_/g, ' ')}</span>
+                    {dbTableExporting === tbl ? <Loader2 size={12} className="animate-spin flex-shrink-0" /> : <Upload size={12} className="flex-shrink-0 rotate-180" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Import / Restore ─────────────────────────────────────────────────── */}
+          <div className="rounded-xl border p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Upload size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Import / Restore Database</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Restore data from a previously exported JSON backup file. Existing rows with matching IDs will be updated; new rows will be inserted.
+            </p>
+
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setImportBackupFile(file);
+                setImportBackupResult(null);
+              }}
+            />
+
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={resetAppData}
-                disabled={resetConfirmText !== 'RESET' || resetting}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => importFileRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
               >
-                {resetting ? (
-                  <><RefreshCw size={14} className="animate-spin" /> Resetting…</>
+                <Upload size={14} />
+                {importBackupFile ? importBackupFile.name : 'Choose Backup File'}
+              </button>
+
+              {importBackupFile && (
+                <button
+                  onClick={async () => {
+                    if (!importBackupFile) return;
+                    setImportingBackup(true);
+                    setImportBackupResult(null);
+                    try {
+                      const text = await importBackupFile.text();
+                      const parsed = JSON.parse(text);
+                      const backupData: Record<string, Record<string, unknown>[]> = parsed.data ?? parsed;
+
+                      const supabase = createClient();
+                      let successCount = 0;
+                      let failedCount = 0;
+                      const importedTables: string[] = [];
+
+                      for (const [tableName, rows] of Object.entries(backupData)) {
+                        if (!Array.isArray(rows) || rows.length === 0) continue;
+                        try {
+                          const { error } = await supabase.from(tableName as any).upsert(rows as any[], { onConflict: 'id' });
+                          if (error) {
+                            failedCount += rows.length;
+                          } else {
+                            successCount += rows.length;
+                            importedTables.push(tableName);
+                          }
+                        } catch {
+                          failedCount += rows.length;
+                        }
+                      }
+
+                      setImportBackupResult({ success: successCount, failed: failedCount, tables: importedTables });
+                      if (successCount > 0) {
+                        toast.success(`Import complete: ${successCount} rows restored across ${importedTables.length} tables`);
+                      } else {
+                        toast.error('Import failed — no rows were restored');
+                      }
+                    } catch {
+                      toast.error('Invalid backup file — could not parse JSON');
+                    } finally {
+                      setImportingBackup(false);
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
+                >
+                  {importingBackup ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {importingBackup ? 'Importing…' : 'Restore Backup'}
+                </button>
+              )}
+            </div>
+
+            {importBackupResult && (
+              <div className={`rounded-lg p-3 text-xs space-y-1 ${importBackupResult.failed === 0 ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                <p className="font-medium" style={{ color: importBackupResult.failed === 0 ? '#166534' : '#92400e' }}>
+                  Import Result: {importBackupResult.success} rows restored, {importBackupResult.failed} failed
+                </p>
+                {importBackupResult.tables.length > 0 && (
+                  <p style={{ color: 'hsl(var(--muted-foreground))' }}>Tables: {importBackupResult.tables.join(', ')}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
+          <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <RefreshCw size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm text-red-600">Force Clear Cache</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Clears all locally stored data including browser cache, localStorage, sessionStorage, and service worker caches. Use this if you are experiencing stale data or display issues. The page will automatically reload after clearing.
+            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={clearCache}
+                disabled={clearingCache}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {clearingCache ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Clearing…</>
                 ) : (
-                  <><Trash2 size={14} /> Confirm Reset</>
+                  <><RefreshCw size={14} /> Clear Cache</>
                 )}
               </button>
             </div>
           </div>
-        </div>
+
+          {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
+          <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-500" />
+              <h2 className="font-semibold text-sm text-red-600">Danger Zone</h2>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-red-50 border border-red-100">
+              <div>
+                <p className="text-sm font-medium text-red-700">Reset App Data</p>
+                <p className="text-xs text-red-500 mt-0.5">Permanently removes all demo data — bookings, drivers, staff, vehicles, customers, and logs. Your admin account will be preserved.</p>
+              </div>
+              <button
+                onClick={() => { setShowResetModal(true); setResetConfirmText(''); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
+              >
+                <Trash2 size={14} /> Reset App
+              </button>
+            </div>
+          </div>
+
+          {/* ── Reset Confirmation Modal ───────────────────────────────────────────── */}
+          {showResetModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                {/* Header */}
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-full bg-red-100 flex-shrink-0">
+                    <AlertTriangle size={20} className="text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Reset App Data</h3>
+                    <p className="text-sm mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>This action is <strong>irreversible</strong>. The following data will be permanently deleted:</p>
+                  </div>
+                </div>
+
+                {/* What will be deleted */}
+                <ul className="text-sm space-y-1 pl-4 list-disc" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  <li>All bookings &amp; orders</li>
+                  <li>All drivers &amp; driver data</li>
+                  <li>All staff / team roles (except your admin account)</li>
+                  <li>All vehicles, inspections &amp; incidents</li>
+                  <li>All customers</li>
+                  <li>All activity logs, notifications &amp; alerts</li>
+                </ul>
+
+                {/* What is preserved */}
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
+                  <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+                  <p className="text-xs text-green-700 font-medium">Your admin account and all settings will be preserved.</p>
+                </div>
+
+                {/* Confirm input */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    Type <span className="font-bold text-red-600">RESET</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Type RESET here"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-red-300"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => { setShowResetModal(false); setResetConfirmText(''); }}
+                    disabled={resetting}
+                    className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50"
+                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={resetAppData}
+                    disabled={resetConfirmText !== 'RESET' || resetting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {resetting ? (
+                      <><RefreshCw size={14} className="animate-spin" /> Resetting…</>
+                    ) : (
+                      <><Trash2 size={14} /> Confirm Reset</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
