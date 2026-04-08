@@ -1,17 +1,17 @@
 /**
- * Server-side database client — direct PostgreSQL connection.
+ * Server-side database client — direct MySQL connection.
  *
- * Uses the `pg` package for direct database access in API routes and
+ * Uses the `mysql2` package for direct database access in API routes and
  * server components. Provides the same query builder interface as the
  * browser client for consistency.
  *
  * Configure via environment variables:
- *   DATABASE_URL  — PostgreSQL connection string
- *                   e.g. postgresql://user:pass@host:5432/dbname
- *                   or   mysql://user:pass@host:3306/dbname (for MySQL via mysql2)
+ *   DATABASE_URL  — MySQL connection string
+ *                   e.g. mysql://user:pass@host:3306/dbname
+ *   or individual vars: DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, DB_PORT
  */
 
-import { Pool, PoolClient } from 'pg';
+import mysql, { Pool, PoolConnection } from 'mysql2/promise';
 
 let pool: Pool | null = null;
 
@@ -19,29 +19,40 @@ function getPool(): Pool {
   if (pool) return pool;
 
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error(
-      'DATABASE_URL environment variable is not set. ' +
-      'Set it to your PostgreSQL connection string, e.g.: '+ 'postgresql://user:password@host:5432/database'
-    );
+
+  if (connectionString && connectionString.startsWith('mysql://')) {
+    pool = mysql.createPool(connectionString + '?waitForConnections=true&connectionLimit=10&queueLimit=0');
+  } else {
+    const host = process.env.DB_HOST;
+    const database = process.env.DB_NAME;
+    const user = process.env.DB_USER;
+    const password = process.env.DB_PASSWORD;
+    const port = parseInt(process.env.DB_PORT || '3306', 10);
+
+    if (!host || !database || !user) {
+      throw new Error(
+        'MySQL connection not configured. Set DATABASE_URL=mysql://user:pass@host:3306/dbname ' +
+        'or set DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, DB_PORT environment variables.'
+      );
+    }
+
+    pool = mysql.createPool({
+      host,
+      database,
+      user,
+      password,
+      port,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    });
   }
-
-  pool = new Pool({
-    connectionString,
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-  });
-
-  pool.on('error', (err) => {
-    console.error('[DB Pool] Unexpected error:', err.message);
-  });
 
   return pool;
 }
 
-// ─── Query Builder (server-side, uses pg directly) ────────────────────────────
+// ─── Query Builder (server-side, uses mysql2 directly) ────────────────────────
 
 interface Filter {
   column: string;
@@ -142,7 +153,8 @@ class ServerQueryBuilder {
   }
 
   ilike(column: string, value: string): this {
-    this.filters.push({ column, operator: 'ILIKE', value });
+    // MySQL LIKE is case-insensitive by default on most collations
+    this.filters.push({ column, operator: 'LIKE', value });
     return this;
   }
 
@@ -192,71 +204,80 @@ class ServerQueryBuilder {
     const clauses = this.filters.map((f) => {
       if (f.operator === 'IN') {
         const vals = f.value as unknown[];
-        const placeholders = vals.map((_, i) => `$${params.length + i + 1}`).join(', ');
+        const placeholders = vals.map(() => '?').join(', ');
         params.push(...vals);
-        return `"${f.column}" IN (${placeholders})`;
+        return `\`${f.column}\` IN (${placeholders})`;
       }
       if (f.operator === 'IS') {
-        return `"${f.column}" IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`;
+        return `\`${f.column}\` IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`;
       }
       params.push(f.value);
-      return `"${f.column}" ${f.operator} $${params.length}`;
+      return `\`${f.column}\` ${f.operator} ?`;
     });
     return `WHERE ${clauses.join(' AND ')}`;
   }
 
   private async execute(): Promise<{ data: any; error: any; count?: number | null }> {
-    let client: PoolClient | null = null;
+    let conn: PoolConnection | null = null;
     try {
-      client = await getPool().connect();
+      conn = await getPool().getConnection();
       const params: unknown[] = [];
 
       if (this.method === 'SELECT' || this.headOnly) {
         const where = this.buildWhereClause(params);
         const orderBy = this.orders.length
-          ? `ORDER BY ${this.orders.map(o => `"${o.column}" ${o.ascending ? 'ASC' : 'DESC'}`).join(', ')}`
+          ? `ORDER BY ${this.orders.map(o => `\`${o.column}\` ${o.ascending ? 'ASC' : 'DESC'}`).join(', ')}`
           : '';
         const limitClause = this.limitVal !== null ? `LIMIT ${this.limitVal}` : '';
         const offsetClause = this.offsetVal !== null ? `OFFSET ${this.offsetVal}` : '';
 
         if (this.headOnly && this.countMode === 'exact') {
-          const sql = `SELECT COUNT(*) FROM "${this.table}" ${where}`;
-          const res = await client.query(sql, params);
-          return { data: null, error: null, count: parseInt(res.rows[0].count) };
+          const sql = `SELECT COUNT(*) as count FROM \`${this.table}\` ${where}`;
+          const [rows] = await conn.query(sql, params);
+          const count = (rows as any[])[0]?.count ?? 0;
+          return { data: null, error: null, count: parseInt(String(count)) };
         }
 
         const cols = this.selectCols === '*' ? '*' : this.selectCols;
-        let sql = `SELECT ${cols} FROM "${this.table}" ${where} ${orderBy} ${limitClause} ${offsetClause}`.trim();
+        const sql = `SELECT ${cols} FROM \`${this.table}\` ${where} ${orderBy} ${limitClause} ${offsetClause}`.trim();
 
         if (this.countMode === 'exact') {
-          const countSql = `SELECT COUNT(*) FROM "${this.table}" ${where}`;
-          const countRes = await client.query(countSql, params);
-          const count = parseInt(countRes.rows[0].count);
-          const dataRes = await client.query(sql, params);
-          const rows = dataRes.rows;
+          const countSql = `SELECT COUNT(*) as count FROM \`${this.table}\` ${where}`;
+          const [countRows] = await conn.query(countSql, params);
+          const count = parseInt(String((countRows as any[])[0]?.count ?? 0));
+          const [dataRows] = await conn.query(sql, params);
+          const rows = dataRows as any[];
           if (this.singleRow) return { data: rows[0] ?? null, error: null, count };
           if (this.maybeSingleRow) return { data: rows[0] ?? null, error: null, count };
           return { data: rows, error: null, count };
         }
 
-        const res = await client.query(sql, params);
-        const rows = res.rows;
-        if (this.singleRow) return { data: rows[0] ?? null, error: rows[0] ? null : { message: 'No rows found' } };
-        if (this.maybeSingleRow) return { data: rows[0] ?? null, error: null };
-        return { data: rows, error: null };
+        const [rows] = await conn.query(sql, params);
+        const rowArr = rows as any[];
+        if (this.singleRow) return { data: rowArr[0] ?? null, error: rowArr[0] ? null : { message: 'No rows found' } };
+        if (this.maybeSingleRow) return { data: rowArr[0] ?? null, error: null };
+        return { data: rowArr, error: null };
       }
 
       if (this.method === 'INSERT') {
-        const rows = Array.isArray(this.bodyData) ? this.bodyData : [this.bodyData];
+        const rowsToInsert = Array.isArray(this.bodyData) ? this.bodyData : [this.bodyData];
         const inserted: any[] = [];
-        for (const row of rows) {
+        for (const row of rowsToInsert) {
           const keys = Object.keys(row as object);
-          const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-          const cols = keys.map(k => `"${k}"`).join(', ');
+          const cols = keys.map(k => `\`${k}\``).join(', ');
+          const placeholders = keys.map(() => '?').join(', ');
           const vals = keys.map(k => (row as any)[k]);
-          const sql = `INSERT INTO "${this.table}" (${cols}) VALUES (${placeholders}) RETURNING *`;
-          const res = await client.query(sql, vals);
-          inserted.push(...res.rows);
+          const sql = `INSERT INTO \`${this.table}\` (${cols}) VALUES (${placeholders})`;
+          const [result] = await conn.query(sql, vals);
+          const insertId = (result as any).insertId;
+          if (insertId) {
+            const [selectRows] = await conn.query(`SELECT * FROM \`${this.table}\` WHERE id = ?`, [insertId]);
+            const found = (selectRows as any[])[0];
+            if (found) inserted.push(found);
+            else inserted.push({ ...row, id: insertId });
+          } else {
+            inserted.push(row);
+          }
         }
         if (this.singleRow) return { data: inserted[0] ?? null, error: null };
         return { data: inserted, error: null };
@@ -265,40 +286,52 @@ class ServerQueryBuilder {
       if (this.method === 'UPDATE') {
         const data = this.bodyData as Record<string, unknown>;
         const keys = Object.keys(data);
-        const setClauses = keys.map((k, i) => { params.push(data[k]); return `"${k}" = $${params.length}`; });
+        const setClauses = keys.map(k => { params.push(data[k]); return `\`${k}\` = ?`; });
         const where = this.buildWhereClause(params);
-        const sql = `UPDATE "${this.table}" SET ${setClauses.join(', ')} ${where} RETURNING *`;
-        const res = await client.query(sql, params);
-        if (this.singleRow) return { data: res.rows[0] ?? null, error: null };
-        return { data: res.rows, error: null };
+        const sql = `UPDATE \`${this.table}\` SET ${setClauses.join(', ')} ${where}`;
+        await conn.query(sql, params);
+        // Fetch updated rows
+        const selectParams: unknown[] = [];
+        const selectWhere = this.buildWhereClause(selectParams);
+        const [updatedRows] = await conn.query(`SELECT * FROM \`${this.table}\` ${selectWhere}`, selectParams);
+        const rows = updatedRows as any[];
+        if (this.singleRow) return { data: rows[0] ?? null, error: null };
+        return { data: rows, error: null };
       }
 
       if (this.method === 'UPSERT') {
-        const rows = Array.isArray(this.bodyData) ? this.bodyData : [this.bodyData];
+        const rowsToUpsert = Array.isArray(this.bodyData) ? this.bodyData : [this.bodyData];
         const upserted: any[] = [];
-        for (const row of rows) {
+        for (const row of rowsToUpsert) {
           const keys = Object.keys(row as object);
-          const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-          const cols = keys.map(k => `"${k}"`).join(', ');
+          const cols = keys.map(k => `\`${k}\``).join(', ');
+          const placeholders = keys.map(() => '?').join(', ');
           const vals = keys.map(k => (row as any)[k]);
-          const conflictCol = this.upsertConflict || 'id';
-          const updateSet = keys
-            .filter(k => k !== conflictCol)
-            .map(k => `"${k}" = EXCLUDED."${k}"`)
-            .join(', ');
-          const sql = `INSERT INTO "${this.table}" (${cols}) VALUES (${placeholders}) ON CONFLICT ("${conflictCol}") DO UPDATE SET ${updateSet} RETURNING *`;
-          const res = await client.query(sql, vals);
-          upserted.push(...res.rows);
+          const updateSet = keys.map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
+          const sql = `INSERT INTO \`${this.table}\` (${cols}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateSet}`;
+          const [result] = await conn.query(sql, vals);
+          const insertId = (result as any).insertId;
+          if (insertId) {
+            const [selectRows] = await conn.query(`SELECT * FROM \`${this.table}\` WHERE id = ?`, [insertId]);
+            const found = (selectRows as any[])[0];
+            if (found) upserted.push(found);
+            else upserted.push({ ...row, id: insertId });
+          } else {
+            upserted.push(row);
+          }
         }
         if (this.singleRow) return { data: upserted[0] ?? null, error: null };
         return { data: upserted, error: null };
       }
 
       if (this.method === 'DELETE') {
+        // Fetch rows before deleting
+        const selectParams: unknown[] = [];
+        const selectWhere = this.buildWhereClause(selectParams);
+        const [beforeRows] = await conn.query(`SELECT * FROM \`${this.table}\` ${selectWhere}`, selectParams);
         const where = this.buildWhereClause(params);
-        const sql = `DELETE FROM "${this.table}" ${where} RETURNING *`;
-        const res = await client.query(sql, params);
-        return { data: res.rows, error: null };
+        await conn.query(`DELETE FROM \`${this.table}\` ${where}`, params);
+        return { data: beforeRows as any[], error: null };
       }
 
       return { data: null, error: { message: 'Unknown method' } };
@@ -306,7 +339,7 @@ class ServerQueryBuilder {
       console.error(`[DB Server] Query error on table "${this.table}":`, err.message);
       return { data: null, error: { message: err.message || 'Database error' } };
     } finally {
-      client?.release();
+      conn?.release();
     }
   }
 }
