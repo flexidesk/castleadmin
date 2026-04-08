@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/db/server';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,23 +8,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => cookieStore.getAll(),
-          setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
+    const db = await createClient();
 
-    const { error } = await supabase.from('push_subscriptions').upsert(
+    const { error } = await db.from('push_subscriptions').upsert(
       {
         endpoint: subscription.endpoint,
         p256dh: subscription.keys?.p256dh || subscription.p256dh,
@@ -56,23 +41,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Endpoint required' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => cookieStore.getAll(),
-          setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
-
-    await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+    const db = await createClient();
+    await db.from('push_subscriptions').delete().eq('endpoint', endpoint);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Push unsubscribe error:', err);

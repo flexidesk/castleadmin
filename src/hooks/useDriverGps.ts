@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 
 interface GpsPosition {
   latitude: number;
@@ -17,17 +16,15 @@ interface UseDriverGpsOptions {
   intervalMs?: number;
 }
 
-// Retry config for failed GPS starts
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 2000;
 
 export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: UseDriverGpsOptions) {
-  const supabase = createClient();
   const watchRef = useRef<number | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
-  const isStartingRef = useRef(false); // guard against concurrent startTracking calls
+  const isStartingRef = useRef(false);
 
   const [position, setPosition] = useState<GpsPosition | null>(null);
   const [permissionState, setPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unsupported'>('prompt');
@@ -49,25 +46,30 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
     setError(null);
 
     try {
-      const { error: insertError } = await supabase.from('driver_locations').insert({
-        driver_id: driverId,
-        latitude: gpsData.latitude,
-        longitude: gpsData.longitude,
-        heading: gpsData.heading ?? null,
-        speed: gpsData.speed ?? null,
-        accuracy: gpsData.accuracy ?? null,
-        recorded_at: new Date().toISOString(),
+      // Use the API route for location updates (works with any backend)
+      const res = await fetch('/api/driver/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driver_id: driverId,
+          latitude: gpsData.latitude,
+          longitude: gpsData.longitude,
+          heading: gpsData.heading ?? null,
+          speed: gpsData.speed ?? null,
+          accuracy: gpsData.accuracy ?? null,
+          timestamp: new Date().toISOString(),
+        }),
       });
 
-      if (insertError) {
-        console.warn('[GPS] Supabase insert error:', insertError.message);
+      if (!res.ok) {
+        console.warn('[GPS] Location update failed:', res.status);
         queueForBackgroundSync(driverId, gpsData);
       }
     } catch (err) {
       console.warn('[GPS] Network error, queuing for background sync');
       queueForBackgroundSync(driverId, gpsData);
     }
-  }, [driverId, supabase]);
+  }, [driverId]);
 
   const queueForBackgroundSync = (dId: string, gpsData: GpsPosition) => {
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
@@ -104,7 +106,6 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
     setIsTracking(false);
   }, []);
 
-  // scheduleRetry: exponential backoff retry for transient GPS failures
   const scheduleRetry = useCallback((startFn: () => void) => {
     if (retryCountRef.current >= MAX_RETRIES) {
       console.warn('[GPS] Max retries reached. Giving up.');
@@ -126,10 +127,9 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
 
   const startTracking = useCallback(() => {
     if (!driverId || !('geolocation' in navigator)) return;
-    if (isStartingRef.current) return; // prevent concurrent starts
+    if (isStartingRef.current) return;
     isStartingRef.current = true;
 
-    // Clear any existing watchers before starting fresh
     if (watchRef.current !== null) {
       navigator.geolocation.clearWatch(watchRef.current);
       watchRef.current = null;
@@ -146,7 +146,6 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
         stopTracking();
       } else if (err.code === err.POSITION_UNAVAILABLE) {
         setError('Location unavailable. Retrying…');
-        // Clear current watch and retry
         if (watchRef.current !== null) {
           navigator.geolocation.clearWatch(watchRef.current);
           watchRef.current = null;
@@ -164,15 +163,12 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
       }
     };
 
-    // Fire an immediate getCurrentPosition to get a fast first fix and
-    // ensure driver_locations is updated on app launch before watchPosition fires
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        retryCountRef.current = 0; // reset retry counter on success
+        retryCountRef.current = 0;
         setError(null);
-        broadcastLocation(pos); // immediate launch-time insert
+        broadcastLocation(pos);
 
-        // Now start the continuous watch
         watchRef.current = navigator.geolocation.watchPosition(
           (watchPos) => {
             retryCountRef.current = 0;
@@ -182,13 +178,11 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
           { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
         );
 
-        // Periodic fallback every intervalMs (ensures updates even if watchPosition stalls)
         intervalRef.current = setInterval(() => {
           navigator.geolocation.getCurrentPosition(
             broadcastLocation,
             (err) => {
               if (err.code !== err.PERMISSION_DENIED) {
-                // Non-fatal periodic failure — just log, watchPosition handles retries
                 console.warn('[GPS] Periodic fallback error:', err.message);
               }
             },
@@ -199,7 +193,6 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
         setIsTracking(true);
         isStartingRef.current = false;
 
-        // Register periodic background sync on Android Chrome
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready.then((reg) => {
             if ('periodicSync' in reg) {
@@ -217,7 +210,6 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
           setError('Location permission denied. Please enable in browser settings.');
           setIsTracking(false);
         } else {
-          // POSITION_UNAVAILABLE or TIMEOUT — retry
           setError('Unable to get GPS fix. Retrying…');
           scheduleRetry(startTracking);
         }
@@ -233,7 +225,6 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
       return false;
     }
 
-    // Check permission API if available
     if ('permissions' in navigator) {
       try {
         const result = await navigator.permissions.query({ name: 'geolocation' });
@@ -244,96 +235,62 @@ export function useDriverGps({ driverId, enabled = true, intervalMs = 30000 }: U
           return false;
         }
 
-        // If already granted, no need to prompt — just return true
         if (result.state === 'granted') {
           return true;
         }
-
-        // Listen for permission changes (e.g. user enables GPS in settings)
-        result.addEventListener('change', () => {
-          setPermissionState(result.state as 'prompt' | 'granted' | 'denied');
-          if (result.state === 'denied') {
-            setError('Location permission was revoked.');
-            stopTracking();
-          } else if (result.state === 'granted') {
-            setError(null);
-          }
-        });
-      } catch {
-        // Permissions API not fully supported — proceed to prompt via getCurrentPosition
-      }
+      } catch {}
     }
 
-    // Prompt the user via getCurrentPosition
     return new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        () => {
           setPermissionState('granted');
-          setError(null);
-          broadcastLocation(pos); // fire first location insert immediately on permission grant
           resolve(true);
         },
         (err) => {
           if (err.code === err.PERMISSION_DENIED) {
             setPermissionState('denied');
-            setError('Location permission denied. Please enable in browser/device settings.');
-          } else {
-            setError('Could not get location. Please try again.');
+            setError('Location permission denied.');
           }
           resolve(false);
         },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        { timeout: 10000 }
       );
     });
-  }, [broadcastLocation, stopTracking]);
+  }, []);
 
-  // Auto-start on mount when enabled and driverId is available
   useEffect(() => {
-    if (!enabled || !driverId) {
-      stopTracking();
-      return;
+    if (!enabled || !driverId) return;
+
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        setPermissionState(result.state as 'prompt' | 'granted' | 'denied');
+        if (result.state === 'granted') {
+          startTracking();
+        }
+        result.addEventListener('change', () => {
+          setPermissionState(result.state as 'prompt' | 'granted' | 'denied');
+          if (result.state === 'granted') {
+            startTracking();
+          } else if (result.state === 'denied') {
+            stopTracking();
+          }
+        });
+      }).catch(() => {});
     }
 
-    // Check current permission state first to avoid unnecessary prompts
-    const initGps = async () => {
-      if (!('geolocation' in navigator)) {
-        setPermissionState('unsupported');
-        return;
-      }
-
-      if ('permissions' in navigator) {
-        try {
-          const result = await navigator.permissions.query({ name: 'geolocation' });
-          setPermissionState(result.state as 'prompt' | 'granted' | 'denied');
-
-          if (result.state === 'denied') {
-            setError('Location permission denied. Please enable in browser/device settings.');
-            return;
-          }
-
-          if (result.state === 'granted') {
-            // Permission already granted — start tracking immediately without re-prompting
-            startTracking();
-            return;
-          }
-
-          // 'prompt' state — don't auto-prompt on mount; wait for user interaction
-          // The StatusBanner in the UI will guide the user to tap "Enable GPS"
-          return;
-        } catch {
-          // Permissions API unavailable — fall through to attempt tracking
-        }
-      }
-
-      // Permissions API not available — attempt to start (will prompt if needed)
-      startTracking();
+    return () => {
+      stopTracking();
     };
-
-    initGps();
-
-    return () => stopTracking();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, driverId]);
 
-  return { position, permissionState, isTracking, error, requestPermission, startTracking, stopTracking };
+  return {
+    position,
+    permissionState,
+    isTracking,
+    error,
+    startTracking,
+    stopTracking,
+    requestPermission,
+  };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { dbAuth } from '@/lib/db/client';
 
 const AuthContext = createContext<any>({});
 
@@ -13,43 +13,23 @@ export const useAuth = () => {
   return context;
 };
 
-const isRefreshTokenError = (error: any): boolean => {
-  if (!error) return false;
-  return (
-    error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token Not Found') ||
-    error?.message?.includes('refresh_token_not_found') ||
-    error?.message?.includes('Invalid Refresh Token') ||
-    (error?.status === 400 && error?.__isAuthError === true)
-  );
-};
-
 const clearAllAuthStorage = () => {
   try {
     Object.keys(localStorage)
       .filter(
         (k) =>
+          k.includes('castleadmin') ||
+          k.includes('auth') ||
           k.startsWith('sb-') ||
-          k.startsWith('sb_') ||
-          k === 'castleadmin-auth'|| k.includes('castleadmin-auth') ||
-          k.includes('supabase') ||
-          k.startsWith('sb_castleadmin') ||
-          k.startsWith('sb_sb-')
+          k.startsWith('sb_')
       )
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   try {
-    const secure = typeof window !== 'undefined' && window.location.protocol === 'https:';
     document.cookie.split(';').forEach((c) => {
       const name = c.trim().split('=')[0];
-      if (
-        name.startsWith('sb-') ||
-        name.includes('auth-token') ||
-        name.includes('supabase') ||
-        name.includes('castleadmin-auth')
-      ) {
-        document.cookie = secure
-          ? `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`
-          : `${name}=; Path=/; Max-Age=0`;
+      if (name.startsWith('sb-') || name.includes('auth-token') || name.includes('supabase')) {
+        document.cookie = `${name}=; Path=/; Max-Age=0`;
       }
     });
   } catch {}
@@ -64,73 +44,27 @@ const redirectToLogin = () => {
   }
 };
 
-const handleStaleSession = async (
-  supabase: any,
-  setSession: any,
-  setUser: any,
-  setLoading: any
-) => {
-  try {
-    await supabase.auth.signOut({ scope: 'local' });
-  } catch {}
-  clearAllAuthStorage();
-  setSession(null);
-  setUser(null);
-  setLoading(false);
-  redirectToLogin();
-};
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
-  // Use a ref to track if INITIAL_SESSION has been processed.
-  // This ref is component-instance scoped, but since the Supabase client
-  // is a singleton (via globalThis), only one INITIAL_SESSION fires per client.
   const initialSessionProcessed = useRef(false);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = dbAuth.onAuthStateChange((event, sessionData) => {
       if (event === 'INITIAL_SESSION') {
-        // Guard against React Strict Mode double-invocation.
-        // The singleton Supabase client only fires INITIAL_SESSION once,
-        // but the ref ensures we don't process it twice if it somehow fires again.
         if (initialSessionProcessed.current) return;
         initialSessionProcessed.current = true;
 
-        if (!session) {
+        if (!sessionData) {
           setSession(null);
           setUser(null);
           setLoading(false);
           return;
         }
 
-        // Use session.user directly — avoids an extra getUser() API call
-        const sessionUser = session.user ?? null;
-
-        if (!sessionUser) {
-          clearAllAuthStorage();
-          setSession(null);
-          setUser(null);
-          setLoading(false);
-          return;
-        }
-
-        setSession(session);
-        setUser(sessionUser);
-        setLoading(false);
-      } else if (
-        event === 'TOKEN_REFRESHED' ||
-        event === 'SIGNED_IN' ||
-        event === 'USER_UPDATED'
-      ) {
-        if (session) {
-          setSession(session);
-          setUser(session.user ?? null);
-        }
+        setSession(sessionData);
+        setUser(sessionData.user ?? null);
         setLoading(false);
       } else if (event === 'SIGNED_OUT') {
         clearAllAuthStorage();
@@ -138,8 +72,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(null);
         setLoading(false);
         redirectToLogin();
-      } else if ((event as string) === 'TOKEN_REFRESH_FAILED') {
-        await handleStaleSession(supabase, setSession, setUser, setLoading);
       }
     });
 
@@ -150,62 +82,64 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Email/Password Sign Up
   const signUp = async (email: string, password: string, metadata: any = {}) => {
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await dbAuth.signUp({
       email,
       password,
-      options: {
-        data: {
-          full_name: metadata?.fullName || '',
-          avatar_url: metadata?.avatarUrl || '',
-        },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: { data: { full_name: metadata?.fullName || '' } },
     });
     if (error) throw error;
+    if (data?.session) {
+      setSession(data.session);
+      setUser(data.user);
+    }
     return data;
   };
 
   // Email/Password Sign In
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await dbAuth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (data?.session) {
+      setSession(data.session);
+      setUser(data.user);
+    }
     return data;
   };
 
   // Sign Out
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
+    const { error } = await dbAuth.signOut();
     if (error) throw error;
+    clearAllAuthStorage();
+    setSession(null);
+    setUser(null);
+    redirectToLogin();
   };
 
   // Get Current User
   const getCurrentUser = async () => {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    const { data, error } = await dbAuth.getUser();
     if (error) throw error;
-    return user;
+    return data?.user ?? null;
   };
 
   // Check if Email is Verified
   const isEmailVerified = () => {
-    return user?.email_confirmed_at !== null;
+    return user?.email_confirmed_at !== null && user?.email_confirmed_at !== undefined;
   };
 
   // Get User Profile from Database
   const getUserProfile = async () => {
     if (!user) return null;
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    if (error) throw error;
-    return data;
+    try {
+      const res = await fetch('/api/auth/profile', {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+      });
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
   };
 
   const value = {

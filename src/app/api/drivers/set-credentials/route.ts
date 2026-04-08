@@ -1,72 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/db/server';
 import { createHash } from 'crypto';
+import { verify } from 'jsonwebtoken';
 
 export const dynamic = 'force-dynamic';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'castleadmin-jwt-secret-change-in-production';
 
 function hashPassword(password: string): string {
   const salt = 'castle-driver-salt';
   return createHash('sha256').update(salt + password + salt).digest('hex');
 }
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-async function restGet(path: string, useServiceRole = false) {
-  const key = useServiceRole && SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') ? SERVICE_ROLE_KEY : ANON_KEY;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      Accept: 'application/json',
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase GET error ${res.status}: ${text}`);
-  }
-  return res.json();
-}
-
-async function restPost(path: string, body: object, method = 'POST', useServiceRole = false) {
-  const key = useServiceRole && SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') ? SERVICE_ROLE_KEY : ANON_KEY;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Prefer: method === 'POST' ? 'resolution=merge-duplicates,return=minimal' : 'return=minimal',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase ${method} error ${res.status}: ${text}`);
-  }
-  return res;
-}
-
 async function verifyAdminSession(request: NextRequest): Promise<boolean> {
-  // Check Authorization header (Bearer token from Supabase Auth)
   const authHeader = request.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      headers: {
-        apikey: ANON_KEY,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (res.ok) {
-      const user = await res.json();
-      return !!user?.id;
-    }
+    try {
+      const payload: any = verify(token, JWT_SECRET);
+      return !!payload?.sub;
+    } catch {}
   }
 
-  // Check cookie-based session (sb-* cookies set by Supabase Auth)
+  // Check legacy Supabase cookies for backward compatibility
   const cookieHeader = request.headers.get('cookie') || '';
   const cookies = Object.fromEntries(
     cookieHeader.split(';').map((c) => {
@@ -75,7 +31,6 @@ async function verifyAdminSession(request: NextRequest): Promise<boolean> {
     })
   );
 
-  // Try to find Supabase auth token in cookies
   const tokenKeys = Object.keys(cookies).filter(
     (k) => k.includes('auth-token') || k.startsWith('sb-')
   );
@@ -86,20 +41,10 @@ async function verifyAdminSession(request: NextRequest): Promise<boolean> {
       const parsed = JSON.parse(val);
       const accessToken = parsed?.access_token || parsed?.[0]?.access_token;
       if (accessToken) {
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-          headers: {
-            apikey: ANON_KEY,
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        if (res.ok) {
-          const user = await res.json();
-          if (user?.id) return true;
-        }
+        const payload = verify(accessToken, JWT_SECRET) as any;
+        if (payload?.sub) return true;
       }
-    } catch {
-      // ignore parse errors
-    }
+    } catch {}
   }
 
   return false;
@@ -107,7 +52,6 @@ async function verifyAdminSession(request: NextRequest): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin session
     const isAdmin = await verifyAdminSession(request);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -131,103 +75,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
     }
 
-    const hasServiceRole =
-      SERVICE_ROLE_KEY && !SERVICE_ROLE_KEY.startsWith('your-') && SERVICE_ROLE_KEY !== '';
+    const db = await createClient();
 
-    // Fetch driver record
-    const drivers = await restGet(
-      `drivers?id=eq.${encodeURIComponent(driverId)}&select=id,name,email,auth_user_id&limit=1`,
-      true
-    );
+    const { data: drivers } = await db
+      .from('drivers')
+      .select('id, name, email')
+      .eq('id', driverId)
+      .limit(1);
+
     const driver = Array.isArray(drivers) ? drivers[0] : null;
     if (!driver) {
       return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
     }
 
-    // ── Admin path: Supabase Auth via service role key ──────────────────────
-    if (hasServiceRole) {
-      const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY!, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-
-      let authUserId: string;
-
-      if (driver.auth_user_id) {
-        const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-          driver.auth_user_id,
-          { email, password, email_confirm: true }
-        );
-        if (updateError) {
-          return NextResponse.json(
-            { error: 'Failed to update credentials: ' + updateError.message },
-            { status: 400 }
-          );
-        }
-        authUserId = updatedUser.user.id;
-      } else {
-        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-        const existingUser = existingUsers?.users?.find((u) => u.email === email);
-
-        if (existingUser) {
-          const linkedDrivers = await restGet(
-            `drivers?auth_user_id=eq.${encodeURIComponent(existingUser.id)}&select=id,name&limit=1`,
-            true
-          );
-          const linkedDriver = Array.isArray(linkedDrivers) ? linkedDrivers[0] : null;
-
-          if (linkedDriver && linkedDriver.id !== driverId) {
-            return NextResponse.json(
-              { error: `This email is already linked to driver: ${linkedDriver.name}` },
-              { status: 409 }
-            );
-          }
-
-          const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-            existingUser.id,
-            { password, email_confirm: true }
-          );
-          if (updateError) {
-            return NextResponse.json(
-              { error: 'Failed to update password: ' + updateError.message },
-              { status: 400 }
-            );
-          }
-          authUserId = existingUser.id;
-        } else {
-          const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-          });
-          if (createError) {
-            return NextResponse.json(
-              { error: 'Failed to create auth user: ' + createError.message },
-              { status: 400 }
-            );
-          }
-          authUserId = newUser.user.id;
-        }
-      }
-
-      // Link auth_user_id and email to driver record
-      await restPost(
-        `drivers?id=eq.${encodeURIComponent(driverId)}`,
-        { auth_user_id: authUserId, email },
-        'PATCH',
-        true
-      );
-    }
-
-    // ── Always store credentials in driver_portal_credentials ───────────────
     const passwordHash = hashPassword(password);
 
     // Check if another driver already uses this email
-    const existingCreds = await restGet(
-      `driver_portal_credentials?email=eq.${encodeURIComponent(email)}&select=driver_id&limit=1`,
-      true
-    );
-    const existingCred = Array.isArray(existingCreds) ? existingCreds[0] : null;
+    const { data: existingCreds } = await db
+      .from('driver_portal_credentials')
+      .select('driver_id')
+      .eq('email', email.toLowerCase().trim())
+      .limit(1);
 
+    const existingCred = Array.isArray(existingCreds) ? existingCreds[0] : null;
     if (existingCred && existingCred.driver_id !== driverId) {
       return NextResponse.json(
         { error: 'This email is already used by another driver' },
@@ -235,37 +105,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if a credential row already exists for this driver_id
-    const existingDriverCreds = await restGet(
-      `driver_portal_credentials?driver_id=eq.${encodeURIComponent(driverId)}&select=driver_id&limit=1`,
-      true
-    );
+    // Check if credential row already exists for this driver
+    const { data: existingDriverCreds } = await db
+      .from('driver_portal_credentials')
+      .select('driver_id')
+      .eq('driver_id', driverId)
+      .limit(1);
+
     const credExists = Array.isArray(existingDriverCreds) && existingDriverCreds.length > 0;
 
-    // Update existing row or insert new one
-    await restPost(
-      credExists
-        ? `driver_portal_credentials?driver_id=eq.${encodeURIComponent(driverId)}`
-        : `driver_portal_credentials`,
-      { driver_id: driverId, email, password_hash: passwordHash },
-      credExists ? 'PATCH' : 'POST',
-      true
-    );
+    if (credExists) {
+      await db
+        .from('driver_portal_credentials')
+        .update({ email: email.toLowerCase().trim(), password_hash: passwordHash })
+        .eq('driver_id', driverId);
+    } else {
+      await db.from('driver_portal_credentials').insert({
+        driver_id: driverId,
+        email: email.toLowerCase().trim(),
+        password_hash: passwordHash,
+      });
+    }
 
     // Update driver email
-    await restPost(
-      `drivers?id=eq.${encodeURIComponent(driverId)}`,
-      { email },
-      'PATCH',
-      true
-    );
+    await db.from('drivers').update({ email: email.toLowerCase().trim() }).eq('id', driverId);
 
-    return NextResponse.json({ success: true, message: 'Driver credentials set successfully' });
+    return NextResponse.json({ success: true, message: 'Driver portal credentials updated successfully' });
   } catch (err: any) {
     console.error('[set-credentials] error:', err);
-    return NextResponse.json(
-      { error: err?.message || 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }

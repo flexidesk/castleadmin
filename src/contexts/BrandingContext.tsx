@@ -24,8 +24,8 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
   const fetchBranding = useCallback(async () => {
     try {
-      const supabase = createClient();
-      const { data } = await supabase
+      const db = createClient();
+      const { data } = await db
         .from('fleet_config')
         .select('app_logo_url, company_name')
         .limit(1)

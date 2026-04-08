@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import { createClient } from '@/lib/db/server';
 
 async function generateSignature(payload: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -20,19 +17,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing event or data' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const db = await createClient();
 
     let matching: any[];
 
     if (webhook_id) {
-      const { data: single } = await supabase
+      const { data: single } = await db
         .from('webhook_configs')
         .select('*')
         .eq('id', webhook_id)
         .single();
       matching = single ? [single] : [];
     } else {
-      const { data: webhooks } = await supabase
+      const { data: webhooks } = await db
         .from('webhook_configs')
         .select('*')
         .eq('is_active', true);
@@ -44,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!matching.length) {
-      return NextResponse.json({ fired: 0, message: `No webhooks matched` });
+      return NextResponse.json({ fired: 0, message: 'No webhooks matched' });
     }
 
     const results = await Promise.allSettled(matching.map(async (webhook: any) => {
@@ -75,15 +72,15 @@ export async function POST(request: NextRequest) {
 
       const durationMs = Date.now() - start;
 
-      await supabase.from('webhook_configs').update({
+      await db.from('webhook_configs').update({
         last_triggered_at: new Date().toISOString(),
         last_status: httpStatus ? `${httpStatus}` : 'failed',
       }).eq('id', webhook.id);
 
-      await supabase.from('webhook_deliveries').insert({
+      await db.from('webhook_deliveries').insert({
         webhook_id: webhook.id,
         event,
-        payload: data,
+        payload: JSON.stringify(data),
         http_status: httpStatus,
         response_body: responseBody?.slice(0, 5000) ?? null,
         error_message: errorMessage,
@@ -94,7 +91,11 @@ export async function POST(request: NextRequest) {
     }));
 
     const fired = results.filter(r => r.status === 'fulfilled').length;
-    return NextResponse.json({ fired, total: matching.length, results: results.map(r => r.status === 'fulfilled' ? (r as any).value : { error: (r as any).reason?.message }) });
+    return NextResponse.json({
+      fired,
+      total: matching.length,
+      results: results.map(r => r.status === 'fulfilled' ? (r as any).value : { error: (r as any).reason?.message }),
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });

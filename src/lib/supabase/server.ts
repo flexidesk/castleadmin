@@ -1,35 +1,5 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies, headers } from 'next/headers';
-
-export async function createClient() {
-  const cookieStore = await cookies();
-  const headerStore = await headers();
-  const secure =
-    headerStore.get('x-forwarded-proto') === 'https' ||
-    (process.env.NEXT_PUBLIC_SITE_URL ?? '').startsWith('https');
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, {
-                ...options,
-                sameSite: secure ? 'none' : 'lax',
-                secure,
-              })
-            );
-          } catch {
-            // Server Component read-only context — expected
-          }
-        },
-      },
-    }
-  );
-}
+/**
+ * Server-side database client — re-exports from the self-hosted DB layer.
+ * This file replaces @supabase/ssr server client.
+ */
+export { createClient } from '@/lib/db/server';

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createServerClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +15,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ driver: null }, { status: 200 });
     }
 
-    // Check session age (7 days)
     const maxAge = 7 * 24 * 60 * 60 * 1000;
     if (!sessionData.loginAt || Date.now() - sessionData.loginAt > maxAge) {
       const response = NextResponse.json({ driver: null }, { status: 200 });
@@ -23,14 +22,15 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    // Fetch fresh driver data
-    const supabase = await createServerClient();
-    const { data: driver, error } = await supabase
+    const db = await createClient();
+    const { data: drivers, error } = await db
       .from('drivers')
       .select('id, name, email, status, vehicle, plate, avatar, phone, access_code')
       .eq('id', sessionData.driverId)
       .eq('is_active', true)
-      .single();
+      .limit(1);
+
+    const driver = Array.isArray(drivers) ? drivers[0] : null;
 
     if (error || !driver) {
       const response = NextResponse.json({ driver: null }, { status: 200 });

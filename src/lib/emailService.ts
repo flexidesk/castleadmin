@@ -207,3 +207,11 @@ export async function sendOrderStatusEmail(params: {
     return { success: false, error: err?.message ?? 'Unknown error' };
   }
 }
+
+function sendEmail(...args: any[]): any {
+  // eslint-disable-next-line no-console
+  console.warn('Placeholder: sendEmail is not implemented yet.', args);
+  return null;
+}
+
+export { sendEmail };

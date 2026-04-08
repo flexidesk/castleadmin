@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/db/server';
 
-function initVapid() {
+function initVapid(): boolean {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const email = process.env.VAPID_EMAIL || 'admin@castleadmin.com';
@@ -35,23 +34,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title and body are required' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => cookieStore.getAll(),
-          setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
-
-    const { data: subscriptions, error } = await supabase
+    const db = await createClient();
+    const { data: subscriptions, error } = await db
       .from('push_subscriptions')
       .select('endpoint, p256dh, auth');
 
@@ -69,18 +53,14 @@ export async function POST(req: NextRequest) {
     });
 
     const results = await Promise.allSettled(
-      subscriptions.map((sub) =>
+      subscriptions.map((sub: any) =>
         webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth },
-          },
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
         )
       )
     );
 
-    // Remove expired/invalid subscriptions
     const expiredEndpoints: string[] = [];
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
@@ -92,10 +72,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (expiredEndpoints.length > 0) {
-      await supabase
-        .from('push_subscriptions')
-        .delete()
-        .in('endpoint', expiredEndpoints);
+      await db.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
     }
 
     const sent = results.filter((r) => r.status === 'fulfilled').length;

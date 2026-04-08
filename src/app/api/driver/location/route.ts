@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,17 +19,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const db = await createClient();
 
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { error } = await supabase.from('driver_locations').upsert(
+    const { error } = await db.from('driver_locations').upsert(
       {
         driver_id,
         latitude,

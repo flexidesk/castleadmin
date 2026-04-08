@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/db/server';
 
 function initVapid() {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -23,10 +22,7 @@ function initVapid() {
 export async function POST(req: NextRequest) {
   try {
     if (!initVapid()) {
-      return NextResponse.json(
-        { error: 'VAPID keys not configured.' },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: 'VAPID keys not configured.' }, { status: 503 });
     }
 
     const { driverId, title, body, icon, tag, data } = await req.json();
@@ -35,24 +31,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title and body are required' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => cookieStore.getAll(),
-          setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
+    const db = await createClient();
 
-    // Fetch subscriptions — filter by driver_id if provided
-    let query = supabase.from('push_subscriptions').select('endpoint, p256dh, auth');
+    let query = db.from('push_subscriptions').select('endpoint, p256dh, auth');
     if (driverId) {
       query = query.eq('driver_id', driverId);
     }
@@ -74,7 +55,7 @@ export async function POST(req: NextRequest) {
     });
 
     const results = await Promise.allSettled(
-      subscriptions.map((sub) =>
+      subscriptions.map((sub: any) =>
         webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
@@ -82,7 +63,6 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    // Remove expired/invalid subscriptions
     const expiredEndpoints: string[] = [];
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
@@ -94,7 +74,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (expiredEndpoints.length > 0) {
-      await supabase.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
+      await db.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
     }
 
     const sent = results.filter((r) => r.status === 'fulfilled').length;

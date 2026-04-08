@@ -26,7 +26,6 @@ interface OrderRow {
   payment_status?: string;
 }
 
-// Human-readable status labels
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
     'Booking Accepted': 'Accepted',
@@ -39,145 +38,147 @@ function statusLabel(status: string): string {
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const supabase = createClient();
+  const db = createClient();
   const [unreadCount, setUnreadCount] = useState(0);
   const toastedOrderEvents = useRef<Set<string>>(new Set());
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastOrdersRef = useRef<Map<string, OrderRow>>(new Map());
+  const lastNotifCountRef = useRef<number>(0);
 
-  // Load initial unread count from notifications table
+  // Load initial unread count
   useEffect(() => {
     const loadUnread = async () => {
-      const { count } = await supabase
+      const { count } = await db
         .from('notifications')
         .select('id', { count: 'exact', head: true })
         .eq('is_dismissed', false);
-      if (count !== null) setUnreadCount(count);
+      if (count !== null) {
+        setUnreadCount(count);
+        lastNotifCountRef.current = count;
+      }
     };
     loadUnread();
   }, []);
 
   const markAllRead = useCallback(async () => {
     setUnreadCount(0);
-    await supabase
+    await db
       .from('notifications')
       .update({ is_dismissed: true, dismissed_at: new Date().toISOString() })
       .eq('is_dismissed', false);
   }, []);
 
+  // Poll for order changes and new notifications every 30 seconds
   useEffect(() => {
-    // ── Real-time: orders table — new assignments, status changes, payment ──
-    const ordersChannel = supabase
-      .channel('notif_ctx_orders')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => {
-          const order = payload.new as OrderRow;
-          const key = `insert_${order.id}`;
-          if (toastedOrderEvents.current.has(key)) return;
-          toastedOrderEvents.current.add(key);
+    const pollForChanges = async () => {
+      try {
+        // Poll recent orders for status changes
+        const res = await fetch('/api/orders/recent?limit=30');
+        if (res.ok) {
+          const orders: OrderRow[] = await res.json();
 
-          const name = order.customer_name || 'Unknown';
+          for (const order of orders) {
+            const prev = lastOrdersRef.current.get(order.id);
 
-          if (order.driver_id) {
-            toast.info('🚗 New Order Assigned', {
-              description: `Order #${order.id} for ${name} has been assigned to a driver.`,
-              duration: 6000,
-            });
-          } else {
-            toast.warning('📋 New Order — Unassigned', {
-              description: `Order #${order.id} for ${name} needs a driver assigned.`,
-              duration: 6000,
-            });
-          }
-          setUnreadCount((c) => c + 1);
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
-          const order = payload.new as OrderRow;
-          const prev = payload.old as Partial<OrderRow>;
-          const name = order.customer_name || 'Unknown';
-
-          // ── Driver assigned ──
-          if (order.driver_id && !prev.driver_id) {
-            const key = `assigned_${order.id}_${order.driver_id}`;
-            if (!toastedOrderEvents.current.has(key)) {
-              toastedOrderEvents.current.add(key);
-              toast.info('🚗 Driver Assigned', {
-                description: `Order #${order.id} for ${name} has been assigned to a driver.`,
-                duration: 5000,
-              });
-              setUnreadCount((c) => c + 1);
-            }
-          }
-
-          // ── Status changed ──
-          if (order.status && order.status !== prev.status) {
-            const key = `status_${order.id}_${order.status}`;
-            if (!toastedOrderEvents.current.has(key)) {
-              toastedOrderEvents.current.add(key);
-
-              if (order.status === 'Booking Complete') {
-                toast.success('✅ Order Delivered', {
-                  description: `Order #${order.id} for ${name} is now ${statusLabel(order.status)}.`,
-                  duration: 5000,
-                });
-              } else if (order.status === 'Booking Cancelled') {
-                toast.error('❌ Order Cancelled', {
-                  description: `Order #${order.id} for ${name} has been cancelled.`,
-                  duration: 5000,
-                });
-              } else if (order.status === 'Booking Out For Delivery') {
-                toast.info('🚚 Out for Delivery', {
-                  description: `Order #${order.id} for ${name} is now out for delivery.`,
-                  duration: 5000,
-                });
-              } else {
-                toast.info(`📦 Status Updated`, {
-                  description: `Order #${order.id} for ${name}: ${statusLabel(order.status)}.`,
-                  duration: 4000,
-                });
+            if (!prev) {
+              // New order
+              const key = `insert_${order.id}`;
+              if (!toastedOrderEvents.current.has(key)) {
+                toastedOrderEvents.current.add(key);
+                const name = order.customer_name || 'Unknown';
+                if (order.driver_id) {
+                  toast.info('🚗 New Order Assigned', {
+                    description: `Order #${order.id} for ${name} has been assigned to a driver.`,
+                    duration: 6000,
+                  });
+                } else {
+                  toast.warning('📋 New Order — Unassigned', {
+                    description: `Order #${order.id} for ${name} needs a driver assigned.`,
+                    duration: 6000,
+                  });
+                }
+                setUnreadCount((c) => c + 1);
               }
-              setUnreadCount((c) => c + 1);
-            }
-          }
+            } else {
+              const name = order.customer_name || 'Unknown';
 
-          // ── Payment received ──
-          if (
-            order.payment_status === 'Paid' &&
-            prev.payment_status !== 'Paid'
-          ) {
-            const key = `payment_${order.id}_paid`;
-            if (!toastedOrderEvents.current.has(key)) {
-              toastedOrderEvents.current.add(key);
-              toast.success('💳 Payment Received', {
-                description: `Payment recorded for Order #${order.id} (${name}).`,
-                duration: 5000,
-              });
-              setUnreadCount((c) => c + 1);
+              // Driver assigned
+              if (order.driver_id && !prev.driver_id) {
+                const key = `assigned_${order.id}_${order.driver_id}`;
+                if (!toastedOrderEvents.current.has(key)) {
+                  toastedOrderEvents.current.add(key);
+                  toast.info('🚗 Driver Assigned', {
+                    description: `Order #${order.id} for ${name} has been assigned to a driver.`,
+                    duration: 5000,
+                  });
+                  setUnreadCount((c) => c + 1);
+                }
+              }
+
+              // Status changed
+              if (order.status && order.status !== prev.status) {
+                const key = `status_${order.id}_${order.status}`;
+                if (!toastedOrderEvents.current.has(key)) {
+                  toastedOrderEvents.current.add(key);
+                  if (order.status === 'Booking Complete') {
+                    toast.success('✅ Order Delivered', {
+                      description: `Order #${order.id} for ${name} is now ${statusLabel(order.status)}.`,
+                      duration: 5000,
+                    });
+                  } else if (order.status === 'Booking Cancelled') {
+                    toast.error('❌ Order Cancelled', {
+                      description: `Order #${order.id} for ${name} has been cancelled.`,
+                      duration: 5000,
+                    });
+                  } else if (order.status === 'Booking Out For Delivery') {
+                    toast.info('🚚 Out for Delivery', {
+                      description: `Order #${order.id} for ${name} is now out for delivery.`,
+                      duration: 5000,
+                    });
+                  } else {
+                    toast.info('📦 Status Updated', {
+                      description: `Order #${order.id} for ${name}: ${statusLabel(order.status)}.`,
+                      duration: 4000,
+                    });
+                  }
+                  setUnreadCount((c) => c + 1);
+                }
+              }
+
+              // Payment received
+              if (order.payment_status === 'Paid' && prev.payment_status !== 'Paid') {
+                const key = `payment_${order.id}_paid`;
+                if (!toastedOrderEvents.current.has(key)) {
+                  toastedOrderEvents.current.add(key);
+                  toast.success('💳 Payment Received', {
+                    description: `Payment recorded for Order #${order.id} (${name}).`,
+                    duration: 5000,
+                  });
+                  setUnreadCount((c) => c + 1);
+                }
+              }
             }
+
+            lastOrdersRef.current.set(order.id, order);
           }
         }
-      )
-      .subscribe();
 
-    // ── Real-time: notifications table inserts (system-generated alerts) ──
-    const notifChannel = supabase
-      .channel('notif_ctx_notifications')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications' },
-        () => {
-          setUnreadCount((c) => c + 1);
+        // Poll notification count
+        const { count } = await db
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_dismissed', false);
+
+        if (count !== null && count > lastNotifCountRef.current) {
+          setUnreadCount(count);
+          lastNotifCountRef.current = count;
         }
-      )
-      .subscribe();
+      } catch {}
+    };
 
+    pollIntervalRef.current = setInterval(pollForChanges, 30000);
     return () => {
-      supabase.removeChannel(ordersChannel);
-      supabase.removeChannel(notifChannel);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
 

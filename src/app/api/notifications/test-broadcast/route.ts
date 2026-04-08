@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/db/server';
 
 function initVapid(): boolean {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -27,23 +27,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title and message are required' }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const db = await createClient();
 
-    const supabase = createClient(
-      supabaseUrl,
-      serviceKey && serviceKey !== 'your-supabase-service-role-key-here' ? serviceKey : anonKey
-    );
-
-    // ── 1. Fetch all drivers ──────────────────────────────────────────────────
-    const { data: drivers } = await supabase
+    const { data: drivers } = await db
       .from('drivers')
       .select('id, name, email')
       .eq('status', 'active');
 
-    // ── 2. Fetch all staff ────────────────────────────────────────────────────
-    const { data: staff } = await supabase
+    const { data: staff } = await db
       .from('staff')
       .select('id, name, email')
       .eq('status', 'active');
@@ -52,39 +43,36 @@ export async function POST(req: NextRequest) {
     const staffCount = staff?.length ?? 0;
     const totalRecipients = driverCount + staffCount;
 
-    // ── 3. Insert notification records for drivers ────────────────────────────
-    const driverNotifications = (drivers ?? []).map((d) => ({
+    const driverNotifications = (drivers ?? []).map((d: any) => ({
       alert_type: 'admin_alert',
       title,
       message,
       driver_id: d.id,
-      metadata: { severity: 'info', broadcast: true, recipient_type: 'driver' },
+      metadata: JSON.stringify({ severity: 'info', broadcast: true, recipient_type: 'driver' }),
       is_dismissed: false,
       is_archived: false,
     }));
 
-    // ── 4. Insert notification records for staff ──────────────────────────────
-    const staffNotifications = (staff ?? []).map((s) => ({
+    const staffNotifications = (staff ?? []).map((s: any) => ({
       alert_type: 'admin_alert',
       title,
       message,
-      metadata: { severity: 'info', broadcast: true, recipient_type: 'staff', staff_id: s.id },
+      metadata: JSON.stringify({ severity: 'info', broadcast: true, recipient_type: 'staff', staff_id: s.id }),
       is_dismissed: false,
       is_archived: false,
     }));
 
-    // Also insert one general broadcast notification visible in the admin center
     const broadcastNotification = {
       alert_type: 'admin_alert',
       title,
       message,
-      metadata: {
+      metadata: JSON.stringify({
         severity: 'info',
         broadcast: true,
         recipient_type: 'all',
         driver_count: driverCount,
         staff_count: staffCount,
-      },
+      }),
       is_dismissed: false,
       is_archived: false,
     };
@@ -92,15 +80,14 @@ export async function POST(req: NextRequest) {
     const allNotifications = [...driverNotifications, ...staffNotifications, broadcastNotification];
 
     if (allNotifications.length > 0) {
-      await supabase.from('notifications').insert(allNotifications);
+      await db.from('notifications').insert(allNotifications);
     }
 
-    // ── 5. Send push notifications (if VAPID configured) ─────────────────────
     let pushSent = 0;
     let pushTotal = 0;
 
     if (initVapid()) {
-      const { data: subscriptions } = await supabase
+      const { data: subscriptions } = await db
         .from('push_subscriptions')
         .select('endpoint, p256dh, auth');
 
@@ -117,7 +104,7 @@ export async function POST(req: NextRequest) {
         });
 
         const results = await Promise.allSettled(
-          subscriptions.map((sub) =>
+          subscriptions.map((sub: any) =>
             webpush.sendNotification(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
               payload
@@ -125,7 +112,6 @@ export async function POST(req: NextRequest) {
           )
         );
 
-        // Clean up expired subscriptions
         const expiredEndpoints: string[] = [];
         results.forEach((result, i) => {
           if (result.status === 'rejected') {
@@ -137,7 +123,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (expiredEndpoints.length > 0) {
-          await supabase.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
+          await db.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
         }
 
         pushSent = results.filter((r) => r.status === 'fulfilled').length;

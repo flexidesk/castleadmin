@@ -1,50 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/db/server';
 
 const EXPORT_TABLES = [
-  'orders',
-  'drivers',
-  'customers',
-  'vehicles',
-  'driver_locations',
-  'driver_performance_logs',
-  'driver_shifts',
-  'driver_documents',
-  'driver_cash_allocations',
-  'driver_cash_collections',
-  'driver_pay_rates',
-  'driver_payments',
-  'driver_zones',
-  'driver_inspection_schedules',
-  'driver_inspection_logs',
-  'vehicle_inspections',
-  'vehicle_inspection_items',
-  'vehicle_incidents',
-  'vehicle_incident_images',
-  'vehicle_insurance',
-  'vehicle_tax',
-  'vehicle_documents',
-  'delivery_zones',
-  'message_templates',
-  'notifications',
-  'activity_logs',
-  'email_alert_logs',
-  'sms_alert_logs',
-  'woocommerce_sync_log',
-  'woocommerce_webhook_log',
-  'fleet_config',
-  'notification_preferences',
-  'user_roles',
-  'system_integrations',
-  'driver_rate_settings',
-  'alert_thresholds',
-  'company_profile',
-  'shift_templates',
-  'woocommerce_settings',
-  'system_config',
-  'api_keys',
-  'push_subscriptions',
-  'driver_pod_submissions',
+  'orders', 'drivers', 'customers', 'vehicles', 'driver_locations',
+  'driver_performance_logs', 'driver_shifts', 'driver_documents',
+  'driver_cash_allocations', 'driver_cash_collections', 'driver_pay_rates',
+  'driver_payments', 'driver_zones', 'driver_inspection_schedules',
+  'driver_inspection_logs', 'vehicle_inspections', 'vehicle_inspection_items',
+  'vehicle_incidents', 'vehicle_incident_images', 'vehicle_insurance',
+  'vehicle_tax', 'vehicle_documents', 'delivery_zones', 'message_templates',
+  'notifications', 'activity_logs', 'email_alert_logs', 'sms_alert_logs',
+  'woocommerce_sync_log', 'woocommerce_webhook_log', 'fleet_config',
+  'notification_preferences', 'user_roles', 'system_integrations',
+  'driver_rate_settings', 'alert_thresholds', 'company_profile',
+  'shift_templates', 'woocommerce_settings', 'system_config', 'api_keys',
+  'push_subscriptions', 'driver_pod_submissions',
 ];
 
 function toCSV(rows: Record<string, unknown>[]): string {
@@ -67,18 +37,17 @@ function toCSV(rows: Record<string, unknown>[]): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const db = await createClient();
     const { searchParams } = new URL(request.url);
     const format = searchParams.get('format') || 'json';
     const table = searchParams.get('table');
 
-    // Single table export
     if (table) {
       if (!EXPORT_TABLES.includes(table)) {
         return NextResponse.json({ error: 'Table not allowed for export' }, { status: 400 });
       }
-      const { data, error } = await supabase.from(table as any).select('*');
-      if (error) throw error;
+      const { data, error } = await db.from(table).select('*');
+      if (error) throw new Error(error.message);
       const rows = data || [];
 
       if (format === 'csv') {
@@ -99,13 +68,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Full backup — all tables as JSON
     const backup: Record<string, unknown[]> = {};
     const errors: string[] = [];
 
     for (const t of EXPORT_TABLES) {
       try {
-        const { data, error } = await supabase.from(t as any).select('*');
+        const { data, error } = await db.from(t).select('*');
         if (error) {
           errors.push(`${t}: ${error.message}`);
           backup[t] = [];
