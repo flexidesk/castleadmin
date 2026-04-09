@@ -20,15 +20,17 @@ interface InstallResult {
 }
 
 interface StatusResult {
-  connected: boolean;
+  status: 'connected' | 'error';
   tableCount: number;
-  tables: { table_name: string; table_rows: number }[];
+  tables: { name: string; estimatedRows: number }[];
   schemaVerification: {
-    allPresent: boolean;
+    valid: boolean;
     missingTables: string[];
-    presentTables: string[];
+    foundCount: number;
+    expectedTableCount: number;
   };
   sampleDataCounts: Record<string, number>;
+  error?: string;
 }
 
 type Phase = 'idle' | 'checking' | 'ready' | 'installing' | 'done' | 'error';
@@ -45,8 +47,14 @@ export default function InstallPage() {
     setErrorMessage(null);
     try {
       const res = await fetch('/api/database/status');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to check database status');
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check that the API route is accessible.`);
+      }
+      if (!res.ok || data.status === 'error') throw new Error(data.error || 'Failed to check database status');
       setStatusResult(data);
       setPhase('ready');
     } catch (err: any) {
@@ -60,7 +68,13 @@ export default function InstallPage() {
     setErrorMessage(null);
     try {
       const res = await fetch('/api/database/setup', { method: 'POST' });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check that the API route is accessible.`);
+      }
       if (!res.ok) throw new Error(data.error || 'Installation failed');
       setInstallResult(data);
       setPhase('done');
@@ -162,7 +176,7 @@ export default function InstallPage() {
                 </div>
               )}
 
-              {!statusResult.schemaVerification.allPresent && statusResult.schemaVerification.missingTables.length > 0 && (
+              {!statusResult.schemaVerification.valid && statusResult.schemaVerification.missingTables.length > 0 && (
                 <div className="mb-5">
                   <p className="text-xs font-medium mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>Missing tables ({statusResult.schemaVerification.missingTables.length}):</p>
                   <div className="flex flex-wrap gap-1.5">
