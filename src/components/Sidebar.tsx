@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText, LayoutGrid, Download } from 'lucide-react';
+import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText, LayoutGrid, Download, ShieldAlert } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -48,6 +48,7 @@ const navItems: NavItem[] = [
   { label: 'Webhook Guide', href: '/webhook-guide', icon: BookOpen, group: 'System' },
   { label: 'Webhook Tester', href: '/webhook-tester', icon: FlaskConical, group: 'System' },
   { label: 'Installation', href: '/install', icon: Download, group: 'System' },
+  { label: 'Verify Install', href: '/verify-install', icon: ShieldAlert, group: 'System' },
   { label: 'Settings', href: '/settings', icon: Settings, group: 'System' },
 ];
 
