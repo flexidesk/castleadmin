@@ -6,7 +6,19 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function getConnection() {
+function getServerConnection() {
+  return mysql.createConnection({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    multipleStatements: false,
+    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    connectTimeout: 10000,
+  });
+}
+
+function getDatabaseConnection() {
   return mysql.createConnection({
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
@@ -15,6 +27,7 @@ function getConnection() {
     port: parseInt(process.env.DB_PORT || '3306', 10),
     multipleStatements: false,
     ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    connectTimeout: 10000,
   });
 }
 
@@ -28,14 +41,18 @@ function splitStatements(sql: string): string[] {
   while (i < sql.length) {
     const ch = sql[i];
 
-    // Handle line comments (-- ...) — skip entire line
     if (!inString && ch === '-' && sql[i + 1] === '-') {
       const end = sql.indexOf('\n', i);
       i = end === -1 ? sql.length : end + 1;
       continue;
     }
 
-    // Handle string literals
+    if (!inString && ch === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+
     if (!inString && (ch === "'" || ch === '"' || ch === '`')) {
       inString = true;
       stringChar = ch;
@@ -43,8 +60,8 @@ function splitStatements(sql: string): string[] {
       i++;
       continue;
     }
+
     if (inString && ch === stringChar) {
-      // Check for escaped quote (doubled)
       if (sql[i + 1] === stringChar) {
         current += ch + ch;
         i += 2;
@@ -58,7 +75,7 @@ function splitStatements(sql: string): string[] {
 
     if (!inString && ch === ';') {
       const trimmed = current.trim();
-      if (trimmed.length > 0) {
+      if (trimmed) {
         statements.push(trimmed);
       }
       current = '';
@@ -71,57 +88,88 @@ function splitStatements(sql: string): string[] {
   }
 
   const trimmed = current.trim();
-  if (trimmed.length > 0) {
+  if (trimmed) {
     statements.push(trimmed);
   }
 
-  // Filter out empty statements and pure comment lines
-  return statements.filter(s => {
+  return statements.filter((s) => {
     const clean = s.trim();
-    if (clean.length === 0) return false;
-    // Skip if every non-empty line starts with --
-    const lines = clean.split('\n').filter(l => l.trim().length > 0);
-    return lines.some(l => !l.trim().startsWith('--'));
+    if (!clean) return false;
+    const lines = clean.split('\n').filter((l) => l.trim().length > 0);
+    return lines.some((l) => !l.trim().startsWith('--'));
   });
 }
 
+function getSqlFile(): { sql: string | null; checkedPaths: string[] } {
+  const checkedPaths = [
+    path.join(process.cwd(), 'scripts', 'mysql-setup.sql'),
+    path.join(process.cwd(), 'castleadmin', 'scripts', 'mysql-setup.sql'),
+    path.join(path.resolve(process.cwd(), '..'), 'scripts', 'mysql-setup.sql'),
+  ];
+
+  for (const sqlPath of checkedPaths) {
+    if (fs.existsSync(sqlPath)) {
+      return { sql: fs.readFileSync(sqlPath, 'utf-8'), checkedPaths };
+    }
+  }
+
+  return { sql: null, checkedPaths };
+}
+
 export async function POST() {
+  let serverConn: mysql.Connection | null = null;
   let conn: mysql.Connection | null = null;
 
   try {
-    const sqlPath = path.join(process.cwd(), 'scripts', 'mysql-setup.sql');
-
-    if (!fs.existsSync(sqlPath)) {
-      return NextResponse.json({ error: 'Migration file not found at scripts/mysql-setup.sql' }, { status: 404 });
+    const dbName = process.env.DB_NAME;
+    if (!dbName) {
+      return NextResponse.json(
+        { error: 'DB_NAME is not configured in environment variables.' },
+        { status: 500 }
+      );
     }
 
-    const sqlContent = fs.readFileSync(sqlPath, 'utf-8');
-    const statements = splitStatements(sqlContent);
+    const { sql, checkedPaths } = getSqlFile();
+    if (!sql) {
+      return NextResponse.json(
+        {
+          error: 'Migration file not found.',
+          details: `Checked: ${checkedPaths.join(' | ')}`,
+        },
+        { status: 404 }
+      );
+    }
 
-    conn = await getConnection();
+    const statements = splitStatements(sql);
+    if (statements.length === 0) {
+      return NextResponse.json(
+        { error: 'Migration file was found, but no SQL statements were parsed.' },
+        { status: 500 }
+      );
+    }
 
-    // Disable strict mode so DATETIME DEFAULT CURRENT_TIMESTAMP works on MySQL 5.7
-    // and allow zero dates / non-strict inserts
-    await (conn as any).query(
-      "SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'"
+    serverConn = await getServerConnection();
+
+    await serverConn.query(
+      `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
     );
+
+    conn = await getDatabaseConnection();
+
+    await conn.query(`SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'`);
 
     const results: { statement: string; status: 'ok' | 'error'; error?: string }[] = [];
     let successCount = 0;
     let errorCount = 0;
 
     for (const stmt of statements) {
+      const preview = stmt.substring(0, 120) + (stmt.length > 120 ? '...' : '');
+
       try {
-        // Use query() not execute() — execute() uses prepared statements which
-        // do NOT support DDL (CREATE TABLE, CREATE INDEX, ALTER TABLE, etc.)
-        await (conn as any).query(stmt);
+        await conn.query(stmt);
         successCount++;
-        results.push({
-          statement: stmt.substring(0, 80) + (stmt.length > 80 ? '...' : ''),
-          status: 'ok',
-        });
+        results.push({ statement: preview, status: 'ok' });
       } catch (err: any) {
-        // Ignore idempotency errors
         const ignorable = [
           'already exists',
           'Duplicate entry',
@@ -130,22 +178,20 @@ export async function POST() {
           'ER_DUP_KEYNAME',
           'Duplicate key name',
         ];
+
         const isIgnorable = ignorable.some(
-          msg => err.message?.includes(msg) || err.code === msg
+          (msg) => err?.message?.includes(msg) || err?.code === msg
         );
 
         if (isIgnorable) {
           successCount++;
-          results.push({
-            statement: stmt.substring(0, 80) + '...',
-            status: 'ok',
-          });
+          results.push({ statement: preview, status: 'ok' });
         } else {
           errorCount++;
           results.push({
-            statement: stmt.substring(0, 80) + (stmt.length > 80 ? '...' : ''),
+            statement: preview,
             status: 'error',
-            error: err.message,
+            error: err?.message || 'Unknown SQL error',
           });
         }
       }
@@ -157,12 +203,17 @@ export async function POST() {
       totalStatements: statements.length,
       successCount,
       errorCount,
-      errors: results.filter(r => r.status === 'error'),
+      errors: results.filter((r) => r.status === 'error'),
     });
   } catch (err: any) {
     console.error('Database setup error:', err);
+
     return NextResponse.json(
-      { error: 'Database connection failed', details: err.message },
+      {
+        error: 'Database setup failed',
+        details: err?.message || 'Unknown error',
+        code: err?.code || null,
+      },
       { status: 500 }
     );
   } finally {
@@ -171,23 +222,38 @@ export async function POST() {
         await conn.end();
       } catch {}
     }
+
+    if (serverConn) {
+      try {
+        await serverConn.end();
+      } catch {}
+    }
   }
 }
 
 export async function GET() {
   let conn: mysql.Connection | null = null;
+
   try {
-    conn = await getConnection();
-    const [rows] = await (conn as any).query(
-      `SELECT table_name, table_rows 
-       FROM information_schema.tables 
-       WHERE table_schema = ? 
+    conn = await getDatabaseConnection();
+
+    const [rows] = await conn.query(
+      `SELECT table_name, table_rows
+       FROM information_schema.tables
+       WHERE table_schema = ?
        ORDER BY table_name`,
       [process.env.DB_NAME]
     );
+
     return NextResponse.json({ tables: rows });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: err?.message || 'Failed to read database tables',
+        code: err?.code || null,
+      },
+      { status: 500 }
+    );
   } finally {
     if (conn) {
       try {

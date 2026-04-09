@@ -45,20 +45,27 @@ export default function InstallPage() {
   const checkDatabase = async () => {
     setPhase('checking');
     setErrorMessage(null);
+
     try {
-      const res = await fetch('/api/database/status');
+      const res = await fetch('/api/database/status', { cache: 'no-store' });
       const text = await res.text();
+
       let data: any;
       try {
         data = JSON.parse(text);
       } catch {
         throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check that the API route is accessible.`);
       }
-      if (!res.ok || data.status === 'error') throw new Error(data.error || 'Failed to check database status');
+
+      if (!res.ok || data.status === 'error') {
+        const msg = [data.error, data.code].filter(Boolean).join(' | ');
+        throw new Error(msg || 'Failed to check database status');
+      }
+
       setStatusResult(data);
       setPhase('ready');
     } catch (err: any) {
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'Failed to check database');
       setPhase('error');
     }
   };
@@ -66,20 +73,31 @@ export default function InstallPage() {
   const runInstall = async () => {
     setPhase('installing');
     setErrorMessage(null);
+
     try {
-      const res = await fetch('/api/database/setup', { method: 'POST' });
+      const res = await fetch('/api/database/setup', {
+        method: 'POST',
+        cache: 'no-store',
+      });
+
       const text = await res.text();
+
       let data: any;
       try {
         data = JSON.parse(text);
       } catch {
         throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check that the API route is accessible.`);
       }
-      if (!res.ok) throw new Error(data.error || 'Installation failed');
+
+      if (!res.ok) {
+        const msg = [data.error, data.details, data.code].filter(Boolean).join(' | ');
+        throw new Error(msg || 'Installation failed');
+      }
+
       setInstallResult(data);
       setPhase('done');
     } catch (err: any) {
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'Installation failed');
       setPhase('error');
     }
   };
