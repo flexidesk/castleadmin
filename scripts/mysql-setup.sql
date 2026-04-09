@@ -1,5 +1,6 @@
 -- ============================================================
 -- CastleAdmin MySQL Database Setup
+-- MySQL 5.7 Compatible Version
 -- Run this on: sql8.freesqldatabase.com / sql8822597
 -- ============================================================
 
@@ -15,12 +16,12 @@ CREATE TABLE IF NOT EXISTS admin_users (
   is_active TINYINT(1) DEFAULT 1,
   reset_token VARCHAR(128),
   reset_token_expires_at DATETIME,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email);
-CREATE INDEX IF NOT EXISTS idx_admin_users_reset_token ON admin_users(reset_token);
+CREATE INDEX idx_admin_users_email ON admin_users(email);
+CREATE INDEX idx_admin_users_reset_token ON admin_users(reset_token);
 
 INSERT INTO admin_users (id, email, password_hash, password_salt, full_name, role, is_active)
 VALUES (
@@ -47,12 +48,12 @@ CREATE TABLE IF NOT EXISTS drivers (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   notes TEXT,
   auth_user_id CHAR(36),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_drivers_status ON drivers(status);
-CREATE INDEX IF NOT EXISTS idx_drivers_auth_user_id ON drivers(auth_user_id);
+CREATE INDEX idx_drivers_status ON drivers(status);
+CREATE INDEX idx_drivers_auth_user_id ON drivers(auth_user_id);
 
 INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
   ('d1000000-0000-0000-0000-000000000001', 'Marcus Webb',   '07712 345678', 'Ford Transit',      'LN23 RKT', 'On Route',  'MW', 1),
@@ -88,26 +89,26 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_recorded_at DATETIME,
   payment_recorded_by VARCHAR(255),
   payment_notes TEXT,
-  products JSON,
-  pod JSON,
+  products LONGTEXT,
+  pod LONGTEXT,
   notes TEXT,
-  custom_fields JSON,
-  customer_rating TINYINT CHECK (customer_rating >= 1 AND customer_rating <= 5),
+  custom_fields LONGTEXT,
+  customer_rating TINYINT,
   delivery_duration_minutes INT,
   deposit_amount DECIMAL(10,2) DEFAULT 0,
   amount_due DECIMAL(10,2) DEFAULT 0,
   delivery_charge DECIMAL(10,2) DEFAULT 0,
   failure_reason TEXT,
   failure_notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_booking_date ON orders(booking_date);
-CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_driver_id ON orders(driver_id);
-CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status);
+CREATE INDEX idx_orders_booking_date ON orders(booking_date);
+CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_driver_id ON orders(driver_id);
+CREATE INDEX idx_orders_payment_status ON orders(payment_status);
 
 INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, delivery_address_notes, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
 (
@@ -206,7 +207,7 @@ ON DUPLICATE KEY UPDATE id=id;
 -- ─── 4. VEHICLES ─────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS vehicles (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   registration VARCHAR(20) NOT NULL,
   make VARCHAR(100) NOT NULL,
   model VARCHAR(100) NOT NULL,
@@ -216,13 +217,13 @@ CREATE TABLE IF NOT EXISTS vehicles (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   assigned_driver_id CHAR(36),
   notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY idx_vehicles_registration (registration),
   FOREIGN KEY (assigned_driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_vehicles_assigned_driver ON vehicles(assigned_driver_id);
+CREATE INDEX idx_vehicles_assigned_driver ON vehicles(assigned_driver_id);
 
 INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES
   (UUID(), 'LN23 RKT', 'Ford',       'Transit',  2023, 'White',  'Van',      'd1000000-0000-0000-0000-000000000001'),
@@ -235,88 +236,88 @@ ON DUPLICATE KEY UPDATE registration=registration;
 -- ─── 5. DRIVER PORTAL CREDENTIALS ────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_portal_credentials (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL UNIQUE,
   username VARCHAR(100) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   is_active TINYINT(1) DEFAULT 1,
   last_login_at DATETIME,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_portal_creds_username ON driver_portal_credentials(username);
+CREATE INDEX idx_driver_portal_creds_username ON driver_portal_credentials(username);
 
 -- ─── 6. DRIVER LOCATIONS ─────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_locations (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   latitude DECIMAL(10,8) NOT NULL,
   longitude DECIMAL(11,8) NOT NULL,
   accuracy DECIMAL(10,2),
   heading DECIMAL(5,2),
   speed DECIMAL(8,2),
-  recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_locations_driver_id ON driver_locations(driver_id);
-CREATE INDEX IF NOT EXISTS idx_driver_locations_recorded_at ON driver_locations(recorded_at);
+CREATE INDEX idx_driver_locations_driver_id ON driver_locations(driver_id);
+CREATE INDEX idx_driver_locations_recorded_at ON driver_locations(recorded_at);
 
 -- ─── 7. DRIVER PERFORMANCE LOGS ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_performance_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   order_id VARCHAR(20),
   delivery_date DATE NOT NULL,
   was_successful TINYINT(1) NOT NULL DEFAULT 1,
   duration_minutes INT,
-  customer_rating TINYINT CHECK (customer_rating >= 1 AND customer_rating <= 5),
+  customer_rating TINYINT,
   notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_perf_driver_id ON driver_performance_logs(driver_id);
-CREATE INDEX IF NOT EXISTS idx_driver_perf_delivery_date ON driver_performance_logs(delivery_date);
+CREATE INDEX idx_driver_perf_driver_id ON driver_performance_logs(driver_id);
+CREATE INDEX idx_driver_perf_delivery_date ON driver_performance_logs(delivery_date);
 
 INSERT INTO driver_performance_logs (id, driver_id, delivery_date, was_successful, duration_minutes, customer_rating) VALUES
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', CURDATE() - INTERVAL 1 DAY,  1, 45, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', CURDATE() - INTERVAL 2 DAY,  1, 60, 4),
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', CURDATE() - INTERVAL 3 DAY,  1, 55, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', CURDATE() - INTERVAL 5 DAY,  0, 90, 2),
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', CURDATE() - INTERVAL 7 DAY,  1, 40, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000002', CURDATE() - INTERVAL 1 DAY,  1, 50, 4),
-  (UUID(), 'd1000000-0000-0000-0000-000000000002', CURDATE() - INTERVAL 2 DAY,  1, 65, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000002', CURDATE() - INTERVAL 4 DAY,  1, 35, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000002', CURDATE() - INTERVAL 6 DAY,  0, 80, 1),
-  (UUID(), 'd1000000-0000-0000-0000-000000000003', CURDATE() - INTERVAL 1 DAY,  1, 70, 4),
-  (UUID(), 'd1000000-0000-0000-0000-000000000003', CURDATE() - INTERVAL 3 DAY,  1, 45, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000003', CURDATE() - INTERVAL 5 DAY,  1, 55, 4),
-  (UUID(), 'd1000000-0000-0000-0000-000000000004', CURDATE() - INTERVAL 2 DAY,  1, 60, 5),
-  (UUID(), 'd1000000-0000-0000-0000-000000000004', CURDATE() - INTERVAL 4 DAY,  0, 95, 2),
-  (UUID(), 'd1000000-0000-0000-0000-000000000005', CURDATE() - INTERVAL 3 DAY,  1, 50, 4);
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', DATE_SUB(CURDATE(), INTERVAL 1 DAY),  1, 45, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', DATE_SUB(CURDATE(), INTERVAL 2 DAY),  1, 60, 4),
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', DATE_SUB(CURDATE(), INTERVAL 3 DAY),  1, 55, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', DATE_SUB(CURDATE(), INTERVAL 5 DAY),  0, 90, 2),
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', DATE_SUB(CURDATE(), INTERVAL 7 DAY),  1, 40, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000002', DATE_SUB(CURDATE(), INTERVAL 1 DAY),  1, 50, 4),
+  (UUID(), 'd1000000-0000-0000-0000-000000000002', DATE_SUB(CURDATE(), INTERVAL 2 DAY),  1, 65, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000002', DATE_SUB(CURDATE(), INTERVAL 4 DAY),  1, 35, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000002', DATE_SUB(CURDATE(), INTERVAL 6 DAY),  0, 80, 1),
+  (UUID(), 'd1000000-0000-0000-0000-000000000003', DATE_SUB(CURDATE(), INTERVAL 1 DAY),  1, 70, 4),
+  (UUID(), 'd1000000-0000-0000-0000-000000000003', DATE_SUB(CURDATE(), INTERVAL 3 DAY),  1, 45, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000003', DATE_SUB(CURDATE(), INTERVAL 5 DAY),  1, 55, 4),
+  (UUID(), 'd1000000-0000-0000-0000-000000000004', DATE_SUB(CURDATE(), INTERVAL 2 DAY),  1, 60, 5),
+  (UUID(), 'd1000000-0000-0000-0000-000000000004', DATE_SUB(CURDATE(), INTERVAL 4 DAY),  0, 95, 2),
+  (UUID(), 'd1000000-0000-0000-0000-000000000005', DATE_SUB(CURDATE(), INTERVAL 3 DAY),  1, 50, 4);
 
 -- ─── 8. DRIVER EARNINGS ──────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_earnings (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   order_id VARCHAR(20),
   amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   type ENUM('delivery','bonus','deduction') NOT NULL DEFAULT 'delivery',
   notes TEXT,
-  earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  earned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_earnings_driver_id ON driver_earnings(driver_id);
-CREATE INDEX IF NOT EXISTS idx_driver_earnings_earned_at ON driver_earnings(earned_at);
+CREATE INDEX idx_driver_earnings_driver_id ON driver_earnings(driver_id);
+CREATE INDEX idx_driver_earnings_earned_at ON driver_earnings(earned_at);
 
 INSERT INTO driver_earnings (id, driver_id, order_id, amount, type, earned_at) VALUES
   (UUID(), 'd1000000-0000-0000-0000-000000000001', 'CA-1042', 18.50, 'delivery', '2026-03-15 10:00:00'),
@@ -329,7 +330,7 @@ INSERT INTO driver_earnings (id, driver_id, order_id, amount, type, earned_at) V
 -- ─── 9. DRIVER CASH ALLOCATIONS ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_cash_allocations (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   order_id VARCHAR(20) NOT NULL,
   amount DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -339,11 +340,11 @@ CREATE TABLE IF NOT EXISTS driver_cash_allocations (
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_cash_alloc_driver ON driver_cash_allocations(driver_id);
-CREATE INDEX IF NOT EXISTS idx_driver_cash_alloc_order ON driver_cash_allocations(order_id);
+CREATE INDEX idx_driver_cash_alloc_driver ON driver_cash_allocations(driver_id);
+CREATE INDEX idx_driver_cash_alloc_order ON driver_cash_allocations(order_id);
 
 CREATE TABLE IF NOT EXISTS driver_cash_collections (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   collected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -353,7 +354,7 @@ CREATE TABLE IF NOT EXISTS driver_cash_collections (
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_cash_coll_driver ON driver_cash_collections(driver_id);
+CREATE INDEX idx_driver_cash_coll_driver ON driver_cash_collections(driver_id);
 
 INSERT INTO driver_cash_allocations (id, driver_id, order_id, amount, allocated_at) VALUES
   (UUID(), 'd1000000-0000-0000-0000-000000000001', 'CA-1041', 175.00, '2026-03-15 12:30:00'),
@@ -366,7 +367,7 @@ INSERT INTO driver_cash_collections (id, driver_id, amount, collected_at, collec
 -- ─── 10. DRIVER SHIFT TEMPLATES ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_shift_templates (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   day_of_week TINYINT NOT NULL COMMENT '0=Sun,1=Mon,...,6=Sat',
   start_time TIME NOT NULL,
@@ -374,12 +375,12 @@ CREATE TABLE IF NOT EXISTS driver_shift_templates (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   pay_rate DECIMAL(10,2),
   pay_rate_type ENUM('hourly','fixed','per_delivery') DEFAULT 'hourly',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_shift_templates_driver ON driver_shift_templates(driver_id);
+CREATE INDEX idx_shift_templates_driver ON driver_shift_templates(driver_id);
 
 INSERT INTO driver_shift_templates (id, driver_id, day_of_week, start_time, end_time, pay_rate, pay_rate_type) VALUES
   (UUID(), 'd1000000-0000-0000-0000-000000000001', 1, '08:00:00', '17:00:00', 12.50, 'hourly'),
@@ -394,7 +395,7 @@ INSERT INTO driver_shift_templates (id, driver_id, day_of_week, start_time, end_
 -- ─── 11. DRIVER INSPECTION SCHEDULES ─────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_inspection_schedules (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   vehicle_id CHAR(36),
   driver_id CHAR(36),
   inspection_type VARCHAR(100) NOT NULL DEFAULT 'routine',
@@ -404,45 +405,45 @@ CREATE TABLE IF NOT EXISTS driver_inspection_schedules (
   notes TEXT,
   is_recurring TINYINT(1) DEFAULT 0,
   recurrence_interval_days INT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_inspection_driver ON driver_inspection_schedules(driver_id);
-CREATE INDEX IF NOT EXISTS idx_inspection_date ON driver_inspection_schedules(scheduled_date);
+CREATE INDEX idx_inspection_driver ON driver_inspection_schedules(driver_id);
+CREATE INDEX idx_inspection_date ON driver_inspection_schedules(scheduled_date);
 
 INSERT INTO driver_inspection_schedules (id, driver_id, inspection_type, scheduled_date, status) VALUES
-  (UUID(), 'd1000000-0000-0000-0000-000000000001', 'routine',   CURDATE() + INTERVAL 7 DAY,  'scheduled'),
-  (UUID(), 'd1000000-0000-0000-0000-000000000002', 'routine',   CURDATE() + INTERVAL 14 DAY, 'scheduled'),
-  (UUID(), 'd1000000-0000-0000-0000-000000000003', 'safety',    CURDATE() - INTERVAL 2 DAY,  'overdue'),
-  (UUID(), 'd1000000-0000-0000-0000-000000000004', 'routine',   CURDATE() + INTERVAL 3 DAY,  'scheduled'),
-  (UUID(), 'd1000000-0000-0000-0000-000000000005', 'full_check', CURDATE() - INTERVAL 5 DAY, 'overdue');
+  (UUID(), 'd1000000-0000-0000-0000-000000000001', 'routine',    DATE_ADD(CURDATE(), INTERVAL 7 DAY),  'scheduled'),
+  (UUID(), 'd1000000-0000-0000-0000-000000000002', 'routine',    DATE_ADD(CURDATE(), INTERVAL 14 DAY), 'scheduled'),
+  (UUID(), 'd1000000-0000-0000-0000-000000000003', 'safety',     DATE_SUB(CURDATE(), INTERVAL 2 DAY),  'overdue'),
+  (UUID(), 'd1000000-0000-0000-0000-000000000004', 'routine',    DATE_ADD(CURDATE(), INTERVAL 3 DAY),  'scheduled'),
+  (UUID(), 'd1000000-0000-0000-0000-000000000005', 'full_check', DATE_SUB(CURDATE(), INTERVAL 5 DAY),  'overdue');
 
 -- ─── 12. DRIVER POD SUBMISSIONS ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS driver_pod_submissions (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   order_id VARCHAR(20) NOT NULL,
   driver_id CHAR(36) NOT NULL,
   signed_by VARCHAR(255) NOT NULL,
   signature_data_url MEDIUMTEXT,
   notes TEXT,
-  photos JSON,
-  submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  photos LONGTEXT,
+  submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_driver_pod_order_id ON driver_pod_submissions(order_id);
-CREATE INDEX IF NOT EXISTS idx_driver_pod_driver_id ON driver_pod_submissions(driver_id);
+CREATE INDEX idx_driver_pod_order_id ON driver_pod_submissions(order_id);
+CREATE INDEX idx_driver_pod_driver_id ON driver_pod_submissions(driver_id);
 
 -- ─── 13. FLEET CONFIG ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS fleet_config (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   company_name VARCHAR(255) NOT NULL DEFAULT 'CastleAdmin Fleet',
   timezone VARCHAR(100) NOT NULL DEFAULT 'Europe/London',
   currency VARCHAR(10) NOT NULL DEFAULT 'GBP',
@@ -459,7 +460,7 @@ CREATE TABLE IF NOT EXISTS fleet_config (
   map_default_postcode VARCHAR(20),
   map_default_lat DECIMAL(10,8),
   map_default_lng DECIMAL(11,8),
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 INSERT INTO fleet_config (id, company_name, timezone, currency, base_delivery_fee, per_km_fee, min_delivery_fee, max_delivery_fee, fee_structure, company_address, company_phone, company_email)
@@ -471,7 +472,7 @@ VALUES (
 -- ─── 14. NOTIFICATION PREFERENCES ────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS notification_preferences (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   notify_new_order TINYINT(1) NOT NULL DEFAULT 1,
   notify_order_status_change TINYINT(1) NOT NULL DEFAULT 1,
   notify_driver_assigned TINYINT(1) NOT NULL DEFAULT 1,
@@ -483,7 +484,7 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
   sms_notifications TINYINT(1) NOT NULL DEFAULT 0,
   push_notifications TINYINT(1) NOT NULL DEFAULT 1,
   notification_email VARCHAR(255),
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 INSERT INTO notification_preferences (id, notification_email)
@@ -492,7 +493,7 @@ VALUES (UUID(), 'admin@castlefleet.co.uk');
 -- ─── 15. USER ROLES ──────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS user_roles (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   user_id CHAR(36),
   email VARCHAR(255) NOT NULL,
   full_name VARCHAR(255) NOT NULL DEFAULT '',
@@ -504,11 +505,11 @@ CREATE TABLE IF NOT EXISTS user_roles (
   can_manage_drivers TINYINT(1) NOT NULL DEFAULT 0,
   can_view_analytics TINYINT(1) NOT NULL DEFAULT 0,
   can_manage_settings TINYINT(1) NOT NULL DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_roles_email ON user_roles(email);
+CREATE INDEX idx_user_roles_email ON user_roles(email);
 
 INSERT INTO user_roles (id, email, full_name, role, is_active, can_create_orders, can_edit_orders, can_delete_orders, can_manage_drivers, can_view_analytics, can_manage_settings) VALUES
   (UUID(), 'admin@castlefleet.co.uk',      'System Admin',         'admin',      1, 1, 1, 1, 1, 1, 1),
@@ -519,7 +520,7 @@ INSERT INTO user_roles (id, email, full_name, role, is_active, can_create_orders
 -- ─── 16. SYSTEM INTEGRATIONS ─────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS system_integrations (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(100) NOT NULL UNIQUE,
   description TEXT,
@@ -527,13 +528,13 @@ CREATE TABLE IF NOT EXISTS system_integrations (
   api_key TEXT,
   api_secret TEXT,
   webhook_url TEXT,
-  config JSON,
+  config LONGTEXT,
   last_synced_at DATETIME,
   status VARCHAR(50) NOT NULL DEFAULT 'disconnected',
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_system_integrations_slug ON system_integrations(slug);
+CREATE INDEX idx_system_integrations_slug ON system_integrations(slug);
 
 INSERT INTO system_integrations (id, name, slug, description, is_enabled, status) VALUES
   (UUID(), 'WooCommerce', 'woocommerce', 'Sync orders from WooCommerce store', 1, 'connected'),
@@ -547,17 +548,17 @@ ON DUPLICATE KEY UPDATE slug=slug;
 -- ─── 17. WOOCOMMERCE SETTINGS ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS woocommerce_settings (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-  store_url TEXT NOT NULL DEFAULT '',
-  consumer_key TEXT NOT NULL DEFAULT '',
-  consumer_secret TEXT NOT NULL DEFAULT '',
+  id CHAR(36) PRIMARY KEY,
+  store_url TEXT NOT NULL,
+  consumer_key TEXT NOT NULL,
+  consumer_secret TEXT NOT NULL,
   is_connected TINYINT(1) NOT NULL DEFAULT 0,
   is_enabled TINYINT(1) NOT NULL DEFAULT 0,
   last_tested_at DATETIME,
   last_test_status VARCHAR(50),
   last_test_message TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 INSERT INTO woocommerce_settings (id, store_url, consumer_key, consumer_secret, is_connected)
@@ -566,25 +567,25 @@ VALUES (UUID(), '', '', '', 0);
 -- ─── 18. WOOCOMMERCE FIELD MAPPING ───────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS woocommerce_field_mapping (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   woo_field VARCHAR(255) NOT NULL,
   local_field VARCHAR(255) NOT NULL,
   transform VARCHAR(100),
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ─── 19. WOOCOMMERCE SYNC LOG ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS woocommerce_sync_log (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   sync_type VARCHAR(50) NOT NULL DEFAULT 'manual',
   orders_synced INT NOT NULL DEFAULT 0,
   orders_created INT NOT NULL DEFAULT 0,
   orders_updated INT NOT NULL DEFAULT 0,
   orders_failed INT NOT NULL DEFAULT 0,
   error_message TEXT,
-  started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME,
   status VARCHAR(50) NOT NULL DEFAULT 'running'
 );
@@ -592,65 +593,65 @@ CREATE TABLE IF NOT EXISTS woocommerce_sync_log (
 -- ─── 20. WOOCOMMERCE WEBHOOK LOG ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS woocommerce_webhook_log (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   event_type VARCHAR(100) NOT NULL,
   woo_order_id VARCHAR(50),
-  payload JSON,
+  payload LONGTEXT,
   status VARCHAR(50) NOT NULL DEFAULT 'received',
   error_message TEXT,
-  processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ─── 21. WEBHOOK EVENT LOGS ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS webhook_event_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   event_type VARCHAR(100) NOT NULL,
   source VARCHAR(100),
-  payload JSON,
+  payload LONGTEXT,
   status VARCHAR(50) NOT NULL DEFAULT 'received',
   error_message TEXT,
   order_id VARCHAR(20),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_webhook_event_logs_event ON webhook_event_logs(event_type);
-CREATE INDEX IF NOT EXISTS idx_webhook_event_logs_created ON webhook_event_logs(created_at);
+CREATE INDEX idx_webhook_event_logs_event ON webhook_event_logs(event_type);
+CREATE INDEX idx_webhook_event_logs_created ON webhook_event_logs(created_at);
 
 -- ─── 22. WEBHOOK CONFIGS ─────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS webhook_configs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   url TEXT NOT NULL,
-  events JSON,
+  events LONGTEXT,
   secret VARCHAR(255),
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   last_triggered_at DATETIME,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- ─── 23. WEBHOOK REQUEST LOGS ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS webhook_request_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   webhook_config_id CHAR(36),
   event_type VARCHAR(100),
   url TEXT,
-  request_payload JSON,
+  request_payload LONGTEXT,
   response_status INT,
   response_body TEXT,
   duration_ms INT,
   status VARCHAR(50) NOT NULL DEFAULT 'success',
   error_message TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ─── 24. MESSAGE TEMPLATES ───────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS message_templates (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   channel ENUM('email','sms') NOT NULL DEFAULT 'email',
   trigger_type ENUM('new_assignment','delivery_failure','payment_issue','daily_summary','booking_accepted','booking_assigned','booking_out_for_delivery','booking_complete','custom') NOT NULL DEFAULT 'custom',
@@ -659,24 +660,24 @@ CREATE TABLE IF NOT EXISTS message_templates (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   is_admin_alert TINYINT(1) NOT NULL DEFAULT 0,
   description TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_message_templates_channel ON message_templates(channel);
-CREATE INDEX IF NOT EXISTS idx_message_templates_trigger ON message_templates(trigger_type);
+CREATE INDEX idx_message_templates_channel ON message_templates(channel);
+CREATE INDEX idx_message_templates_trigger ON message_templates(trigger_type);
 
 INSERT INTO message_templates (id, name, channel, trigger_type, subject, body, is_active, is_admin_alert, description) VALUES
-  (UUID(), 'New Assignment Alert', 'email', 'new_assignment', 'New Booking Assigned – {{order_id}}', '<p>Hi Admin,</p><p>A new booking has been assigned.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}<br/><strong>Status:</strong> {{status}}</p>', 1, 1, 'Sent to admin when a new booking is assigned to a driver'),
-  (UUID(), 'Delivery Failure Alert', 'email', 'delivery_failure', 'Delivery Failed – {{order_id}}', '<p>Hi Admin,</p><p>A delivery has failed and requires attention.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}</p>', 1, 1, 'Sent to admin when a delivery fails'),
-  (UUID(), 'Booking Accepted – Customer', 'email', 'booking_accepted', 'Your Booking Has Been Accepted – {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
-  (UUID(), 'Out For Delivery – Customer SMS', 'sms', 'booking_out_for_delivery', NULL, 'Hi {{customer_name}}, your order {{order_id}} is out for delivery! Track it here: {{tracking_link}}', 1, 0, 'SMS sent to customer when their order is out for delivery'),
-  (UUID(), 'Delivery Complete – Customer', 'email', 'booking_complete', 'Your Delivery Is Complete – {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your order has been successfully delivered!</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their delivery is complete');
+  (UUID(), 'New Assignment Alert', 'email', 'new_assignment', 'New Booking Assigned - {{order_id}}', '<p>Hi Admin,</p><p>A new booking has been assigned.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}<br/><strong>Status:</strong> {{status}}</p>', 1, 1, 'Sent to admin when a new booking is assigned to a driver'),
+  (UUID(), 'Delivery Failure Alert', 'email', 'delivery_failure', 'Delivery Failed - {{order_id}}', '<p>Hi Admin,</p><p>A delivery has failed and requires attention.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}</p>', 1, 1, 'Sent to admin when a delivery fails'),
+  (UUID(), 'Booking Accepted - Customer', 'email', 'booking_accepted', 'Your Booking Has Been Accepted - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
+  (UUID(), 'Out For Delivery - Customer SMS', 'sms', 'booking_out_for_delivery', NULL, 'Hi {{customer_name}}, your order {{order_id}} is out for delivery! Track it here: {{tracking_link}}', 1, 0, 'SMS sent to customer when their order is out for delivery'),
+  (UUID(), 'Delivery Complete - Customer', 'email', 'booking_complete', 'Your Delivery Is Complete - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your order has been successfully delivered!</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their delivery is complete');
 
 -- ─── 25. EMAIL ALERT LOGS ────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS email_alert_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   template_id CHAR(36),
   trigger_type ENUM('new_assignment','delivery_failure','payment_issue','daily_summary','booking_accepted','booking_assigned','booking_out_for_delivery','booking_complete','custom') NOT NULL,
   channel ENUM('email','sms') NOT NULL DEFAULT 'email',
@@ -685,17 +686,17 @@ CREATE TABLE IF NOT EXISTS email_alert_logs (
   status VARCHAR(50) NOT NULL DEFAULT 'sent',
   error_message TEXT,
   order_id VARCHAR(20),
-  metadata JSON,
-  sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  metadata LONGTEXT,
+  sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_email_alert_logs_trigger ON email_alert_logs(trigger_type);
-CREATE INDEX IF NOT EXISTS idx_email_alert_logs_sent_at ON email_alert_logs(sent_at);
+CREATE INDEX idx_email_alert_logs_trigger ON email_alert_logs(trigger_type);
+CREATE INDEX idx_email_alert_logs_sent_at ON email_alert_logs(sent_at);
 
 -- ─── 26. SMS ALERT LOGS ──────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS sms_alert_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   order_id VARCHAR(20),
   recipient_phone VARCHAR(50) NOT NULL,
   message TEXT NOT NULL,
@@ -703,42 +704,42 @@ CREATE TABLE IF NOT EXISTS sms_alert_logs (
   provider VARCHAR(50) DEFAULT 'twilio',
   provider_message_id VARCHAR(255),
   error_message TEXT,
-  sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_sms_alert_logs_order ON sms_alert_logs(order_id);
-CREATE INDEX IF NOT EXISTS idx_sms_alert_logs_sent_at ON sms_alert_logs(sent_at);
+CREATE INDEX idx_sms_alert_logs_order ON sms_alert_logs(order_id);
+CREATE INDEX idx_sms_alert_logs_sent_at ON sms_alert_logs(sent_at);
 
 -- ─── 27. PUSH SUBSCRIPTIONS ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   endpoint TEXT NOT NULL,
   p256dh TEXT,
   auth TEXT,
   user_agent TEXT,
   driver_id CHAR(36),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
 -- ─── 28. NOTIFICATIONS ───────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS notifications (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   message TEXT NOT NULL,
   type VARCHAR(50) NOT NULL DEFAULT 'info',
   is_read TINYINT(1) NOT NULL DEFAULT 0,
   order_id VARCHAR(20),
   driver_id CHAR(36),
-  metadata JSON,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  metadata LONGTEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
-CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX idx_notifications_created_at ON notifications(created_at);
 
 INSERT INTO notifications (id, title, message, type, is_read, order_id) VALUES
   (UUID(), 'New Order Received', 'Order CA-1042 has been placed by Rachel Thornton', 'order', 0, 'CA-1042'),
@@ -749,19 +750,19 @@ INSERT INTO notifications (id, title, message, type, is_read, order_id) VALUES
 -- ─── 29. DELIVERY ZONES ──────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS delivery_zones (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   description TEXT,
   color VARCHAR(20) NOT NULL DEFAULT '#6366f1',
-  polygon_geojson JSON NOT NULL,
+  polygon_geojson LONGTEXT NOT NULL,
   driver_id CHAR(36),
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_delivery_zones_driver ON delivery_zones(driver_id);
+CREATE INDEX idx_delivery_zones_driver ON delivery_zones(driver_id);
 
 INSERT INTO delivery_zones (id, name, description, color, polygon_geojson, driver_id, is_active) VALUES
   (UUID(), 'North Zone', 'North Leicester & Loughborough area', '#3b82f6', '{"type":"Polygon","coordinates":[[[-1.15,52.68],[-1.05,52.68],[-1.05,52.75],[-1.15,52.75],[-1.15,52.68]]]}', 'd1000000-0000-0000-0000-000000000001', 1),
@@ -771,7 +772,7 @@ INSERT INTO delivery_zones (id, name, description, color, polygon_geojson, drive
 -- ─── 30. CUSTOMERS ───────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS customers (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255),
   phone VARCHAR(50) NOT NULL,
@@ -782,8 +783,8 @@ CREATE TABLE IF NOT EXISTS customers (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
-CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+CREATE INDEX idx_customers_email ON customers(email);
+CREATE INDEX idx_customers_phone ON customers(phone);
 
 INSERT INTO customers (id, name, email, phone, address, notes, is_active) VALUES
   (UUID(), 'Rachel Thornton',  'r.thornton@outlook.com',       '07831 224455', '14 Meadow Close, Leicester, LE4 7RN',     'Prefers morning deliveries', 1),
@@ -798,18 +799,18 @@ INSERT INTO customers (id, name, email, phone, address, notes, is_active) VALUES
 -- ─── 31. ACTIVITY LOGS ───────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS activity_logs (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   action VARCHAR(255) NOT NULL,
   entity_type VARCHAR(100),
   entity_id VARCHAR(100),
   user_email VARCHAR(255),
-  details JSON,
+  details LONGTEXT,
   ip_address VARCHAR(50),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_activity_logs_entity ON activity_logs(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at);
+CREATE INDEX idx_activity_logs_entity ON activity_logs(entity_type, entity_id);
+CREATE INDEX idx_activity_logs_created ON activity_logs(created_at);
 
 INSERT INTO activity_logs (id, action, entity_type, entity_id, user_email, details) VALUES
   (UUID(), 'order.created',   'order',  'CA-1042', 'admin@castlefleet.co.uk', '{"order_id":"CA-1042","customer":"Rachel Thornton"}'),
@@ -821,76 +822,76 @@ INSERT INTO activity_logs (id, action, entity_type, entity_id, user_email, detai
 -- ─── 32. STAFF UNAVAILABILITY ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS staff_unavailability (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   driver_id CHAR(36) NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   reason VARCHAR(255),
   notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_staff_unavail_driver ON staff_unavailability(driver_id);
-CREATE INDEX IF NOT EXISTS idx_staff_unavail_dates ON staff_unavailability(start_date, end_date);
+CREATE INDEX idx_staff_unavail_driver ON staff_unavailability(driver_id);
+CREATE INDEX idx_staff_unavail_dates ON staff_unavailability(start_date, end_date);
 
 INSERT INTO staff_unavailability (id, driver_id, start_date, end_date, reason) VALUES
-  (UUID(), 'd1000000-0000-0000-0000-000000000005', CURDATE() + INTERVAL 2 DAY, CURDATE() + INTERVAL 5 DAY, 'Annual Leave'),
-  (UUID(), 'd1000000-0000-0000-0000-000000000004', CURDATE() + INTERVAL 10 DAY, CURDATE() + INTERVAL 12 DAY, 'Medical Appointment');
+  (UUID(), 'd1000000-0000-0000-0000-000000000005', DATE_ADD(CURDATE(), INTERVAL 2 DAY),  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  'Annual Leave'),
+  (UUID(), 'd1000000-0000-0000-0000-000000000004', DATE_ADD(CURDATE(), INTERVAL 10 DAY), DATE_ADD(CURDATE(), INTERVAL 12 DAY), 'Medical Appointment');
 
 -- ─── 33. SETTINGS (key-value store) ──────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS settings (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   key_name VARCHAR(255) NOT NULL UNIQUE,
-  value JSON,
+  value LONGTEXT,
   description TEXT,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key_name);
+CREATE INDEX idx_settings_key ON settings(key_name);
 
 INSERT INTO settings (id, key_name, value, description) VALUES
-  (UUID(), 'app_name',           '"CastleAdmin"',                    'Application display name'),
-  (UUID(), 'app_logo_url',       'null',                             'URL to the application logo'),
-  (UUID(), 'primary_color',      '"#6366f1"',                        'Primary brand colour'),
-  (UUID(), 'terms_of_hire',      '"Standard terms apply."',          'Terms of hire shown to customers'),
-  (UUID(), 'tracking_pin_enabled', 'true',                           'Enable order tracking PIN feature'),
-  (UUID(), 'maps_provider',      '"google"',                         'Maps provider: google or openstreetmap')
+  (UUID(), 'app_name',             '"CastleAdmin"',           'Application display name'),
+  (UUID(), 'app_logo_url',         'null',                    'URL to the application logo'),
+  (UUID(), 'primary_color',        '"#6366f1"',               'Primary brand colour'),
+  (UUID(), 'terms_of_hire',        '"Standard terms apply."', 'Terms of hire shown to customers'),
+  (UUID(), 'tracking_pin_enabled', 'true',                    'Enable order tracking PIN feature'),
+  (UUID(), 'maps_provider',        '"google"',                'Maps provider: google or openstreetmap')
 ON DUPLICATE KEY UPDATE key_name=key_name;
 
 -- ─── 34. ORDER TRACKING PINS ─────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS order_tracking_pins (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  id CHAR(36) PRIMARY KEY,
   order_id VARCHAR(20) NOT NULL UNIQUE,
   pin VARCHAR(10) NOT NULL,
   expires_at DATETIME,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
 -- ─── 35. ANALYTICS REVENUE ───────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS analytics_revenue (
-  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-  date DATE NOT NULL,
+  id CHAR(36) PRIMARY KEY,
+  date DATE NOT NULL UNIQUE,
   total_revenue DECIMAL(10,2) NOT NULL DEFAULT 0,
   total_orders INT NOT NULL DEFAULT 0,
   completed_orders INT NOT NULL DEFAULT 0,
   cancelled_orders INT NOT NULL DEFAULT 0,
   avg_order_value DECIMAL(10,2),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_revenue_date ON analytics_revenue(date);
+CREATE INDEX idx_analytics_revenue_date ON analytics_revenue(date);
 
 INSERT INTO analytics_revenue (id, date, total_revenue, total_orders, completed_orders, cancelled_orders, avg_order_value) VALUES
-  (UUID(), CURDATE() - INTERVAL 6 DAY, 320.00, 3, 2, 0, 106.67),
-  (UUID(), CURDATE() - INTERVAL 5 DAY, 145.00, 1, 1, 0, 145.00),
-  (UUID(), CURDATE() - INTERVAL 4 DAY, 480.00, 4, 3, 1, 120.00),
-  (UUID(), CURDATE() - INTERVAL 3 DAY, 165.00, 1, 1, 0, 165.00),
-  (UUID(), CURDATE() - INTERVAL 2 DAY, 310.00, 2, 2, 0, 155.00),
-  (UUID(), CURDATE() - INTERVAL 1 DAY, 195.00, 1, 1, 0, 195.00),
-  (UUID(), CURDATE(),                  530.00, 4, 0, 0, 132.50)
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 6 DAY), 320.00, 3, 2, 0, 106.67),
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 5 DAY), 145.00, 1, 1, 0, 145.00),
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 4 DAY), 480.00, 4, 3, 1, 120.00),
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 3 DAY), 165.00, 1, 1, 0, 165.00),
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 2 DAY), 310.00, 2, 2, 0, 155.00),
+  (UUID(), DATE_SUB(CURDATE(), INTERVAL 1 DAY), 195.00, 1, 1, 0, 195.00),
+  (UUID(), CURDATE(),                            530.00, 4, 0, 0, 132.50)
 ON DUPLICATE KEY UPDATE date=date;
