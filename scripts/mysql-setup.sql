@@ -4,6 +4,10 @@
 -- Run this on: sql8.freesqldatabase.com / sql8822597
 -- ============================================================
 
+-- Disable strict mode so DATETIME DEFAULT CURRENT_TIMESTAMP works
+-- on MySQL 5.7 shared hosts that enable STRICT_TRANS_TABLES by default
+SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION';
+
 -- ─── 1. ADMIN USERS ──────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS admin_users (
@@ -172,7 +176,7 @@ INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_ph
   '51 Granby Street', 'Melton Mowbray', 'Leicestershire', 'LE13 1JZ', NULL,
   NULL, '2026-03-16', '09:00 - 11:00', '19:00 - 21:00',
   'Unpaid', 'Cash', 155.00, NULL, NULL,
-  '[{"id":109,"name":"Unicorn Rainbow Castle - Large","sku":"BC-UNI-LG","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"}]',
+  '[{"id":109,"name":"Pirate Ship Castle","sku":"BC-PIR-MD","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"}]',
   '2026-03-13 14:00:00', '2026-03-13 14:00:00'
 ),
 (
@@ -668,8 +672,8 @@ CREATE INDEX idx_message_templates_channel ON message_templates(channel);
 CREATE INDEX idx_message_templates_trigger ON message_templates(trigger_type);
 
 INSERT INTO message_templates (id, name, channel, trigger_type, subject, body, is_active, is_admin_alert, description) VALUES
-  (UUID(), 'New Assignment Alert', 'email', 'new_assignment', 'New Booking Assigned - {{order_id}}', '<p>Hi Admin,</p><p>A new booking has been assigned.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}<br/><strong>Status:</strong> {{status}}</p>', 1, 1, 'Sent to admin when a new booking is assigned to a driver'),
-  (UUID(), 'Delivery Failure Alert', 'email', 'delivery_failure', 'Delivery Failed - {{order_id}}', '<p>Hi Admin,</p><p>A delivery has failed and requires attention.</p><p><strong>Order ID:</strong> {{order_id}}<br/><strong>Customer:</strong> {{customer_name}}</p>', 1, 1, 'Sent to admin when a delivery fails'),
+  (UUID(), 'New Assignment Alert', 'email', 'new_assignment', 'New Booking Assigned - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
+  (UUID(), 'Delivery Failure Alert', 'email', 'delivery_failure', 'Delivery Failed - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your order {{order_id}} has been cancelled due to delivery failure.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their delivery fails'),
   (UUID(), 'Booking Accepted - Customer', 'email', 'booking_accepted', 'Your Booking Has Been Accepted - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
   (UUID(), 'Out For Delivery - Customer SMS', 'sms', 'booking_out_for_delivery', NULL, 'Hi {{customer_name}}, your order {{order_id}} is out for delivery! Track it here: {{tracking_link}}', 1, 0, 'SMS sent to customer when their order is out for delivery'),
   (UUID(), 'Delivery Complete - Customer', 'email', 'booking_complete', 'Your Delivery Is Complete - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your order has been successfully delivered!</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their delivery is complete');
