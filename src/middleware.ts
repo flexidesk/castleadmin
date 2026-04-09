@@ -120,6 +120,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/forgot-password') ||
     pathname.startsWith('/reset-password') ||
     pathname.startsWith('/track') ||
+    pathname.startsWith('/install') ||
     pathname.startsWith('/auth');
   const isPublicApi =
     pathname.startsWith('/api/woocommerce/webhook') ||
