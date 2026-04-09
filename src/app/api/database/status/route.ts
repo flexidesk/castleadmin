@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import mysql from 'mysql2/promise';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
+
+const configPath = path.join(process.cwd(), 'storage', 'install-config.json');
 
 const EXPECTED_TABLES = [
   'drivers',
@@ -20,25 +24,48 @@ const EXPECTED_TABLES = [
   'fleet_config',
 ];
 
+function getDbConfig() {
+  let fileConfig: any = {};
+
+  try {
+    if (fs.existsSync(configPath)) {
+      fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+  } catch {}
+
+  return {
+    DB_HOST: fileConfig.DB_HOST || process.env.DB_HOST,
+    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '3306',
+    DB_NAME: fileConfig.DB_NAME || process.env.DB_NAME,
+    DB_USER: fileConfig.DB_USER || process.env.DB_USER,
+    DB_PASSWORD: fileConfig.DB_PASSWORD || process.env.DB_PASSWORD,
+    DATABASE_SSL: fileConfig.DATABASE_SSL || process.env.DATABASE_SSL || 'false',
+  };
+}
+
 function getServerConnection() {
+  const cfg = getDbConfig();
+
   return mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    host: cfg.DB_HOST,
+    user: cfg.DB_USER,
+    password: cfg.DB_PASSWORD,
+    port: parseInt(cfg.DB_PORT || '3306', 10),
+    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     connectTimeout: 10000,
   });
 }
 
 function getDatabaseConnection() {
+  const cfg = getDbConfig();
+
   return mysql.createConnection({
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    host: cfg.DB_HOST,
+    database: cfg.DB_NAME,
+    user: cfg.DB_USER,
+    password: cfg.DB_PASSWORD,
+    port: parseInt(cfg.DB_PORT || '3306', 10),
+    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     connectTimeout: 10000,
   });
 }
@@ -49,14 +76,16 @@ export async function GET() {
   const startTime = Date.now();
 
   try {
-    const requiredEnv = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
-    const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+    const cfg = getDbConfig();
 
-    if (missingEnv.length > 0) {
+    const requiredKeys = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as const;
+    const missingKeys = requiredKeys.filter((key) => !cfg[key]);
+
+    if (missingKeys.length > 0) {
       return NextResponse.json(
         {
           status: 'error',
-          error: `Missing environment variables: ${missingEnv.join(', ')}`,
+          error: `Missing required config: ${missingKeys.join(', ')}. Set them via the installer form or environment variables.`,
         },
         { status: 500 }
       );
@@ -66,7 +95,7 @@ export async function GET() {
     await serverConn.ping();
 
     const connectMs = Date.now() - startTime;
-    const dbName = process.env.DB_NAME as string;
+    const dbName = cfg.DB_NAME as string;
 
     const [dbRows] = await serverConn.query<mysql.RowDataPacket[]>(
       `SELECT SCHEMA_NAME
@@ -81,7 +110,7 @@ export async function GET() {
       return NextResponse.json({
         status: 'connected',
         database: dbName,
-        host: process.env.DB_HOST,
+        host: cfg.DB_HOST,
         connectTimeMs: connectMs,
         databaseExists: false,
         tableCount: 0,
@@ -138,7 +167,7 @@ export async function GET() {
     return NextResponse.json({
       status: 'connected',
       database: dbName,
-      host: process.env.DB_HOST,
+      host: cfg.DB_HOST,
       connectTimeMs: connectMs,
       databaseExists: true,
       tableCount,
@@ -163,8 +192,8 @@ export async function GET() {
     return NextResponse.json(
       {
         status: 'error',
-        database: process.env.DB_NAME,
-        host: process.env.DB_HOST,
+        database: getDbConfig().DB_NAME,
+        host: getDbConfig().DB_HOST,
         error: err?.message || 'Unknown database error',
         code: err?.code || null,
       },

@@ -6,27 +6,52 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+const configPath = path.join(process.cwd(), 'storage', 'install-config.json');
+
+function getDbConfig() {
+  let fileConfig: any = {};
+
+  try {
+    if (fs.existsSync(configPath)) {
+      fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+  } catch {}
+
+  return {
+    DB_HOST: fileConfig.DB_HOST || process.env.DB_HOST,
+    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '3306',
+    DB_NAME: fileConfig.DB_NAME || process.env.DB_NAME,
+    DB_USER: fileConfig.DB_USER || process.env.DB_USER,
+    DB_PASSWORD: fileConfig.DB_PASSWORD || process.env.DB_PASSWORD,
+    DATABASE_SSL: fileConfig.DATABASE_SSL || process.env.DATABASE_SSL || 'false',
+  };
+}
+
 function getServerConnection() {
+  const cfg = getDbConfig();
+
   return mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || '3306', 10),
+    host: cfg.DB_HOST,
+    user: cfg.DB_USER,
+    password: cfg.DB_PASSWORD,
+    port: parseInt(cfg.DB_PORT || '3306', 10),
     multipleStatements: false,
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     connectTimeout: 10000,
   });
 }
 
 function getDatabaseConnection() {
+  const cfg = getDbConfig();
+
   return mysql.createConnection({
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || '3306', 10),
+    host: cfg.DB_HOST,
+    database: cfg.DB_NAME,
+    user: cfg.DB_USER,
+    password: cfg.DB_PASSWORD,
+    port: parseInt(cfg.DB_PORT || '3306', 10),
     multipleStatements: false,
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     connectTimeout: 10000,
   });
 }
@@ -121,10 +146,11 @@ export async function POST() {
   let conn: mysql.Connection | null = null;
 
   try {
-    const dbName = process.env.DB_NAME;
+    const cfg = getDbConfig();
+    const dbName = cfg.DB_NAME;
     if (!dbName) {
       return NextResponse.json(
-        { error: 'DB_NAME is not configured in environment variables.' },
+        { error: 'DB_NAME is not configured in environment variables or install config.' },
         { status: 500 }
       );
     }
@@ -235,6 +261,7 @@ export async function GET() {
   let conn: mysql.Connection | null = null;
 
   try {
+    const cfg = getDbConfig();
     conn = await getDatabaseConnection();
 
     const [rows] = await conn.query(
@@ -242,7 +269,7 @@ export async function GET() {
        FROM information_schema.tables
        WHERE table_schema = ?
        ORDER BY table_name`,
-      [process.env.DB_NAME]
+      [cfg.DB_NAME]
     );
 
     return NextResponse.json({ tables: rows });
