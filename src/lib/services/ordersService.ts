@@ -409,12 +409,10 @@ export const ordersService = {
     notes?: string;
     customFields?: Record<string, string>;
   }): Promise<{ id: string } | null> {
-    const supabase = createClient();
-
     const paymentStatus =
       payload.paymentMethod === 'Unrecorded' ? 'Unpaid' : 'Paid';
 
-    const row: Record<string, any> = {
+    const body: Record<string, any> = {
       id: payload.id,
       woo_order_id: payload.wooOrderId || '',
       customer_name: payload.customerName,
@@ -438,38 +436,41 @@ export const ordersService = {
     };
 
     if (payload.bookingType === 'Delivery') {
-      row.delivery_address_line1 = payload.addressLine1 || null;
-      row.delivery_address_line2 = payload.addressLine2 || null;
-      row.delivery_address_city = payload.city || null;
-      row.delivery_address_county = payload.county || null;
-      row.delivery_address_postcode = payload.postcode || null;
-      row.delivery_address_notes = payload.deliveryNotes || null;
+      body.delivery_address_line1 = payload.addressLine1 || null;
+      body.delivery_address_line2 = payload.addressLine2 || null;
+      body.delivery_address_city = payload.city || null;
+      body.delivery_address_county = payload.county || null;
+      body.delivery_address_postcode = payload.postcode || null;
+      body.delivery_address_notes = payload.deliveryNotes || null;
     }
 
-    const { data, error } = await supabase
-      .from('orders')
-      .insert(row)
-      .select('id')
-      .single();
+    const res = await fetch('/api/orders/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-    if (error) {
-      console.error('createOrder error:', error.message);
-      throw new Error(error.message);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('createOrder error:', errData.error);
+      throw new Error(errData.error || 'Failed to create order');
     }
-    if (data) {
-      fireWebhookEvent('order.created', { order_id: data.id, ...row });
 
-      // Notify driver if one was assigned at creation
-      if (payload.driverId) {
-        sendDriverPushNotification(
-          payload.driverId,
-          data.id,
-          payload.wooOrderId,
-          payload.addressLine1
-        );
-      }
+    const data = await res.json() as { id: string };
+
+    fireWebhookEvent('order.created', { order_id: data.id, ...body });
+
+    // Notify driver if one was assigned at creation
+    if (payload.driverId) {
+      sendDriverPushNotification(
+        payload.driverId,
+        data.id,
+        payload.wooOrderId,
+        payload.addressLine1
+      );
     }
-    return data as { id: string };
+
+    return data;
   },
 
   subscribeToOrder(
