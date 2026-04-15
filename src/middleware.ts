@@ -129,6 +129,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/drivers/portal-login') ||
     pathname.startsWith('/api/push/vapid-public-key') ||
     pathname.startsWith('/api/database/') ||
+    pathname.startsWith('/api/install/') ||
     pathname.startsWith('/api/auth/');
 
   if (isPublicPage || isPublicApi) {
