@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   ArrowLeft, ChevronRight, Edit3, Trash2, CheckCircle2, Truck, Clock, Circle,
   Package, CreditCard, FileImage, Calendar, AlertTriangle, RefreshCw, ExternalLink, ChevronDown,
+  Search, Save, X,
 } from 'lucide-react';
 import { StatusBadge, TypeBadge } from '@/components/ui/StatusBadge';
 import type { BookingStatus } from '@/components/ui/StatusBadge';
@@ -13,6 +14,7 @@ import Modal from '@/components/ui/Modal';
 import OrderDetailsTab from './OrderDetailsTab';
 import PaymentTab from './PaymentTab';
 import ProofOfDeliveryTab from './ProofOfDeliveryTab';
+import ProofOfDeliveryModal from './ProofOfDeliveryModal';
 import { ordersService, AppOrder } from '@/lib/services/ordersService';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -25,6 +27,7 @@ const STATUS_FLOW: BookingStatus[] = [
   'Booking Assigned',
   'Booking Out For Delivery',
   'Booking Complete',
+  'Booking Failed',
 ];
 
 const STATUS_ICONS: Record<BookingStatus, React.ElementType> = {
@@ -32,34 +35,205 @@ const STATUS_ICONS: Record<BookingStatus, React.ElementType> = {
   'Booking Assigned': Circle,
   'Booking Out For Delivery': Truck,
   'Booking Complete': CheckCircle2,
+  'Booking Failed': AlertTriangle,
 };
+
+const STATUS_LABELS: Record<BookingStatus, string> = {
+  'Booking Accepted': 'Accepted',
+  'Booking Assigned': 'Assigned',
+  'Booking Out For Delivery': 'In Transit',
+  'Booking Complete': 'Complete',
+  'Booking Failed': 'Failed',
+};
+
+const ALL_STATUSES: BookingStatus[] = [
+  'Booking Accepted',
+  'Booking Assigned',
+  'Booking Out For Delivery',
+  'Booking Complete',
+  'Booking Failed',
+];
 
 interface Props {
   orderId: string | null;
 }
 
+function OrderLookup() {
+  const router = useRouter();
+  const [allOrders, setAllOrders] = useState<AppOrder[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingOrders, setLoadingOrders] = useState(true);
+
+  useEffect(() => {
+    ordersService.fetchAllOrders().then((data) => {
+      setAllOrders(data);
+      setLoadingOrders(false);
+    });
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return allOrders;
+    const q = searchQuery.toLowerCase();
+    return allOrders.filter(
+      (o) =>
+        o.id.toLowerCase().includes(q) ||
+        o.customer.name.toLowerCase().includes(q) ||
+        o.customer.email?.toLowerCase().includes(q) ||
+        o.customer.phone?.toLowerCase().includes(q) ||
+        o.wooOrderId?.toLowerCase().includes(q) ||
+        o.status?.toLowerCase().includes(q)
+    );
+  }, [allOrders, searchQuery]);
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      <div className="card p-6 md:p-8 flex flex-col items-center gap-4 text-center">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+        >
+          <Search size={28} style={{ color: 'hsl(var(--primary))' }} />
+        </div>
+        <h2 className="text-lg font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+          Order Lookup
+        </h2>
+        <p className="text-sm max-w-md" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          Search by order ID, customer name, email, phone, or WooCommerce ID to view booking details.
+        </p>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="p-4 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'hsl(var(--muted-foreground))' }}
+            />
+            <input
+              type="text"
+              placeholder="Search orders..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm outline-none transition-colors focus:ring-2"
+              style={{
+                borderColor: 'hsl(var(--border))',
+                backgroundColor: 'hsl(var(--background))',
+                color: 'hsl(var(--foreground))',
+              }}
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {loadingOrders ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 rounded-lg skeleton" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {searchQuery ? 'No orders match your search.' : 'No orders found.'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y max-h-[60vh] overflow-y-auto" style={{ borderColor: 'hsl(var(--border))' }}>
+            {filtered.slice(0, 50).map((o) => (
+              <button
+                key={o.id}
+                onClick={() => router.push(`/order-detail?id=${o.id}`)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-secondary/50 transition-colors touch-manipulation"
+              >
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+                >
+                  <Package size={16} style={{ color: 'hsl(var(--primary))' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                      {o.customer.name}
+                    </span>
+                    <StatusBadge status={o.status as BookingStatus} />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <span className="font-mono">{o.id}</span>
+                    <span>·</span>
+                    <span>
+                      {new Date(o.bookingDate).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }} />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OrderDetailContent({ orderId }: Props) {
   const router = useRouter();
   const [order, setOrder] = useState<AppOrder | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!orderId);
   const [notFound, setNotFound] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('details');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<BookingStatus | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  // Mobile: collapsible header info section
+  const [failureReason, setFailureReason] = useState('');
+  const [failureNotes, setFailureNotes] = useState('');
   const [headerExpanded, setHeaderExpanded] = useState(true);
-  // Mobile: actions dropdown
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [podModalOpen, setPodModalOpen] = useState(false);
+  const [wcActive, setWcActive] = useState(false);
 
-  // ── Fetch order by ID ────────────────────────────────────────────────────────
+  // Edit modal state
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    customerName: '',
+    customerEmail: '',
+    customerPhone: '',
+    bookingType: 'Delivery\' as \'Delivery\' | \'Collection',
+    status: '',
+    bookingDate: '',
+    deliveryWindow: '',
+    collectionWindow: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    county: '',
+    postcode: '',
+    deliveryNotes: '',
+    notes: '',
+  });
+
+  // Check if WooCommerce is configured and connected
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from('woocommerce_settings')
+      .select('id, is_connected, store_url')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setWcActive(!!(data?.id && data?.is_connected && data?.store_url));
+      });
+  }, []);
+
   const loadOrder = useCallback(async () => {
-    if (!orderId) {
-      setNotFound(true);
-      setLoading(false);
-      return;
-    }
+    if (!orderId) return;
     setLoading(true);
     const data = await ordersService.fetchOrderById(orderId);
     if (!data) {
@@ -179,22 +353,137 @@ export default function OrderDetailContent({ orderId }: Props) {
   const currentStatus = (order?.status ?? 'Booking Accepted') as BookingStatus;
   const currentStatusIndex = STATUS_FLOW.indexOf(currentStatus);
 
+  const openEditModal = () => {
+    if (!order) return;
+    setEditForm({
+      customerName: order.customer.name,
+      customerEmail: order.customer.email,
+      customerPhone: order.customer.phone ?? '',
+      bookingType: order.type,
+      status: order.status,
+      bookingDate: order.bookingDate ? order.bookingDate.slice(0, 10) : '',
+      deliveryWindow: order.deliveryWindow ?? '',
+      collectionWindow: order.collectionWindow ?? '',
+      addressLine1: order.deliveryAddress?.line1 ?? '',
+      addressLine2: order.deliveryAddress?.line2 ?? '',
+      city: order.deliveryAddress?.city ?? '',
+      county: order.deliveryAddress?.county ?? '',
+      postcode: order.deliveryAddress?.postcode ?? '',
+      deliveryNotes: order.deliveryAddress?.notes ?? '',
+      notes: order.notes ?? '',
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!order) return;
+    setIsSavingEdit(true);
+    const ok = await ordersService.updateOrder(order.id, {
+      customerName: editForm.customerName,
+      customerEmail: editForm.customerEmail,
+      customerPhone: editForm.customerPhone,
+      bookingType: editForm.bookingType,
+      status: editForm.status,
+      bookingDate: editForm.bookingDate,
+      deliveryWindow: editForm.deliveryWindow,
+      collectionWindow: editForm.collectionWindow,
+      addressLine1: editForm.addressLine1,
+      addressLine2: editForm.addressLine2,
+      city: editForm.city,
+      county: editForm.county,
+      postcode: editForm.postcode,
+      deliveryNotes: editForm.deliveryNotes,
+      notes: editForm.notes,
+    });
+    setIsSavingEdit(false);
+    if (ok) {
+      toast.success('Booking updated successfully');
+      setEditModalOpen(false);
+      loadOrder();
+    } else {
+      toast.error('Failed to save changes. Please try again.');
+    }
+  };
+
   const handleAdvanceStatus = () => {
     if (currentStatusIndex < STATUS_FLOW.length - 1) {
-      setPendingStatus(STATUS_FLOW[currentStatusIndex + 1]);
+      const nextStatus = STATUS_FLOW[currentStatusIndex + 1];
+      // Intercept "Booking Complete" to show Proof of Delivery modal
+      if (nextStatus === 'Booking Complete') {
+        setPodModalOpen(true);
+        return;
+      }
+      setPendingStatus(nextStatus);
       setStatusModalOpen(true);
+    }
+  };
+
+  const handlePodCompleted = () => {
+    setPodModalOpen(false);
+    setOrder((prev) => prev ? { ...prev, status: 'Booking Complete' } : prev);
+    // Send status notification email to customer (fire-and-forget)
+    if (order) {
+      fetch('/api/orders/send-status-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: order.customer.email,
+          customerName: order.customer.name,
+          orderId: order.id,
+          status: 'Booking Complete',
+          bookingDate: order.bookingDate,
+          deliveryWindow: order.deliveryWindow,
+        }),
+      }).catch(() => {});
     }
   };
 
   const confirmStatusChange = async () => {
     if (!pendingStatus || !order) return;
     setIsUpdatingStatus(true);
-    const ok = await ordersService.updateOrderStatus(order.id, pendingStatus);
+    const supabase = createClient();
+    const updatePayload: Record<string, unknown> = {
+      status: pendingStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (pendingStatus === 'Booking Failed') {
+      updatePayload.failure_reason = failureReason || null;
+      updatePayload.failure_notes = failureNotes || null;
+    }
+    const { error } = await supabase.from('orders').update(updatePayload).eq('id', order.id);
+    const ok = !error;
+    if (error) console.error('updateOrderStatus error:', error.message);
     setIsUpdatingStatus(false);
     setStatusModalOpen(false);
     if (ok) {
       setOrder((prev) => prev ? { ...prev, status: pendingStatus } : prev);
       toast.success(`Status updated to "${pendingStatus}"`);
+
+      // Send push notification to assigned driver when status becomes 'Booking Assigned'
+      if (pendingStatus === 'Booking Assigned' && order.driver?.id) {
+        const addressParts = order.deliveryAddress
+          ? [order.deliveryAddress.line1, order.deliveryAddress.city, order.deliveryAddress.postcode].filter(Boolean)
+          : [];
+        const addressText = addressParts.length > 0 ? addressParts.join(', ') : 'See app for details';
+        fetch('/api/push/send-driver', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            driverId: order.driver.id,
+            title: '🚚 New Booking Assigned',
+            body: `📦 Order #${order.wooOrderId}\n📍 ${addressText}\n👤 ${order.customer.name}`,
+            icon: '/icons/icon-192x192.png',
+            tag: `order-assigned-${order.id}`,
+            data: {
+              orderId: order.id,
+              wooOrderId: order.wooOrderId,
+              url: '/driver-portal',
+              deliveryAddress: order.deliveryAddress ?? null,
+              customer: { name: order.customer.name, phone: order.customer.phone },
+            },
+          }),
+        }).catch(() => {});
+      }
 
       // Send status notification email to customer (fire-and-forget)
       fetch('/api/orders/send-status-email', {
@@ -222,6 +511,37 @@ export default function OrderDetailContent({ orderId }: Props) {
       toast.error('Failed to update status. Please try again.');
     }
     setPendingStatus(null);
+    setFailureReason('');
+    setFailureNotes('');
+  };
+
+  const handleStatusChange = async () => {
+    if (!pendingStatus || !order) return;
+    setIsUpdatingStatus(true);
+    const ok = await ordersService.updateOrderStatus(order.id, pendingStatus);
+    setIsUpdatingStatus(false);
+    setStatusModalOpen(false);
+    if (ok) {
+      setOrder((prev) => prev ? { ...prev, status: pendingStatus } : prev);
+      toast.success(`Status updated to "${pendingStatus}"`);
+
+      // Send status notification email to customer (fire-and-forget)
+      fetch('/api/orders/send-status-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: order.customer.email,
+          customerName: order.customer.name,
+          orderId: order.id,
+          status: pendingStatus,
+          bookingDate: order.bookingDate,
+          deliveryWindow: order.deliveryWindow,
+        }),
+      }).catch(() => {});
+    } else {
+      toast.error('Failed to update status. Please try again.');
+    }
+    setPendingStatus(null);
   };
 
   const handleDelete = async () => {
@@ -236,7 +556,10 @@ export default function OrderDetailContent({ orderId }: Props) {
     }
   };
 
-  // ── Loading skeleton ─────────────────────────────────────────────────────────
+  if (!orderId) {
+    return <OrderLookup />;
+  }
+
   if (loading) {
     return (
       <div className="space-y-5 animate-fade-in">
@@ -345,8 +668,12 @@ export default function OrderDetailContent({ orderId }: Props) {
                   <span className="font-mono font-medium" style={{ color: 'hsl(var(--primary))' }}>
                     {order.id}
                   </span>
-                  <span className="hidden sm:inline">·</span>
-                  <span className="hidden sm:inline font-mono">WooCommerce {order.wooOrderId}</span>
+                  {wcActive && order.wooOrderId && (
+                    <>
+                      <span className="hidden sm:inline">·</span>
+                      <span className="hidden sm:inline font-mono">WooCommerce {order.wooOrderId}</span>
+                    </>
+                  )}
                   <span>·</span>
                   <span className="flex items-center gap-1">
                     <Calendar size={11} />
@@ -375,23 +702,25 @@ export default function OrderDetailContent({ orderId }: Props) {
                 )}
                 <button
                   className="btn-secondary text-sm"
-                  onClick={() => toast.info('Edit mode — coming soon')}
+                  onClick={openEditModal}
                 >
                   <Edit3 size={14} />
                   Edit Booking
                 </button>
-                <button
-                  className="btn-secondary text-sm"
-                  onClick={() =>
-                    window.open(
-                      `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
-                      '_blank'
-                    )
-                  }
-                >
-                  <ExternalLink size={14} />
-                  WooCommerce
-                </button>
+                {wcActive && (
+                  <button
+                    className="btn-secondary text-sm"
+                    onClick={() =>
+                      window.open(
+                        `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
+                        '_blank'
+                      )
+                    }
+                  >
+                    <ExternalLink size={14} />
+                    WooCommerce
+                  </button>
+                )}
                 <button
                   className="p-2 rounded-lg border hover:bg-red-50 transition-colors"
                   style={{ borderColor: 'hsl(var(--border))' }}
@@ -419,24 +748,26 @@ export default function OrderDetailContent({ orderId }: Props) {
                   <button
                     className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
                     style={{ minHeight: '44px' }}
-                    onClick={() => toast.info('Edit mode — coming soon')}
+                    onClick={openEditModal}
                   >
                     <Edit3 size={14} />
                     Edit
                   </button>
-                  <button
-                    className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
-                    style={{ minHeight: '44px' }}
-                    onClick={() =>
-                      window.open(
-                        `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
-                        '_blank'
-                      )
-                    }
-                  >
-                    <ExternalLink size={14} />
-                    WooCommerce
-                  </button>
+                  {wcActive && (
+                    <button
+                      className="btn-secondary text-sm flex-1 justify-center touch-manipulation"
+                      style={{ minHeight: '44px' }}
+                      onClick={() =>
+                        window.open(
+                          `https://yourstore.co.uk/wp-admin/post.php?post=${order.wooOrderId.replace('#', '')}&action=edit`,
+                          '_blank'
+                        )
+                      }
+                    >
+                      <ExternalLink size={14} />
+                      WooCommerce
+                    </button>
+                  )}
                   <button
                     className="p-3 rounded-lg border hover:bg-red-50 transition-colors touch-manipulation"
                     style={{ borderColor: 'hsl(var(--border))', minHeight: '44px', minWidth: '44px' }}
@@ -485,7 +816,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                             : 'hsl(var(--muted-foreground))',
                         }}
                       >
-                        {status.replace('Booking ', '')}
+                        {STATUS_LABELS[status]}
                       </span>
                     </div>
                     {!isLast && (
@@ -532,7 +863,7 @@ export default function OrderDetailContent({ orderId }: Props) {
                           : 'hsl(var(--muted-foreground))',
                       }}
                     >
-                      {status.replace('Booking ', '')}
+                      {STATUS_LABELS[status]}
                     </span>
                     {isCurrent && (
                       <span
@@ -583,11 +914,262 @@ export default function OrderDetailContent({ orderId }: Props) {
         </div>
 
         <div className="p-4 md:p-6">
-          {activeTab === 'details' && <OrderDetailsTab order={order} />}
+          {activeTab === 'details' && <OrderDetailsTab order={order} wcActive={wcActive} />}
           {activeTab === 'payment' && <PaymentTab order={order} />}
           {activeTab === 'pod' && <ProofOfDeliveryTab order={order} />}
         </div>
       </div>
+
+      {/* Edit Booking Modal */}
+      {order && (
+        <Modal
+          open={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          title={`Edit Booking ${order.id}`}
+          size="lg"
+        >
+          <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Status */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Status
+              </label>
+              <select
+                value={editForm.status}
+                onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+              >
+                {ALL_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+                {!ALL_STATUSES.includes(editForm.status as BookingStatus) && (
+                  <option value={editForm.status}>{editForm.status}</option>
+                )}
+              </select>
+            </div>
+
+            {/* Customer Info */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Customer Information
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Full Name</label>
+                  <input
+                    type="text"
+                    value={editForm.customerName}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Phone</label>
+                  <input
+                    type="text"
+                    value={editForm.customerPhone}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Email</label>
+                  <input
+                    type="email"
+                    value={editForm.customerEmail}
+                    onChange={(e) => setEditForm((f) => ({ ...f, customerEmail: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Booking Details */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Booking Details
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Type</label>
+                  <select
+                    value={editForm.bookingType}
+                    onChange={(e) => setEditForm((f) => ({ ...f, bookingType: e.target.value as 'Delivery' | 'Collection' }))}
+                    className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <option value="Delivery">Delivery</option>
+                    <option value="Collection">Collection</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Booking Date</label>
+                  <input
+                    type="date"
+                    value={editForm.bookingDate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, bookingDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Window</label>
+                  <input
+                    type="text"
+                    value={editForm.deliveryWindow}
+                    onChange={(e) => setEditForm((f) => ({ ...f, deliveryWindow: e.target.value }))}
+                    placeholder="e.g. 09:00 - 12:00"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Collection Window</label>
+                  <input
+                    type="text"
+                    value={editForm.collectionWindow}
+                    onChange={(e) => setEditForm((f) => ({ ...f, collectionWindow: e.target.value }))}
+                    placeholder="e.g. 08:00 - 09:00"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                    style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Delivery Address */}
+            {editForm.bookingType === 'Delivery' && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Delivery Address
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Address Line 1</label>
+                    <input
+                      type="text"
+                      value={editForm.addressLine1}
+                      onChange={(e) => setEditForm((f) => ({ ...f, addressLine1: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Address Line 2</label>
+                    <input
+                      type="text"
+                      value={editForm.addressLine2}
+                      onChange={(e) => setEditForm((f) => ({ ...f, addressLine2: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>City</label>
+                    <input
+                      type="text"
+                      value={editForm.city}
+                      onChange={(e) => setEditForm((f) => ({ ...f, city: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>County</label>
+                    <input
+                      type="text"
+                      value={editForm.county}
+                      onChange={(e) => setEditForm((f) => ({ ...f, county: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Postcode</label>
+                    <input
+                      type="text"
+                      value={editForm.postcode}
+                      onChange={(e) => setEditForm((f) => ({ ...f, postcode: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Delivery Notes</label>
+                    <input
+                      type="text"
+                      value={editForm.deliveryNotes}
+                      onChange={(e) => setEditForm((f) => ({ ...f, deliveryNotes: e.target.value }))}
+                      placeholder="Access instructions, etc."
+                      className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Internal Notes */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Internal Notes
+              </label>
+              <textarea
+                value={editForm.notes}
+                onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                rows={3}
+                placeholder="Add internal notes about this booking..."
+                className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-colors resize-none"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end mt-5 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+            <button
+              className="btn-secondary touch-manipulation"
+              style={{ minHeight: '44px' }}
+              onClick={() => setEditModalOpen(false)}
+              disabled={isSavingEdit}
+            >
+              <X size={14} />
+              Cancel
+            </button>
+            <button
+              className="btn-primary touch-manipulation"
+              style={{ minHeight: '44px' }}
+              onClick={handleSaveEdit}
+              disabled={isSavingEdit}
+            >
+              {isSavingEdit ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Save Changes
+                </>
+              )}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* POD Modal — intercepts Mark as Complete */}
+      {order && (
+        <ProofOfDeliveryModal
+          open={podModalOpen}
+          order={order}
+          onClose={() => setPodModalOpen(false)}
+          onCompleted={handlePodCompleted}
+        />
+      )}
 
       {/* Delete confirm modal */}
       <Modal
@@ -631,7 +1213,7 @@ export default function OrderDetailContent({ orderId }: Props) {
       {/* Status advance confirm modal */}
       <Modal
         open={statusModalOpen}
-        onClose={() => { setStatusModalOpen(false); setPendingStatus(null); }}
+        onClose={() => { setStatusModalOpen(false); setPendingStatus(null); setFailureReason(''); setFailureNotes(''); }}
         title="Update Booking Status"
         size="sm"
       >
@@ -654,11 +1236,58 @@ export default function OrderDetailContent({ orderId }: Props) {
               </p>
             </div>
           )}
+
+          {/* Failure reason fields — shown only when marking as Failed */}
+          {pendingStatus === 'Booking Failed' && (
+            <div className="space-y-3 pt-1">
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: 'hsl(var(--foreground))' }}
+                >
+                  Failure Reason <span style={{ color: 'hsl(var(--destructive))' }}>*</span>
+                </label>
+                <select
+                  value={failureReason}
+                  onChange={(e) => setFailureReason(e.target.value)}
+                  className="input w-full"
+                  style={{ minHeight: '40px' }}
+                >
+                  <option value="">— Select a reason —</option>
+                  <option value="Customer Not Available">Customer Not Available</option>
+                  <option value="Wrong Address">Wrong Address</option>
+                  <option value="Access Issue">Access Issue</option>
+                  <option value="Item Damaged">Item Damaged</option>
+                  <option value="Customer Refused Delivery">Customer Refused Delivery</option>
+                  <option value="Vehicle Breakdown">Vehicle Breakdown</option>
+                  <option value="Time Window Missed">Time Window Missed</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  style={{ color: 'hsl(var(--foreground))' }}
+                >
+                  Notes &amp; Next Steps
+                </label>
+                <textarea
+                  value={failureNotes}
+                  onChange={(e) => setFailureNotes(e.target.value)}
+                  placeholder="Describe what happened and any planned next steps…"
+                  rows={3}
+                  className="input w-full resize-none"
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 justify-end">
             <button
               className="btn-secondary touch-manipulation"
               style={{ minHeight: '44px' }}
-              onClick={() => { setStatusModalOpen(false); setPendingStatus(null); }}
+              onClick={() => { setStatusModalOpen(false); setPendingStatus(null); setFailureReason(''); setFailureNotes(''); }}
             >
               Cancel
             </button>
@@ -666,7 +1295,7 @@ export default function OrderDetailContent({ orderId }: Props) {
               className="btn-primary touch-manipulation"
               style={{ minHeight: '44px' }}
               onClick={confirmStatusChange}
-              disabled={isUpdatingStatus}
+              disabled={isUpdatingStatus || (pendingStatus === 'Booking Failed' && !failureReason)}
             >
               {isUpdatingStatus ? (
                 <>

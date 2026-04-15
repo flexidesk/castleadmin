@@ -2,6 +2,44 @@
 
 import { createClient } from '@/lib/supabase/client';
 
+function fireWebhookEvent(event: string, data: Record<string, unknown>) {
+  fetch('/api/webhooks/fire', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, data }),
+  }).catch(() => {});
+}
+
+// ─── Driver push notification helper ─────────────────────────────────────────
+function sendDriverPushNotification(
+  driverId: string,
+  orderId: string,
+  wooOrderId: string,
+  addressLine1?: string | null,
+  customerName?: string | null
+) {
+  const orderRef = wooOrderId ? `#${wooOrderId}` : `#${orderId}`;
+  const addressText = addressLine1 || 'See app for details';
+  const customerText = customerName ? `👤 ${customerName}` : null;
+  const bodyParts = [
+    `📦 Order ${orderRef}`,
+    `📍 ${addressText}`,
+    customerText,
+  ].filter(Boolean);
+  fetch('/api/push/send-driver', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      driverId,
+      title: '🚚 New Booking Assigned',
+      body: bodyParts.join('\n'),
+      icon: '/icons/icon-192x192.png',
+      tag: `new-order-${orderId}`,
+      data: { orderId, url: `/driver-portal?order=${orderId}` },
+    }),
+  }).catch(() => {});
+}
+
 // ─── DB Row Types (snake_case) ────────────────────────────────────────────────
 
 export interface DbOrder {
@@ -28,6 +66,9 @@ export interface DbOrder {
   payment_recorded_at: string | null;
   payment_recorded_by: string | null;
   payment_notes: string | null;
+  deposit_paid: number | null;
+  amount_due: number | null;
+  delivery_charge: number | null;
   products: any[];
   pod: any | null;
   notes: string | null;
@@ -72,10 +113,17 @@ export interface AppOrder {
   payment: {
     status: string;
     method: string;
-    amount: number;
+    deliveryCharge: number;
+    orderTotal: number;
+    depositPaid: number;
+    totalDue: number;
     recordedAt?: string;
     recordedBy?: string;
     notes?: string;
+    /** @deprecated use orderTotal */
+    amount: number;
+    /** @deprecated use totalDue */
+    amountDue: number;
   };
   products: any[];
   pod?: any;
@@ -98,6 +146,11 @@ export interface AppDriver {
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 export function mapDbOrderToApp(row: DbOrder): AppOrder {
+  const deliveryCharge = row.delivery_charge ?? 0;
+  const orderTotal = row.payment_amount ?? 0;
+  const depositPaid = row.deposit_paid ?? 0;
+  const totalDue = row.amount_due ?? Math.max(0, orderTotal - depositPaid);
+
   return {
     id: row.id,
     wooOrderId: row.woo_order_id,
@@ -126,7 +179,13 @@ export function mapDbOrderToApp(row: DbOrder): AppOrder {
     payment: {
       status: row.payment_status,
       method: row.payment_method,
-      amount: row.payment_amount,
+      deliveryCharge,
+      orderTotal,
+      depositPaid,
+      totalDue,
+      // legacy aliases
+      amount: orderTotal,
+      amountDue: totalDue,
       recordedAt: row.payment_recorded_at ?? undefined,
       recordedBy: row.payment_recorded_by ?? undefined,
       notes: row.payment_notes ?? undefined,
@@ -191,6 +250,7 @@ export const ordersService = {
       console.error('deleteOrder error:', error.message);
       return false;
     }
+    fireWebhookEvent('order.cancelled', { order_id: id });
     return true;
   },
 
@@ -219,6 +279,29 @@ export const ordersService = {
       console.error('updateOrderStatus error:', error.message);
       return false;
     }
+    fireWebhookEvent('order.updated', { order_id: id, status, changed_field: 'status' });
+    if (status === 'Booking Complete') {
+      fireWebhookEvent('order.completed', { order_id: id, status });
+    }
+
+    // Send push notification to assigned driver when status becomes 'Booking Assigned'
+    if (status === 'Booking Assigned') {
+      const { data: orderRow } = await supabase
+        .from('orders')
+        .select('id, woo_order_id, delivery_address_line1, customer_name, driver_id')
+        .eq('id', id)
+        .single();
+      if (orderRow?.driver_id) {
+        sendDriverPushNotification(
+          orderRow.driver_id,
+          orderRow.id,
+          orderRow.woo_order_id,
+          orderRow.delivery_address_line1,
+          orderRow.customer_name
+        );
+      }
+    }
+
     return true;
   },
 
@@ -230,6 +313,71 @@ export const ordersService = {
       .eq('id', orderId);
     if (error) {
       console.error('assignDriver error:', error.message);
+      return false;
+    }
+    fireWebhookEvent('driver.assigned', { order_id: orderId, driver_id: driverId });
+
+    // Fetch order details for the notification
+    const { data: orderRow } = await supabase
+      .from('orders')
+      .select('id, woo_order_id, delivery_address_line1, customer_name')
+      .eq('id', orderId)
+      .single();
+    if (orderRow) {
+      sendDriverPushNotification(
+        driverId,
+        orderRow.id,
+        orderRow.woo_order_id,
+        orderRow.delivery_address_line1,
+        orderRow.customer_name
+      );
+    }
+
+    return true;
+  },
+
+  async updateOrder(
+    id: string,
+    payload: {
+      customerName?: string;
+      customerEmail?: string;
+      customerPhone?: string;
+      bookingType?: 'Delivery' | 'Collection';
+      status?: string;
+      bookingDate?: string;
+      deliveryWindow?: string;
+      collectionWindow?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      county?: string;
+      postcode?: string;
+      deliveryNotes?: string;
+      notes?: string;
+    }
+  ): Promise<boolean> {
+    const supabase = createClient();
+    const update: Record<string, any> = { updated_at: new Date().toISOString() };
+
+    if (payload.customerName !== undefined) update.customer_name = payload.customerName;
+    if (payload.customerEmail !== undefined) update.customer_email = payload.customerEmail;
+    if (payload.customerPhone !== undefined) update.customer_phone = payload.customerPhone;
+    if (payload.bookingType !== undefined) update.booking_type = payload.bookingType;
+    if (payload.status !== undefined) update.status = payload.status;
+    if (payload.bookingDate !== undefined) update.booking_date = payload.bookingDate;
+    if (payload.deliveryWindow !== undefined) update.delivery_window = payload.deliveryWindow;
+    if (payload.collectionWindow !== undefined) update.collection_window = payload.collectionWindow || null;
+    if (payload.addressLine1 !== undefined) update.delivery_address_line1 = payload.addressLine1 || null;
+    if (payload.addressLine2 !== undefined) update.delivery_address_line2 = payload.addressLine2 || null;
+    if (payload.city !== undefined) update.delivery_address_city = payload.city || null;
+    if (payload.county !== undefined) update.delivery_address_county = payload.county || null;
+    if (payload.postcode !== undefined) update.delivery_address_postcode = payload.postcode || null;
+    if (payload.deliveryNotes !== undefined) update.delivery_address_notes = payload.deliveryNotes || null;
+    if (payload.notes !== undefined) update.notes = payload.notes || null;
+
+    const { error } = await supabase.from('orders').update(update).eq('id', id);
+    if (error) {
+      console.error('updateOrder error:', error.message);
       return false;
     }
     return true;
@@ -254,16 +402,17 @@ export const ordersService = {
     collectionWindow?: string;
     paymentMethod: string;
     paymentAmount: number;
+    depositPaid?: number;
+    totalDueOnDelivery?: number;
+    deliveryFee?: number;
     products: any[];
     notes?: string;
     customFields?: Record<string, string>;
   }): Promise<{ id: string } | null> {
-    const supabase = createClient();
-
     const paymentStatus =
       payload.paymentMethod === 'Unrecorded' ? 'Unpaid' : 'Paid';
 
-    const row: Record<string, any> = {
+    const body: Record<string, any> = {
       id: payload.id,
       woo_order_id: payload.wooOrderId || '',
       customer_name: payload.customerName,
@@ -277,6 +426,9 @@ export const ordersService = {
       payment_method: payload.paymentMethod,
       payment_status: paymentStatus,
       payment_amount: payload.paymentAmount || 0,
+      deposit_paid: payload.depositPaid ?? null,
+      amount_due: payload.totalDueOnDelivery ?? null,
+      delivery_charge: payload.deliveryFee ?? null,
       products: payload.products,
       notes: payload.notes || null,
       custom_fields: payload.customFields || {},
@@ -284,25 +436,41 @@ export const ordersService = {
     };
 
     if (payload.bookingType === 'Delivery') {
-      row.delivery_address_line1 = payload.addressLine1 || null;
-      row.delivery_address_line2 = payload.addressLine2 || null;
-      row.delivery_address_city = payload.city || null;
-      row.delivery_address_county = payload.county || null;
-      row.delivery_address_postcode = payload.postcode || null;
-      row.delivery_address_notes = payload.deliveryNotes || null;
+      body.delivery_address_line1 = payload.addressLine1 || null;
+      body.delivery_address_line2 = payload.addressLine2 || null;
+      body.delivery_address_city = payload.city || null;
+      body.delivery_address_county = payload.county || null;
+      body.delivery_address_postcode = payload.postcode || null;
+      body.delivery_address_notes = payload.deliveryNotes || null;
     }
 
-    const { data, error } = await supabase
-      .from('orders')
-      .insert(row)
-      .select('id')
-      .single();
+    const res = await fetch('/api/orders/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-    if (error) {
-      console.error('createOrder error:', error.message);
-      return null;
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('createOrder error:', errData.error);
+      throw new Error(errData.error || 'Failed to create order');
     }
-    return data as { id: string };
+
+    const data = await res.json() as { id: string };
+
+    fireWebhookEvent('order.created', { order_id: data.id, ...body });
+
+    // Notify driver if one was assigned at creation
+    if (payload.driverId) {
+      sendDriverPushNotification(
+        payload.driverId,
+        data.id,
+        payload.wooOrderId,
+        payload.addressLine1
+      );
+    }
+
+    return data;
   },
 
   subscribeToOrder(

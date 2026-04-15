@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { MapPin, Plus, Trash2, Edit3, Save, X, User, CheckCircle2, Map, Layers } from 'lucide-react';
+import { MapPin, Plus, Trash2, Edit3, Save, X, User, CheckCircle2, Map as MapIcon, Layers } from 'lucide-react';
 import { toast } from 'sonner';
+import { useMapsConfig, getTileLayerConfig } from '@/hooks/useMapsConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
   useEffect(() => { onZoneClickRef.current = onZoneClick; }, [onZoneClick]);
 
+  const mapsConfig = useMapsConfig();
+
   // ── Inject Leaflet CSS once ────────────────────────────────────────────────
   useEffect(() => {
     const id = 'leaflet-css';
@@ -80,6 +83,7 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
   // ── Init map once ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+    if (mapsConfig.loading) return;
     let destroyed = false;
 
     import('leaflet').then((mod) => {
@@ -95,15 +99,17 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
       });
 
       const map = L.map(mapContainerRef.current!, {
-        center: [52.636, -1.139],
+        center: mapsConfig.defaultCenter,
         zoom: 10,
         zoomControl: true,
         preferCanvas: false,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
 
       mapRef.current = map;
@@ -123,7 +129,7 @@ function LeafletMap({ zones, drawingPoints, isDrawing, selectedZoneId, onMapClic
         mapRef.current = null;
       }
     };
-  }, []);
+  }, [mapsConfig.loading]);
 
   // ── Drawing click handler ──────────────────────────────────────────────────
   useEffect(() => {
@@ -297,10 +303,13 @@ export default function DeliveryZonesContent() {
         supabase.from('delivery_zones').select('*').order('created_at', { ascending: true }),
         supabase.from('drivers').select('id, name, status, zone').order('name', { ascending: true }),
       ]);
+      if (zonesRes.error) throw new Error(zonesRes.error.message);
+      if (driversRes.error) throw new Error(driversRes.error.message);
       if (zonesRes.data) setZones(zonesRes.data);
       if (driversRes.data) setDrivers(driversRes.data);
-    } catch {
-      toast.error('Failed to load delivery zones');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to load delivery zones: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -504,7 +513,7 @@ export default function DeliveryZonesContent() {
           >
             <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: 'hsl(var(--border))' }}>
               <div className="flex items-center gap-2">
-                <Map size={15} style={{ color: 'hsl(var(--primary))' }} />
+                <MapIcon size={15} style={{ color: 'hsl(var(--primary))' }} />
                 <span className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Live Zone Map</span>
                 {isDrawing && (
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium animate-pulse" style={{ backgroundColor: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))' }}>

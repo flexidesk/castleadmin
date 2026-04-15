@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MapPin, Navigation, Clock, Wifi, WifiOff, Maximize2, Minimize2, Package, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useMapsConfig, getTileLayerConfig, geocodeAddress } from '@/hooks/useMapsConfig';
 
 interface OrderInfo {
   id: string;
@@ -121,6 +122,7 @@ export default function DriverLocationMap() {
   // Mobile: sidebar shown as bottom sheet
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const supabase = createClient();
+  const mapsConfig = useMapsConfig();
 
   const fetchLocations = useCallback(async () => {
     const { data, error } = await supabase
@@ -148,6 +150,7 @@ export default function DriverLocationMap() {
   // Initialize Leaflet map
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+    if (mapsConfig.loading) return;
 
     import('leaflet').then((leafletModule) => {
       const L = leafletModule.default;
@@ -162,16 +165,18 @@ export default function DriverLocationMap() {
       if (!mapRef.current || mapInstanceRef.current) return;
 
       const map = L.map(mapRef.current, {
-        center: [51.505, -0.09],
+        center: mapsConfig.defaultCenter,
         zoom: 12,
         zoomControl: true,
         attributionControl: true,
         tap: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
+      const tileConfig = getTileLayerConfig(mapsConfig.useGoogleMaps);
+      L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        ...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {}),
       }).addTo(map);
 
       mapInstanceRef.current = map;
@@ -184,7 +189,7 @@ export default function DriverLocationMap() {
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [mapsConfig.loading]);
 
   // Update driver markers + destination pins when locations change
   useEffect(() => {
@@ -243,22 +248,18 @@ export default function DriverLocationMap() {
         if (driverStatus === 'On Route' && loc.order && loc.order_id) {
           activeOrderIds.add(loc.order_id);
 
-          // Geocode via Nominatim using postcode + city as a rough pin
+          // Geocode using configured provider
           const address = formatAddress(loc.order);
           if (address && !destMarkersRef.current.has(loc.order_id)) {
             const postcode = loc.order.delivery_address_postcode;
             const city = loc.order.delivery_address_city;
             const query = postcode || city || address;
 
-            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
-              .then((r) => r.json())
-              .then((results: any[]) => {
-                if (!results || results.length === 0) return;
-                const { lat, lon } = results[0];
-                const destLat = parseFloat(lat);
-                const destLon = parseFloat(lon);
+            geocodeAddress(query, mapsConfig).then((coords) => {
+              if (!coords || !mapInstanceRef.current) return;
+              const [destLat, destLon] = coords;
 
-                const destIconHtml = `
+              const destIconHtml = `
                   <div style="
                     display:flex;flex-direction:column;align-items:center;
                   ">
@@ -274,17 +275,16 @@ export default function DriverLocationMap() {
                   </div>
                 `;
 
-                const destIcon = L.divIcon({
-                  html: destIconHtml,
-                  className: '',
-                  iconSize: [28, 34],
-                  iconAnchor: [14, 34],
-                });
+              const destIcon = L.divIcon({
+                html: destIconHtml,
+                className: '',
+                iconSize: [28, 34],
+                iconAnchor: [14, 34],
+              });
 
-                if (!mapInstanceRef.current) return;
-                const destMarker = L.marker([destLat, destLon], { icon: destIcon })
-                  .addTo(mapInstanceRef.current)
-                  .bindPopup(`
+              const destMarker = L.marker([destLat, destLon], { icon: destIcon })
+                .addTo(mapInstanceRef.current)
+                .bindPopup(`
                     <div style="font-size:12px;min-width:160px;">
                       <strong>${loc.order?.customer_name ?? 'Customer'}</strong><br/>
                       <span style="color:#6b7280;">${address}</span><br/>
@@ -292,9 +292,8 @@ export default function DriverLocationMap() {
                     </div>
                   `);
 
-                destMarkersRef.current.set(loc.order_id!, destMarker);
-              })
-              .catch(() => {/* silently ignore geocoding failures */});
+              destMarkersRef.current.set(loc.order_id!, destMarker);
+            });
           }
         }
       });
@@ -647,7 +646,7 @@ export default function DriverLocationMap() {
           </span>
           {selectedDriver.speed != null && (
             <span style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {Math.round(selectedDriver.speed)} km/h
+              {Math.round(selectedDriver.speed)} mph
             </span>
           )}
           {selectedDriver.heading != null && (

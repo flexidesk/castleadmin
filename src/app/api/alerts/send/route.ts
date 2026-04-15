@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// ─── Shortcode Population ─────────────────────────────────────────────────────
+import { createClient } from '@/lib/db/server';
 
 function populateShortcodes(template: string, data: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? `{{${key}}}`);
 }
-
-// ─── Send via Resend Edge Function ────────────────────────────────────────────
 
 async function sendViaResend(params: {
   to: string;
@@ -20,15 +11,9 @@ async function sendViaResend(params: {
   html: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const edgeFnUrl = `${supabaseUrl}/functions/v1/send-email`;
-
-    const res = await fetch(edgeFnUrl, {
+    const res = await fetch('/api/smtp/test', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         to: params.to,
         subject: params.subject,
@@ -39,7 +24,7 @@ async function sendViaResend(params: {
 
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: data?.error || 'Failed to send via Resend' };
+      return { success: false, error: data?.error || 'Failed to send email' };
     }
     return { success: true };
   } catch (err: any) {
@@ -47,16 +32,10 @@ async function sendViaResend(params: {
   }
 }
 
-// ─── POST Handler ─────────────────────────────────────────────────────────────
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {
-      trigger_type,
-      recipient_email,
-      shortcodes = {},
-    } = body;
+    const { trigger_type, recipient_email, shortcodes = {} } = body;
 
     if (!trigger_type || !recipient_email) {
       return NextResponse.json(
@@ -65,8 +44,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch active template for this trigger
-    const { data: templates, error: fetchErr } = await supabaseAdmin
+    const db = await createClient();
+
+    const { data: templates, error: fetchErr } = await db
       .from('message_templates')
       .select('*')
       .eq('trigger_type', trigger_type)
@@ -79,25 +59,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (!templates || templates.length === 0) {
-      // No active template — silently skip
       return NextResponse.json({ success: true, skipped: true, reason: 'No active template found' });
     }
 
     const template = templates[0];
     const populatedSubject = populateShortcodes(template.subject || '', shortcodes);
     const populatedBody = populateShortcodes(template.body || '', shortcodes);
-
-    // Wrap plain body in HTML if not already wrapped
     const html = populatedBody.startsWith('<') ? populatedBody : `<p>${populatedBody}</p>`;
 
-    const result = await sendViaResend({
-      to: recipient_email,
-      subject: populatedSubject,
-      html,
-    });
+    const result = await sendViaResend({ to: recipient_email, subject: populatedSubject, html });
 
-    // Log the alert
-    await supabaseAdmin.from('email_alert_logs').insert({
+    await db.from('email_alert_logs').insert({
       template_id: template.id,
       trigger_type,
       channel: 'email',
@@ -106,7 +78,7 @@ export async function POST(req: NextRequest) {
       status: result.success ? 'sent' : 'failed',
       error_message: result.error ?? null,
       order_id: shortcodes.order_id ?? null,
-      metadata: shortcodes,
+      metadata: JSON.stringify(shortcodes),
     });
 
     if (!result.success) {

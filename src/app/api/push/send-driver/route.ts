@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from 'next/server';
+import webpush from 'web-push';
+import { createClient } from '@/lib/db/server';
+
+function initVapid() {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const email = process.env.VAPID_EMAIL || 'admin@castleadmin.com';
+
+  if (!publicKey || !privateKey || publicKey === 'your-vapid-public-key-here') {
+    return false;
+  }
+
+  try {
+    webpush.setVapidDetails(`mailto:${email}`, publicKey, privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    if (!initVapid()) {
+      return NextResponse.json({ error: 'VAPID keys not configured.' }, { status: 503 });
+    }
+
+    const { driverId, title, body, icon, tag, data } = await req.json();
+
+    if (!title || !body) {
+      return NextResponse.json({ error: 'title and body are required' }, { status: 400 });
+    }
+
+    const db = await createClient();
+
+    let query = db.from('push_subscriptions').select('endpoint, p256dh, auth');
+    if (driverId) {
+      query = query.eq('driver_id', driverId);
+    }
+
+    const { data: subscriptions, error } = await query;
+
+    if (error || !subscriptions?.length) {
+      return NextResponse.json({ sent: 0, message: 'No subscribers for this driver' });
+    }
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      icon: icon || '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      tag: tag || 'castle-driver',
+      data: data || {},
+      requireInteraction: true,
+    });
+
+    const results = await Promise.allSettled(
+      subscriptions.map((sub: any) =>
+        webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          payload
+        )
+      )
+    );
+
+    const expiredEndpoints: string[] = [];
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        const err = result.reason as { statusCode?: number };
+        if (err?.statusCode === 410 || err?.statusCode === 404) {
+          expiredEndpoints.push(subscriptions[i].endpoint);
+        }
+      }
+    });
+
+    if (expiredEndpoints.length > 0) {
+      await db.from('push_subscriptions').delete().in('endpoint', expiredEndpoints);
+    }
+
+    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    return NextResponse.json({ sent, total: subscriptions.length });
+  } catch (err) {
+    console.error('Driver push send error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

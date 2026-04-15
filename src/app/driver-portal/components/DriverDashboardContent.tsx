@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { mapDbOrderToApp, AppOrder, AppDriver } from '@/lib/services/ordersService';
 import { toast } from 'sonner';
 import {
   Truck, Package, CheckCircle2, Clock, MapPin, Phone, ChevronRight,
   RefreshCw, Loader2, ChevronDown, Camera, Navigation, AlertCircle,
-  Calendar, User, ArrowRight, Filter, X, PackageCheck, PackageOpen,
+  Calendar, User, ArrowRight, Filter, X, PackageCheck, PackageOpen, XOctagon, Info,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import DriverOrderDetail from './DriverOrderDetail';
@@ -20,7 +20,7 @@ const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false })
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type AvailabilityStatus = 'Available' | 'On Route' | 'Off Duty';
-type FilterTab = 'today-deliveries' | 'today-collections' | 'all';
+type FilterTab = 'today-deliveries' | 'today-collections' | 'all' | 'tomorrow' | 'upcoming' | 'vehicle-loading';
 
 const AVAILABILITY_OPTIONS: AvailabilityStatus[] = ['Available', 'On Route', 'Off Duty'];
 
@@ -55,12 +55,19 @@ const STATUS_ACCENT: Record<string, string> = {
   'Booking Out For Delivery': 'hsl(262 83% 58%)',
   'Booking Complete': 'hsl(142 69% 35%)',
   'Booking Cancelled': 'hsl(0 84% 60%)',
+  'Booking Failed': 'hsl(0 84% 60%)',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getTodayStr(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+function getTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
 }
 
 function getGreeting(): string {
@@ -71,7 +78,7 @@ function getGreeting(): string {
 }
 
 function isUrgent(order: AppOrder): boolean {
-  if (order.status === 'Booking Complete' || order.status === 'Booking Cancelled') return false;
+  if (order.status === 'Booking Complete' || order.status === 'Booking Cancelled' || order.status === 'Booking Failed') return false;
   const window = order.deliveryWindow ?? '';
   const now = new Date();
   const h = now.getHours();
@@ -100,6 +107,17 @@ export default function DriverDashboardContent() {
   const [podOrderId, setPodOrderId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<string>('');
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [vehicleLoadingDate, setVehicleLoadingDate] = useState<string>(getTodayStr());
+
+  // ── Delivery Failed state ──────────────────────────────────────────────────
+  const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState('');
+  const [failureNotes, setFailureNotes] = useState('');
+  const [submittingFailure, setSubmittingFailure] = useState(false);
+
+  // ── Live Location Tracking refs ────────────────────────────────────────────
+  const locationWatchRef = useRef<number | null>(null);
+  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const supabase = createClient();
 
@@ -160,6 +178,63 @@ export default function DriverDashboardContent() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Live GPS Tracking ──────────────────────────────────────────────────────
+  const broadcastLocation = useCallback(async (lat: number, lng: number, heading: number | null, speed: number | null, accuracy: number | null) => {
+    if (!driver?.id) return;
+    try {
+      await supabase.from('driver_locations').insert({
+        driver_id: driver.id,
+        latitude: lat,
+        longitude: lng,
+        heading: heading ?? null,
+        speed: speed ?? null,
+        accuracy: accuracy ?? null,
+        recorded_at: new Date().toISOString(),
+      });
+    } catch {
+      // silent
+    }
+  }, [driver?.id, supabase]);
+
+  useEffect(() => {
+    if (!driver?.id || !navigator.geolocation) return;
+
+    const handlePosition = (pos: GeolocationPosition) => {
+      broadcastLocation(
+        pos.coords.latitude,
+        pos.coords.longitude,
+        pos.coords.heading,
+        pos.coords.speed,
+        pos.coords.accuracy,
+      );
+    };
+
+    locationWatchRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      () => { /* silent */ },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+
+    locationIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        handlePosition,
+        () => { /* silent */ },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      );
+    }, 30000);
+
+    return () => {
+      if (locationWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+      if (locationIntervalRef.current !== null) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [driver?.id, broadcastLocation]);
+
   useEffect(() => {
     const channel = supabase
       .channel('driver-dashboard-orders')
@@ -191,7 +266,7 @@ export default function DriverDashboardContent() {
       return;
     }
     const activeOrders = allOrders.filter(
-      (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
+      (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed'
     );
     if (newStatus === 'Off Duty' && activeOrders.length > 0) {
       toast.error(`You have ${activeOrders.length} active delivery${activeOrders.length > 1 ? 'ies' : ''} in progress.`);
@@ -240,17 +315,62 @@ export default function DriverDashboardContent() {
     }
   };
 
+  // ─── Delivery Failed Handler ───────────────────────────────────────────────
+
+  const handleDeliveryFailed = async () => {
+    if (!failedOrderId) return;
+    if (!failureReason.trim()) {
+      toast.error('Please provide a reason for the delivery failure');
+      return;
+    }
+    setSubmittingFailure(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'Booking Failed',
+          failure_reason: failureReason.trim(),
+          failure_notes: failureNotes.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', failedOrderId);
+
+      if (error) throw error;
+
+      setAllOrders((prev) =>
+        prev.map((o) =>
+          o.id === failedOrderId
+            ? { ...o, status: 'Booking Failed' } as any
+            : o
+        )
+      );
+      toast.success('Delivery marked as failed');
+      setFailedOrderId(null);
+      setFailureReason('');
+      setFailureNotes('');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update order');
+    } finally {
+      setSubmittingFailure(false);
+    }
+  };
+
   // ─── Derived State ─────────────────────────────────────────────────────────
 
   const today = getTodayStr();
+  const tomorrow = getTomorrowStr();
 
   const todayDeliveries = allOrders.filter((o) => o.bookingDate === today && !isCollection(o));
   const todayCollections = allOrders.filter((o) => o.bookingDate === today && isCollection(o));
+  const tomorrowOrders = allOrders.filter((o) => o.bookingDate === tomorrow);
+  const upcomingOrders = allOrders.filter((o) => o.bookingDate > tomorrow);
 
   const getDisplayOrders = (): AppOrder[] => {
     let base: AppOrder[] = [];
     if (activeTab === 'today-deliveries') base = todayDeliveries;
     else if (activeTab === 'today-collections') base = todayCollections;
+    else if (activeTab === 'tomorrow') base = tomorrowOrders;
+    else if (activeTab === 'upcoming') base = upcomingOrders;
     else base = allOrders;
 
     if (dateFilter && activeTab === 'all') {
@@ -263,7 +383,7 @@ export default function DriverDashboardContent() {
   const displayOrders = getDisplayOrders();
 
   const todayActive = [...todayDeliveries, ...todayCollections].filter(
-    (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled'
+    (o) => o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed'
   ).length;
   const todayComplete = [...todayDeliveries, ...todayCollections].filter((o) => o.status === 'Booking Complete').length;
   const urgentCount = [...todayDeliveries, ...todayCollections].filter(isUrgent).length;
@@ -360,7 +480,7 @@ export default function DriverDashboardContent() {
                   {updatingStatus ? (
                     <Loader2 size={11} className="animate-spin" />
                   ) : (
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: AVAILABILITY_STYLES[driver.status as AvailabilityStatus]?.dot }} />
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: AVAILABILITY_STYLES[driver.status as AvailabilityStatus]?.dot }} />
                   )}
                   {driver.status}
                   <ChevronDown size={11} />
@@ -471,16 +591,19 @@ export default function DriverDashboardContent() {
       <div>
         {/* Tab Row */}
         <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 flex gap-1 p-1 rounded-xl" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+          <div className="flex-1 flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
             {([
-              { key: 'today-deliveries', label: `Deliveries (${todayDeliveries.length})`, icon: PackageOpen },
-              { key: 'today-collections', label: `Collections (${todayCollections.length})`, icon: PackageCheck },
-              { key: 'all', label: `All (${allOrders.length})`, icon: Package },
+              { key: 'today-deliveries', label: `Deliveries (${todayDeliveries.length})`, shortLabel: `Del (${todayDeliveries.length})`, icon: PackageOpen },
+              { key: 'today-collections', label: `Collections (${todayCollections.length})`, shortLabel: `Col (${todayCollections.length})`, icon: PackageCheck },
+              { key: 'tomorrow', label: `Tomorrow (${tomorrowOrders.length})`, shortLabel: `Tmrw (${tomorrowOrders.length})`, icon: Calendar },
+              { key: 'upcoming', label: `Upcoming (${upcomingOrders.length})`, shortLabel: `Soon (${upcomingOrders.length})`, icon: ArrowRight },
+              { key: 'all', label: `All (${allOrders.length})`, shortLabel: `All (${allOrders.length})`, icon: Package },
+              { key: 'vehicle-loading', label: 'Loading', shortLabel: 'Load', icon: Truck },
             ] as const).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => { setActiveTab(tab.key); if (tab.key !== 'all') setDateFilter(''); }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all"
+                className="flex-shrink-0 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all"
                 style={{
                   backgroundColor: activeTab === tab.key ? 'hsl(var(--card))' : 'transparent',
                   color: activeTab === tab.key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
@@ -489,7 +612,7 @@ export default function DriverDashboardContent() {
               >
                 <tab.icon size={13} />
                 <span className="hidden sm:inline">{tab.label}</span>
-                <span className="sm:hidden">{tab.key === 'today-deliveries' ? `Del (${todayDeliveries.length})` : tab.key === 'today-collections' ? `Col (${todayCollections.length})` : `All (${allOrders.length})`}</span>
+                <span className="sm:hidden">{tab.shortLabel}</span>
               </button>
             ))}
           </div>
@@ -555,6 +678,30 @@ export default function DriverDashboardContent() {
           </div>
         )}
 
+        {activeTab === 'tomorrow' && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
+            style={{ backgroundColor: 'hsl(38 92% 50% / 0.08)' }}
+          >
+            <Calendar size={13} style={{ color: 'hsl(38 92% 50%)' }} />
+            <span className="text-xs font-medium" style={{ color: 'hsl(38 92% 50%)' }}>
+              {`${tomorrowOrders.length} order${tomorrowOrders.length !== 1 ? 's' : ''} scheduled for tomorrow · ${new Date(tomorrow + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}`}
+            </span>
+          </div>
+        )}
+
+        {activeTab === 'upcoming' && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
+            style={{ backgroundColor: 'hsl(262 83% 58% / 0.08)' }}
+          >
+            <ArrowRight size={13} style={{ color: 'hsl(262 83% 58%)' }} />
+            <span className="text-xs font-medium" style={{ color: 'hsl(262 83% 58%)' }}>
+              {`${upcomingOrders.length} upcoming order${upcomingOrders.length !== 1 ? 's' : ''} after tomorrow`}
+            </span>
+          </div>
+        )}
+
         {dateFilter && activeTab === 'all' && (
           <div
             className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
@@ -588,17 +735,24 @@ export default function DriverDashboardContent() {
               <PackageOpen size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             ) : activeTab === 'today-collections' ? (
               <PackageCheck size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            ) : activeTab === 'tomorrow' ? (
+              <Calendar size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            ) : activeTab === 'upcoming' ? (
+              <ArrowRight size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             ) : (
               <Package size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
             )}
             <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
               {activeTab === 'today-deliveries' ? 'No deliveries today' :
-               activeTab === 'today-collections'? 'No collections today' : dateFilter ?'No orders on this date' : 'No orders found'}
+               activeTab === 'today-collections'? 'No collections today' :
+               activeTab === 'tomorrow' ? 'No orders tomorrow' :
+               activeTab === 'upcoming'? 'No upcoming orders' : dateFilter ?'No orders on this date' : 'No orders found'}
             </p>
             <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
               {activeTab === 'today-deliveries' ? 'No delivery orders assigned for today.' :
                activeTab === 'today-collections' ? 'No collection orders assigned for today.' :
-               dateFilter ? 'Try a different date or clear the filter.' : 'No orders assigned to you yet.'}
+               activeTab === 'tomorrow' ? 'No orders have been assigned for tomorrow yet.' :
+               activeTab === 'upcoming'? 'No orders scheduled beyond tomorrow.' : dateFilter ?'Try a different date or clear the filter.' : 'No orders assigned to you yet.'}
             </p>
           </div>
         ) : (
@@ -607,6 +761,7 @@ export default function DriverDashboardContent() {
               const nextStatusLabel = NEXT_STATUS_LABEL[order.status];
               const isComplete = order.status === 'Booking Complete';
               const isCancelled = order.status === 'Booking Cancelled';
+              const isFailed = order.status === 'Booking Failed';
               const isUpdating = updatingOrderId === order.id;
               const urgent = isUrgent(order);
               const accentColor = STATUS_ACCENT[order.status] ?? 'hsl(var(--primary))';
@@ -639,7 +794,6 @@ export default function DriverDashboardContent() {
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
                           <StatusBadge status={order.status} />
-                          {/* Booking type badge */}
                           <span
                             className="text-xs px-2 py-0.5 rounded-full font-medium"
                             style={{
@@ -708,8 +862,8 @@ export default function DriverDashboardContent() {
                     </div>
 
                     {/* Action Buttons */}
-                    {!isComplete && !isCancelled && (
-                      <div className="flex gap-2">
+                    {!isComplete && !isCancelled && !isFailed && (
+                      <div className="flex gap-2 flex-wrap">
                         {nextStatusLabel && (
                           <button
                             onClick={(e) => handleAdvanceOrderStatus(order, e)}
@@ -742,6 +896,17 @@ export default function DriverDashboardContent() {
                             <span className="text-xs">Navigate</span>
                           </a>
                         )}
+                        {/* Delivery Failed Button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setFailedOrderId(order.id); setFailureReason(''); setFailureNotes(''); }}
+                          disabled={isUpdating}
+                          className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-medium text-sm transition-colors border"
+                          style={{ borderColor: 'hsl(0 84% 60% / 0.4)', color: 'hsl(0 84% 60%)', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+                          title="Mark delivery as failed"
+                        >
+                          <XOctagon size={14} />
+                          <span className="text-xs">Failed</span>
+                        </button>
                       </div>
                     )}
 
@@ -765,10 +930,344 @@ export default function DriverDashboardContent() {
                         <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Booking Cancelled</span>
                       </div>
                     )}
+
+                    {isFailed && (
+                      <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{ backgroundColor: 'hsl(0 84% 60% / 0.08)' }}>
+                        <XOctagon size={15} style={{ color: 'hsl(0 84% 60%)' }} />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</span>
+                          {(order as any).failure_reason && (
+                            <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {(order as any).failure_reason}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── Vehicle Loading Tab ── */}
+        {activeTab === 'vehicle-loading' && (() => {
+          const loadingOrders = allOrders.filter((o) => o.bookingDate === vehicleLoadingDate);
+          const totalItems = loadingOrders.reduce((sum, o) => sum + (o.products?.length ?? 0), 0);
+          const totalQty = loadingOrders.reduce((sum, o) =>
+            sum + (o.products ?? []).reduce((s: number, p: any) => s + Number(p.quantity ?? p.qty ?? 1), 0), 0);
+
+          return (
+            <div className="space-y-4 mt-3">
+              {/* Date Picker Card */}
+              <div className="rounded-2xl border p-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'hsl(262 83% 58% / 0.12)' }}>
+                    <Truck size={18} style={{ color: 'hsl(262 83% 58%)' }} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Vehicle Loading</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Items booked for loading by date</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} style={{ color: 'hsl(var(--primary))' }} />
+                  <input
+                    type="date"
+                    value={vehicleLoadingDate}
+                    onChange={(e) => setVehicleLoadingDate(e.target.value)}
+                    className="flex-1 text-sm px-3 py-2 rounded-lg border outline-none transition-colors"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  <button
+                    onClick={() => setVehicleLoadingDate(getTodayStr())}
+                    className="px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: vehicleLoadingDate === getTodayStr() ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                      color: vehicleLoadingDate === getTodayStr() ? 'white' : 'hsl(var(--muted-foreground))',
+                    }}
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => setVehicleLoadingDate(getTomorrowStr())}
+                    className="px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: vehicleLoadingDate === getTomorrowStr() ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                      color: vehicleLoadingDate === getTomorrowStr() ? 'white' : 'hsl(var(--muted-foreground))',
+                    }}
+                  >
+                    Tomorrow
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary Pills */}
+              {loadingOrders.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Orders', value: loadingOrders.length, color: 'hsl(217 91% 60%)', bg: 'hsl(217 91% 60% / 0.1)' },
+                    { label: 'Line Items', value: totalItems, color: 'hsl(262 83% 58%)', bg: 'hsl(262 83% 58% / 0.1)' },
+                    { label: 'Total Qty', value: totalQty, color: 'hsl(142 69% 35%)', bg: 'hsl(142 69% 35% / 0.1)' },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-xl border p-3 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                      <p className="text-xl font-bold" style={{ color: s.color }}>{s.value}</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Date label */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <Calendar size={13} style={{ color: 'hsl(var(--primary))' }} />
+                <span className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                  {new Date(vehicleLoadingDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {' · '}{loadingOrders.length} order{loadingOrders.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Orders with items */}
+              {loading ? (
+                <div className="space-y-3">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="rounded-xl border p-4 animate-pulse" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                      <div className="h-4 rounded w-1/3 mb-3" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                      <div className="h-3 rounded w-2/3 mb-2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                      <div className="h-3 rounded w-1/2" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
+                    </div>
+                  ))}
+                </div>
+              ) : loadingOrders.length === 0 ? (
+                <div className="rounded-xl border p-10 text-center" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                  <Package size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                  <p className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>No orders for this date</p>
+                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>No bookings have been assigned for the selected date.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {loadingOrders.map((order, idx) => {
+                    const products: any[] = order.products ?? [];
+                    const orderType = (order as any).bookingType ?? (order as any).booking_type ?? '';
+                    const isDelivery = !orderType.toLowerCase().includes('collection');
+                    return (
+                      <div key={order.id} className="rounded-xl border overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                        {/* Order Header */}
+                        <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary))' }}>
+                          <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                            style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                          >
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm" style={{ color: 'hsl(var(--foreground))' }}>{order.id}</span>
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                style={{
+                                  backgroundColor: isDelivery ? 'hsl(217 91% 60% / 0.12)' : 'hsl(262 83% 58% / 0.12)',
+                                  color: isDelivery ? 'hsl(217 91% 60%)' : 'hsl(262 83% 58%)',
+                                }}
+                              >
+                                {isDelivery ? '↓ Delivery' : '↑ Collection'}
+                              </span>
+                              <StatusBadge status={order.status} />
+                            </div>
+                            <p className="text-xs mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {order.customer.name}
+                              {order.deliveryWindow ? ` · ${order.deliveryWindow}` : ''}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                              {products.length} item{products.length !== 1 ? 's' : ''}
+                            </p>
+                            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              Qty: {products.reduce((s: number, p: any) => s + Number(p.quantity ?? p.qty ?? 1), 0)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Products List */}
+                        {products.length === 0 ? (
+                          <div className="px-4 py-3 flex items-center gap-2">
+                            <Info size={13} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-xs italic" style={{ color: 'hsl(var(--muted-foreground))' }}>No item details available for this order</span>
+                          </div>
+                        ) : (
+                          <div className="divide-y" style={{ borderColor: 'hsl(var(--border))' }}>
+                            {products.map((product: any, pIdx: number) => {
+                              const name = product.name ?? product.product_name ?? product.title ?? `Item ${pIdx + 1}`;
+                              const qty = Number(product.quantity ?? product.qty ?? 1);
+                              const sku = product.sku ?? product.product_sku ?? null;
+                              const meta = product.meta_data ?? product.meta ?? [];
+                              return (
+                                <div key={pIdx} className="flex items-start gap-3 px-4 py-3">
+                                  <div
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold"
+                                    style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}
+                                  >
+                                    {qty}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{name}</p>
+                                    {sku && (
+                                      <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>SKU: {sku}</p>
+                                    )}
+                                    {Array.isArray(meta) && meta.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {meta.slice(0, 4).map((m: any, mi: number) => (
+                                          <span
+                                            key={mi}
+                                            className="text-xs px-1.5 py-0.5 rounded"
+                                            style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}
+                                          >
+                                            {m.display_key ?? m.key}: {m.display_value ?? m.value}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0">
+                                    <span
+                                      className="text-xs px-2 py-1 rounded-lg font-semibold"
+                                      style={{ backgroundColor: 'hsl(142 69% 35% / 0.1)', color: 'hsl(142 69% 35%)' }}
+                                    >
+                                      ×{qty}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Delivery Address */}
+                        {order.deliveryAddress && (
+                          <div className="flex items-start gap-2 px-4 py-2.5 border-t" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary) / 0.5)' }}>
+                            <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <p className="text-xs leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {order.deliveryAddress.line1}{order.deliveryAddress.line2 ? `, ${order.deliveryAddress.line2}` : ''}, {order.deliveryAddress.city}, {order.deliveryAddress.postcode}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ── Delivery Failed Modal ── */}
+        {failedOrderId && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div
+              className="w-full sm:max-w-sm rounded-2xl overflow-hidden"
+              style={{ backgroundColor: 'hsl(var(--card))' }}
+            >
+              {/* Header */}
+              <div
+                className="flex items-center justify-between px-4 py-3 border-b"
+                style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(0 84% 60% / 0.06)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <XOctagon size={18} style={{ color: 'hsl(0 84% 60%)' }} />
+                  <h3 className="font-bold text-base" style={{ color: 'hsl(0 84% 60%)' }}>Delivery Failed</h3>
+                </div>
+                <button
+                  onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                  className="p-1.5 rounded-lg transition-colors hover:bg-secondary"
+                >
+                  <X size={16} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-4 space-y-4">
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Order <strong style={{ color: 'hsl(var(--foreground))' }}>{failedOrderId}</strong> will be marked as <strong style={{ color: 'hsl(0 84% 60%)' }}>Booking Failed</strong>. Please provide a reason.
+                </p>
+
+                {/* Quick Reason Buttons */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>
+                    Reason <span style={{ color: 'hsl(0 84% 60%)' }}>*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {[
+                      'Not home / No answer',
+                      'Access issue',
+                      'Wrong address',
+                      'Customer refused',
+                      'Item damaged',
+                      'Other',
+                    ].map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setFailureReason(r)}
+                        className="py-2 px-3 rounded-lg text-xs font-medium text-left transition-all"
+                        style={{
+                          backgroundColor: failureReason === r ? 'hsl(0 84% 60%)' : 'hsl(var(--secondary))',
+                          color: failureReason === r ? 'white' : 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={failureReason}
+                    onChange={(e) => setFailureReason(e.target.value)}
+                    placeholder="Or type a custom reason…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: failureReason ? 'hsl(0 84% 60% / 0.5)' : 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Additional Notes */}
+                <div>
+                  <label className="text-xs font-semibold block mb-1.5" style={{ color: 'hsl(var(--foreground))' }}>Additional Notes (optional)</label>
+                  <textarea
+                    value={failureNotes}
+                    onChange={(e) => setFailureNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Any extra details for dispatch…"
+                    className="w-full text-sm px-3 py-2.5 rounded-lg border outline-none resize-none"
+                    style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setFailedOrderId(null); setFailureReason(''); setFailureNotes(''); }}
+                    disabled={submittingFailure}
+                    className="flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeliveryFailed}
+                    disabled={submittingFailure || !failureReason.trim()}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-semibold text-sm transition-all"
+                    style={{
+                      backgroundColor: 'hsl(0 84% 60%)',
+                      color: 'white',
+                      opacity: submittingFailure || !failureReason.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    {submittingFailure ? <Loader2 size={14} className="animate-spin" /> : <XOctagon size={14} />}
+                    {submittingFailure ? 'Saving…' : 'Confirm Failed'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

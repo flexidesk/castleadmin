@@ -1,38 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import {
-  Truck,
-  PackageCheck,
-  Download,
-  RefreshCw,
-  Plus,
-  Trash2,
-  ChevronRight,
-  CheckCircle2,
-  Hash,
-  User,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  Clock,
-  Package,
-  CreditCard,
-  Banknote,
-  AlertTriangle,
-  Search,
-  X,
-  ArrowLeft,
-  Info,
-  ShieldCheck,
-} from 'lucide-react';
+import { Truck, PackageCheck, RefreshCw, Plus, Trash2, ChevronRight, CheckCircle2, User, Phone, Mail, MapPin, Calendar, Clock, Package, CreditCard, AlertTriangle, X, ArrowLeft, ShieldCheck,  } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { ordersService, AppDriver } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
+import { useMapsConfig } from '@/hooks/useMapsConfig';
 
 type BookingType = 'Delivery' | 'Collection';
 type PaymentMethod = 'Card' | 'Cash' | 'Unrecorded';
@@ -47,7 +23,6 @@ interface ProductLineItem {
 
 interface CreateOrderFormData {
   bookingType: BookingType;
-  wooOrderId: string;
   // Customer
   customerName: string;
   customerEmail: string;
@@ -71,7 +46,9 @@ interface CreateOrderFormData {
   products: ProductLineItem[];
   // Payment
   paymentMethod: PaymentMethod;
-  paymentAmount: string;
+  depositPaid: string;
+  totalDueOnDelivery: string;
+  deliveryFee: string;
   // Custom fields
   eventType: string;
   powerSource: string;
@@ -86,8 +63,9 @@ const DEFAULT_PRODUCTS: ProductLineItem[] = [
 const PRODUCT_CATEGORIES = ['Bouncy Castle', 'Combo Castle', 'Inflatable', 'Accessory', 'Slide', 'Other'];
 
 function generateOrderId(): string {
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `CA-${num}`;
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+  return `CA-${ts}-${rand}`;
 }
 
 // ─── Zone detection helpers ───────────────────────────────────────────────────
@@ -117,10 +95,6 @@ function pointInPolygon(lng: number, lat: number, coords: number[][][]): boolean
 export default function CreateOrderForm() {
   const router = useRouter();
   const [bookingType, setBookingType] = useState<BookingType>('Delivery');
-  const [wooImportId, setWooImportId] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [importSuccess, setImportSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -135,6 +109,32 @@ export default function CreateOrderForm() {
   const [activeZones, setActiveZones] = useState<DeliveryZone[]>([]);
   const [autoZoneAllocation, setAutoZoneAllocation] = useState(false);
   const [autoAssignedByZone, setAutoAssignedByZone] = useState(false);
+
+  // Google Maps autocomplete
+  const mapsConfig = useMapsConfig();
+  const addressLine1Ref = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const googleMapsScriptRef = useRef<HTMLScriptElement | null>(null);
+
+  // ─── useForm must be declared BEFORE any useEffect/useCallback that uses setValue ───
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    watch,
+    reset,
+    formState: { errors, isDirty },
+  } = useForm<CreateOrderFormData>({
+    defaultValues: {
+      bookingType: 'Delivery',
+      products: DEFAULT_PRODUCTS,
+      paymentMethod: 'Unrecorded',
+      depositPaid: '',
+      totalDueOnDelivery: '',
+      deliveryFee: '',
+    },
+  });
 
   useEffect(() => {
     ordersService.fetchDrivers().then((data) => {
@@ -215,25 +215,91 @@ export default function CreateOrderForm() {
         setZoneCheckLoading(false);
       }
     },
-    [activeZones, autoZoneAllocation]
+    [activeZones, autoZoneAllocation, setValue]
   );
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    setValue,
-    watch,
-    reset,
-    formState: { errors, isDirty },
-  } = useForm<CreateOrderFormData>({
-    defaultValues: {
-      bookingType: 'Delivery',
-      products: DEFAULT_PRODUCTS,
-      paymentMethod: 'Unrecorded',
-      paymentAmount: '',
-    },
-  });
+  // Load Google Maps Places script and attach autocomplete when config is ready
+  useEffect(() => {
+    if (!mapsConfig.useGoogleMaps || !mapsConfig.apiKey || mapsConfig.loading) return;
+    if (bookingType !== 'Delivery') return;
+
+    const scriptId = 'google-maps-places-script';
+
+    const attachAutocomplete = () => {
+      if (!addressLine1Ref.current) return;
+      if (autocompleteRef.current) return; // already attached
+
+      const ac = new window.google.maps.places.Autocomplete(addressLine1Ref.current, {
+        types: ['address'],
+        componentRestrictions: { country: 'gb' },
+        fields: ['address_components', 'formatted_address'],
+      });
+      autocompleteRef.current = ac;
+
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (!place.address_components) return;
+
+        let streetNumber = '';
+        let route = '';
+        let city = '';
+        let county = '';
+        let postcode = '';
+        let subpremise = '';
+
+        for (const component of place.address_components) {
+          const types = component.types;
+          if (types.includes('subpremise')) subpremise = component.long_name;
+          if (types.includes('street_number')) streetNumber = component.long_name;
+          if (types.includes('route')) route = component.long_name;
+          if (types.includes('postal_town') || types.includes('locality')) city = component.long_name;
+          if (types.includes('administrative_area_level_2')) county = component.long_name;
+          if (types.includes('postal_code')) postcode = component.long_name;
+        }
+
+        const line1Parts = [subpremise, streetNumber, route].filter(Boolean);
+        const line1 = line1Parts.join(' ');
+
+        if (line1) setValue('addressLine1', line1, { shouldDirty: true });
+        if (city) setValue('city', city, { shouldDirty: true });
+        if (county) setValue('county', county, { shouldDirty: true });
+        if (postcode) setValue('postcode', postcode, { shouldDirty: true });
+        setHasUnsavedChanges(true);
+      });
+    };
+
+    if (window.google?.maps?.places) {
+      attachAutocomplete();
+      return;
+    }
+
+    if (document.getElementById(scriptId)) {
+      // Script already loading — wait for it
+      const interval = setInterval(() => {
+        if (window.google?.maps?.places) {
+          clearInterval(interval);
+          attachAutocomplete();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${mapsConfig.apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = attachAutocomplete;
+    document.head.appendChild(script);
+    googleMapsScriptRef.current = script;
+
+    return () => {
+      if (autocompleteRef.current) {
+        window.google?.maps?.event?.clearInstanceListeners(autocompleteRef.current);
+        autocompleteRef.current = null;
+      }
+    };
+  }, [mapsConfig.useGoogleMaps, mapsConfig.apiKey, mapsConfig.loading, bookingType, setValue]);
 
   const { fields: productFields, append: appendProduct, remove: removeProduct } = useFieldArray({
     control,
@@ -256,62 +322,6 @@ export default function CreateOrderForm() {
     }, 600);
     return () => clearTimeout(timer);
   }, [watchedPostcode, bookingType, checkZoneForPostcode]);
-
-  const handleWooImport = async () => {
-    if (!wooImportId.trim()) {
-      setImportError('Please enter a WooCommerce Order ID');
-      return;
-    }
-    setImportError('');
-    setImportSuccess('');
-    setIsImporting(true);
-
-    try {
-      const res = await fetch(`/api/woocommerce/order/${encodeURIComponent(wooImportId.trim())}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        setImportError(data.error ?? `Failed to fetch order #${wooImportId} (status ${res.status})`);
-        setIsImporting(false);
-        return;
-      }
-
-      setValue('wooOrderId', data.wooOrderId ?? wooImportId);
-      if (data.customerName) setValue('customerName', data.customerName);
-      if (data.customerEmail) setValue('customerEmail', data.customerEmail);
-      if (data.customerPhone) setValue('customerPhone', data.customerPhone);
-      if (data.addressLine1) setValue('addressLine1', data.addressLine1);
-      if (data.addressLine2) setValue('addressLine2', data.addressLine2);
-      if (data.city) setValue('city', data.city);
-      if (data.county) setValue('county', data.county);
-      if (data.postcode) setValue('postcode', data.postcode);
-      if (data.paymentMethod) setValue('paymentMethod', data.paymentMethod as PaymentMethod);
-      if (data.paymentAmount) setValue('paymentAmount', data.paymentAmount);
-
-      if (Array.isArray(data.products) && data.products.length > 0) {
-        const currentLength = productFields.length;
-        for (let i = currentLength - 1; i >= 0; i--) {
-          removeProduct(i);
-        }
-        data.products.forEach((p: ProductLineItem, i: number) => {
-          if (i === 0) {
-            setValue('products.0', p);
-          } else {
-            appendProduct(p);
-          }
-        });
-      }
-
-      setHasUnsavedChanges(true);
-      setImportSuccess(`WooCommerce order #${data.wooOrderId ?? wooImportId} imported — ${data.products?.length ?? 0} line item(s) loaded`);
-      toast.success(`Order #${data.wooOrderId ?? wooImportId} imported successfully`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unexpected error';
-      setImportError(`Could not import order: ${message}`);
-    } finally {
-      setIsImporting(false);
-    }
-  };
 
   const onSubmit = async (data: CreateOrderFormData) => {
     setIsSubmitting(true);
@@ -340,7 +350,7 @@ export default function CreateOrderForm() {
 
       const result = await ordersService.createOrder({
         id: generateOrderId(),
-        wooOrderId: data.wooOrderId || '',
+        wooOrderId: '',
         customerName: data.customerName,
         customerEmail: data.customerEmail,
         customerPhone: data.customerPhone,
@@ -356,17 +366,14 @@ export default function CreateOrderForm() {
         deliveryWindow: deliveryWindow,
         collectionWindow: collectionWindow,
         paymentMethod: data.paymentMethod,
-        paymentAmount: data.paymentAmount ? parseFloat(data.paymentAmount) : totalValue,
+        paymentAmount: totalValue,
+        depositPaid: data.depositPaid ? parseFloat(data.depositPaid) : undefined,
+        totalDueOnDelivery: data.totalDueOnDelivery ? parseFloat(data.totalDueOnDelivery) : undefined,
+        deliveryFee: data.deliveryFee ? parseFloat(data.deliveryFee) : undefined,
         products,
         notes: data.bookingNotes || undefined,
         customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
       });
-
-      if (!result) {
-        setSubmitError('Failed to create booking. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
 
       toast.success('Booking created successfully');
       router.push('/orders-dashboard');
@@ -461,118 +468,6 @@ export default function CreateOrderForm() {
           <input type="hidden" {...register('bookingType')} value={bookingType} />
         </div>
 
-        {/* ─── SECTION 2: WooCommerce Import ─── */}
-        <div className="card p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-              style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
-            >
-              <Download size={16} style={{ color: 'hsl(var(--primary))' }} />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                Import from WooCommerce
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                Enter a WooCommerce Order ID to automatically populate customer details, address, and products
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 max-w-md">
-            <div className="relative flex-1">
-              <Hash
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2"
-                style={{ color: 'hsl(var(--muted-foreground))' }}
-              />
-              <input
-                type="text"
-                placeholder="e.g. 8850"
-                value={wooImportId}
-                onChange={(e) => { setWooImportId(e.target.value); setImportError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleWooImport())}
-                className={`input-base pl-9 ${importError ? 'input-error' : ''}`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleWooImport}
-              disabled={isImporting}
-              className="btn-primary shrink-0"
-            >
-              {isImporting ? (
-                <>
-                  <RefreshCw size={14} className="animate-spin" />
-                  Importing…
-                </>
-              ) : (
-                <>
-                  <Search size={14} />
-                  Import Order
-                </>
-              )}
-            </button>
-          </div>
-
-          {importError && (
-            <div
-              className="flex items-start gap-2 mt-3 p-3 rounded-lg border text-xs"
-              style={{
-                borderColor: 'hsl(var(--destructive) / 0.25)',
-                backgroundColor: 'hsl(var(--destructive) / 0.05)',
-                color: 'hsl(var(--destructive))',
-              }}
-            >
-              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-              {importError}
-            </div>
-          )}
-
-          {importSuccess && (
-            <div
-              className="flex items-start gap-2 mt-3 p-3 rounded-lg border text-xs"
-              style={{
-                borderColor: 'hsl(var(--primary) / 0.25)',
-                backgroundColor: 'hsl(var(--primary) / 0.05)',
-                color: 'hsl(var(--primary))',
-              }}
-            >
-              <CheckCircle2 size={13} className="shrink-0 mt-0.5" />
-              {importSuccess}
-            </div>
-          )}
-
-          <div
-            className="flex items-center gap-2 mt-3 text-xs p-3 rounded-lg border"
-            style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--secondary) / 0.4)' }}
-          >
-            <Info size={12} style={{ color: 'hsl(var(--primary))' }} />
-            <span style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Enter any WooCommerce order ID to auto-populate customer, address, and product line items from your store
-            </span>
-          </div>
-
-          {/* WooCommerce Order ID field (manual) */}
-          <div className="mt-4 max-w-md">
-            <label htmlFor="wooOrderId" className="label">
-              WooCommerce Order ID <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
-            </label>
-            <p className="helper-text">Link this booking to a WooCommerce order for reference</p>
-            <div className="relative mt-1">
-              <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'hsl(var(--muted-foreground))' }} />
-              <input
-                id="wooOrderId"
-                type="text"
-                placeholder="e.g. 8850"
-                className="input-base pl-9"
-                {...register('wooOrderId')}
-              />
-            </div>
-          </div>
-        </div>
-
         {/* ─── SECTION 3: Customer Details ─── */}
         <div className="card p-6">
           <h2 className="text-base font-semibold mb-4 flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
@@ -654,6 +549,20 @@ export default function CreateOrderForm() {
               Delivery Address
             </h2>
 
+            {mapsConfig.useGoogleMaps && !mapsConfig.loading && (
+              <div
+                className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs"
+                style={{
+                  backgroundColor: 'hsl(var(--primary) / 0.07)',
+                  color: 'hsl(var(--primary))',
+                  border: '1px solid hsl(var(--primary) / 0.2)',
+                }}
+              >
+                <MapPin size={13} />
+                Start typing an address below — Google Maps will suggest matching addresses to auto-fill the fields.
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label htmlFor="addressLine1" className="label">
@@ -662,11 +571,20 @@ export default function CreateOrderForm() {
                 <input
                   id="addressLine1"
                   type="text"
-                  placeholder="House number and street name"
+                  placeholder={mapsConfig.useGoogleMaps && !mapsConfig.loading ? 'Start typing to search address…' : 'House number and street name'}
                   className={`input-base ${errors.addressLine1 ? 'input-error' : ''}`}
-                  {...register('addressLine1', {
-                    required: bookingType === 'Delivery' ? 'Address line 1 is required for delivery bookings' : false,
-                  })}
+                  {...(() => {
+                    const { ref: rhfRef, ...rest } = register('addressLine1', {
+                      required: bookingType === 'Delivery' ? 'Address line 1 is required for delivery bookings' : false,
+                    });
+                    return {
+                      ...rest,
+                      ref: (el: HTMLInputElement | null) => {
+                        rhfRef(el);
+                        addressLine1Ref.current = el;
+                      },
+                    };
+                  })()}
                 />
                 {errors.addressLine1 && <p className="error-text">{errors.addressLine1.message}</p>}
               </div>
@@ -1181,82 +1099,85 @@ export default function CreateOrderForm() {
             Payment
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            {(['Card', 'Cash', 'Unrecorded'] as const).map((method) => (
-              <label key={method} className="cursor-pointer">
-                <input
-                  type="radio"
-                  value={method}
-                  {...register('paymentMethod')}
-                  className="sr-only"
-                />
-                <div
-                  className="flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-150"
-                  style={{
-                    borderColor: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--border))',
-                    backgroundColor: watchedPaymentMethod === method ? 'hsl(var(--primary) / 0.05)' : 'hsl(var(--card))',
-                  }}
-                >
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{
-                      backgroundColor: watchedPaymentMethod === method ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--secondary))',
-                    }}
-                  >
-                    {method === 'Card' ? (
-                      <CreditCard size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    ) : method === 'Cash' ? (
-                      <Banknote size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    ) : (
-                      <Clock size={16} style={{ color: watchedPaymentMethod === method ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{method}</p>
-                    <p className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {method === 'Card' ? 'Card / online' : method === 'Cash' ? 'Cash on delivery' : 'Record later'}
-                    </p>
-                  </div>
-                  {watchedPaymentMethod === method && (
-                    <CheckCircle2 size={14} className="ml-auto shrink-0" style={{ color: 'hsl(var(--primary))' }} />
-                  )}
-                </div>
-              </label>
-            ))}
-          </div>
-
-          {watchedPaymentMethod !== 'Unrecorded' && (
-            <div className="max-w-xs">
-              <label htmlFor="paymentAmount" className="label">
-                Amount (£)
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="depositPaid" className="label">
+                Deposit Paid (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
                   £
                 </span>
                 <input
-                  id="paymentAmount"
+                  id="depositPaid"
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder={totalValue > 0 ? totalValue.toFixed(2) : '0.00'}
-                  className={`input-base pl-8 font-mono ${errors.paymentAmount ? 'input-error' : ''}`}
-                  {...register('paymentAmount', {
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.depositPaid ? 'input-error' : ''}`}
+                  {...register('depositPaid', {
                     validate: (v) => {
-                      if (watchedPaymentMethod !== 'Unrecorded' && v && isNaN(parseFloat(v))) {
-                        return 'Enter a valid amount';
-                      }
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
                       return true;
                     },
                   })}
                 />
               </div>
-              {errors.paymentAmount && <p className="error-text">{errors.paymentAmount.message}</p>}
-              {totalValue > 0 && (
-                <p className="helper-text">Order total: £{totalValue.toFixed(2)}</p>
-              )}
+              {errors.depositPaid && <p className="error-text">{errors.depositPaid.message}</p>}
             </div>
-          )}
+
+            <div>
+              <label htmlFor="totalDueOnDelivery" className="label">
+                Total Due on Delivery (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="totalDueOnDelivery"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.totalDueOnDelivery ? 'input-error' : ''}`}
+                  {...register('totalDueOnDelivery', {
+                    validate: (v) => {
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
+                      return true;
+                    },
+                  })}
+                />
+              </div>
+              {errors.totalDueOnDelivery && <p className="error-text">{errors.totalDueOnDelivery.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="deliveryFee" className="label">
+                Delivery Fee (£) <span className="font-normal" style={{ color: 'hsl(var(--muted-foreground))' }}>(optional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  £
+                </span>
+                <input
+                  id="deliveryFee"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input-base pl-8 font-mono ${errors.deliveryFee ? 'input-error' : ''}`}
+                  {...register('deliveryFee', {
+                    validate: (v) => {
+                      if (v && isNaN(parseFloat(v))) return 'Enter a valid amount';
+                      return true;
+                    },
+                  })}
+                />
+              </div>
+              {errors.deliveryFee && <p className="error-text">{errors.deliveryFee.message}</p>}
+            </div>
+          </div>
         </div>
 
         {/* ─── SECTION 9: Custom Fields ─── */}
@@ -1265,7 +1186,7 @@ export default function CreateOrderForm() {
             Custom Fields
           </h2>
           <p className="text-xs mb-4" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            Additional information imported from WooCommerce or entered manually
+            Additional information entered manually
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

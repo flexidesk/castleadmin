@@ -3,10 +3,13 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet } from 'lucide-react';
+import { LayoutDashboard, PackageSearch, Plus, Truck, Users, MapPin, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, LogOut, Smartphone, TrendingUp, ClipboardList, Search, ShieldCheck, FileText, PoundSterling, Mail, History, CalendarClock, Radio, Layers, Wallet, Webhook, BookOpen, FlaskConical, ScrollText, LayoutGrid, Download, ShieldAlert, Terminal } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
+import { useEffect, useState } from 'react';
 
 interface NavItem {
   label: string;
@@ -18,9 +21,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Bookings Dashboard', href: '/orders-dashboard', icon: LayoutDashboard, group: 'Operations' },
+  { label: 'Driver Dashboard', href: '/driver-dashboard', icon: LayoutGrid, group: 'Operations' },
   { label: 'Create Booking', href: '/create-order', icon: Plus, group: 'Operations' },
   { label: 'Booking Detail', href: '/order-detail', icon: PackageSearch, group: 'Operations' },
-  { label: 'Live Tracking', href: '/admin-live-tracking', icon: MapPin, badge: 3, group: 'Operations' },
+  { label: 'Live Tracking', href: '/admin-live-tracking', icon: MapPin, group: 'Operations' },
   { label: 'Driver Tracking', href: '/driver-tracking', icon: Radio, group: 'Operations' },
   { label: 'Customer Tracking', href: '/track', icon: Search, group: 'Operations' },
   { label: 'Driver Portal', href: '/driver-portal', icon: Smartphone, group: 'Fleet' },
@@ -31,7 +35,6 @@ const navItems: NavItem[] = [
   { label: 'Drivers', href: '/drivers', icon: Truck, group: 'Fleet' },
   { label: 'Delivery Zones', href: '/delivery-zones', icon: Layers, group: 'Fleet' },
   { label: 'Staff', href: '/staff', icon: Users, group: 'Fleet' },
-  { label: 'Driver Management', href: '/driver-management', icon: Truck, group: 'Fleet' },
   { label: 'Customers', href: '/customer-management', icon: Users, group: 'Fleet' },
   { label: 'Activity Log', href: '/activity-log', icon: ClipboardList, group: 'Reports' },
   { label: 'Analytics', href: '/analytics', icon: BarChart3, group: 'Reports' },
@@ -39,7 +42,14 @@ const navItems: NavItem[] = [
   { label: 'Notifications', href: '/notifications', icon: Bell, group: 'Reports' },
   { label: 'Message Templates', href: '/message-templates', icon: Mail, group: 'Reports' },
   { label: 'Alert History', href: '/alert-history', icon: History, group: 'Reports' },
+  { label: 'Webhook Event Logs', href: '/webhook-event-logs', icon: Webhook, group: 'Reports' },
+  { label: 'Webhook Logs', href: '/webhook-logs', icon: ScrollText, group: 'System' },
   { label: 'Admin Users', href: '/admin-users', icon: ShieldCheck, group: 'System' },
+  { label: 'Webhook Guide', href: '/webhook-guide', icon: BookOpen, group: 'System' },
+  { label: 'Webhook Tester', href: '/webhook-tester', icon: FlaskConical, group: 'System' },
+  { label: 'SQL Query', href: '/sql-query', icon: Terminal, group: 'System' },
+  { label: 'Installation', href: '/install', icon: Download, group: 'System' },
+  { label: 'Verify Install', href: '/verify-install', icon: ShieldAlert, group: 'System' },
   { label: 'Settings', href: '/settings', icon: Settings, group: 'System' },
 ];
 
@@ -54,6 +64,25 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { logoUrl, appName } = useBranding();
+  const [liveDriverCount, setLiveDriverCount] = useState(0);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    const fetchLiveDrivers = async () => {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from('driver_locations')
+        .select('*', { count: 'exact', head: true })
+        .gte('recorded_at', fiveMinutesAgo);
+      setLiveDriverCount(count ?? 0);
+    };
+
+    fetchLiveDrivers();
+    const interval = setInterval(fetchLiveDrivers, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -92,15 +121,27 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         className="flex items-center border-b px-3 py-4 overflow-hidden"
         style={{ borderColor: 'hsl(var(--border))', minHeight: '65px' }}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <AppLogo size={32} />
-          {!collapsed && (
-            <span
-              className="font-semibold text-base whitespace-nowrap overflow-hidden transition-all duration-300"
-              style={{ color: 'hsl(var(--primary))' }}
-            >
-              CastleAdmin
-            </span>
+        <div className="flex items-center gap-2.5 min-w-0 w-full">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt="Logo"
+              className="flex-shrink-0 rounded object-contain"
+              style={collapsed ? { width: 40, height: 40 } : { maxWidth: '100%', maxHeight: '48px', width: 'auto', height: 'auto' }}
+            />
+          ) : (
+            <>
+              <AppLogo size={32} />
+              {!collapsed && (
+                <span
+                  className="font-semibold text-base whitespace-nowrap overflow-hidden transition-all duration-300"
+                  style={{ color: 'hsl(var(--primary))' }}
+                >
+                  {appName || 'CastleAdmin'}
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -126,6 +167,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || (item.href !== '/orders-dashboard' && pathname.startsWith(item.href));
                 const isExactActive = pathname === item.href;
+                const badge = item.href === '/admin-live-tracking' ? liveDriverCount : (item.badge ?? 0);
 
                 return (
                   <Link
@@ -139,7 +181,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     {!collapsed && (
                       <span className="flex-1 truncate">{item.label}</span>
                     )}
-                    {!collapsed && item.badge && (
+                    {!collapsed && badge > 0 && (
                       <span
                         className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                         style={{
@@ -147,10 +189,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                           color: 'hsl(var(--destructive))',
                         }}
                       >
-                        {item.badge}
+                        {badge}
                       </span>
                     )}
-                    {collapsed && item.badge && (
+                    {collapsed && badge > 0 && (
                       <span
                         className="absolute top-1 right-1 w-2 h-2 rounded-full"
                         style={{ backgroundColor: 'hsl(var(--destructive))' }}
@@ -166,7 +208,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         }}
                       >
                         {item.label}
-                        {item.badge ? ` (${item.badge})` : ''}
+                        {badge > 0 ? ` (${badge})` : ''}
                       </div>
                     )}
                   </Link>

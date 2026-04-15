@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   Clock, CreditCard, UserX, Bell, CheckCheck, X, Filter, RefreshCw,
   ChevronDown, PackageSearch, ShoppingCart, TruckIcon, BadgeCheck, Archive,
-  AlarmClock, Banknote, ShieldAlert,
+  AlarmClock, Banknote, ShieldAlert, Send, Users,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -183,6 +183,12 @@ export default function NotificationCenterContent() {
   const [loading, setLoading] = useState(true);
   const [actioningId, setActioningId] = useState<string | null>(null);
 
+  // Test broadcast state
+  const [broadcastTitle, setBroadcastTitle] = useState('Test Notification');
+  const [broadcastMessage, setBroadcastMessage] = useState('This is a test notification from the admin panel.');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // Filters
   const [alertTypeFilter, setAlertTypeFilter] = useState<AlertType | 'all'>('all');
   const [dismissalFilter, setDismissalFilter] = useState<DismissalFilter>('all');
@@ -346,8 +352,132 @@ export default function NotificationCenterContent() {
     'unassigned',
   ];
 
+  const handleSendBroadcast = async () => {
+    if (!broadcastTitle.trim() || !broadcastMessage.trim()) return;
+    setBroadcastSending(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch('/api/notifications/test-broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: broadcastTitle.trim(), message: broadcastMessage.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const { drivers, staff, total } = data.recipients;
+        const pushInfo = data.push?.total > 0 ? ` · ${data.push.sent}/${data.push.total} push sent` : '';
+        setBroadcastResult({
+          success: true,
+          message: `Sent to ${total} recipient${total !== 1 ? 's' : ''} (${drivers} driver${drivers !== 1 ? 's' : ''}, ${staff} staff)${pushInfo}`,
+        });
+        fetchNotifications();
+      } else {
+        setBroadcastResult({ success: false, message: data.error || 'Failed to send notification' });
+      }
+    } catch {
+      setBroadcastResult({ success: false, message: 'Network error — please try again' });
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+
+      {/* ── Test Broadcast Panel ───────────────────────────────────────────── */}
+      <div
+        className="rounded-xl border p-5"
+        style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+      >
+        <div className="flex items-center gap-2 mb-4">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: 'hsl(217 91% 60% / 0.1)' }}
+          >
+            <Send size={15} style={{ color: 'hsl(217 91% 40%)' }} />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+              Send Test Notification
+            </h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Broadcast a notification to all active drivers and staff
+            </p>
+          </div>
+          <div
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{ backgroundColor: 'hsl(142 71% 45% / 0.1)', color: 'hsl(142 71% 30%)' }}
+          >
+            <Users size={11} />
+            All Drivers &amp; Staff
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Title
+            </label>
+            <input
+              type="text"
+              value={broadcastTitle}
+              onChange={(e) => setBroadcastTitle(e.target.value)}
+              placeholder="Notification title..."
+              className="px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Message
+            </label>
+            <input
+              type="text"
+              value={broadcastMessage}
+              onChange={(e) => setBroadcastMessage(e.target.value)}
+              placeholder="Notification message..."
+              className="px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSendBroadcast}
+            disabled={broadcastSending || !broadcastTitle.trim() || !broadcastMessage.trim()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'hsl(217 91% 40%)',
+              color: '#fff',
+            }}
+          >
+            <Send size={13} />
+            {broadcastSending ? 'Sending…' : 'Send to All Drivers & Staff'}
+          </button>
+
+          {broadcastResult && (
+            <div
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg"
+              style={{
+                backgroundColor: broadcastResult.success ? 'hsl(142 71% 45% / 0.1)' : 'hsl(0 84% 55% / 0.1)',
+                color: broadcastResult.success ? 'hsl(142 71% 30%)' : 'hsl(0 84% 45%)',
+              }}
+            >
+              {broadcastResult.success ? <CheckCheck size={12} /> : <X size={12} />}
+              {broadcastResult.message}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Summary Cards ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3">

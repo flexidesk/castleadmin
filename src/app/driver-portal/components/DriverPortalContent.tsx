@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { ordersService, AppOrder, AppDriver, mapDbOrderToApp } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { Truck, Package, MapPin, Clock, CheckCircle2, RefreshCw, ChevronRight, Phone, ChevronDown, Loader2 } from 'lucide-react';
+import { Truck, Package, MapPin, Clock, CheckCircle2, RefreshCw, ChevronRight, Phone, ChevronDown, Loader2, Bell } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import DriverOrderDetail from './DriverOrderDetail';
 import dynamic from 'next/dynamic';
+import { useDriverPushNotifications } from '@/hooks/useDriverPushNotifications';
 
 const DriverRouteMap = dynamic(() => import('./DriverRouteMap'), { ssr: false });
 
@@ -41,11 +42,18 @@ export default function DriverPortalContent() {
   const [driver, setDriver] = useState<AppDriver | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'completed'>('active');
+  const [activeFilter, setActiveFilter] = useState<'orders' | 'history'>('orders');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  // Track which order IDs are "new" (just assigned) for badge display
+  const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
 
   const supabase = createClient();
+
+  const { newAssignmentCount, clearNewAssignments } = useDriverPushNotifications({
+    driverId: driver?.id ?? null,
+    driverName: driver?.name,
+  });
 
   const loadDriverAndOrders = useCallback(async () => {
     setLoading(true);
@@ -135,6 +143,28 @@ export default function DriverPortalContent() {
     return () => { supabase.removeChannel(channel); };
   }, [driver?.id]);
 
+  // When new assignments arrive, mark the most recently updated orders as "new"
+  useEffect(() => {
+    if (newAssignmentCount > 0) {
+      // Mark active orders that are in "Booking Assigned" state as new
+      const assignedIds = orders
+        .filter((o) => o.status === 'Booking Assigned')
+        .map((o) => o.id);
+      if (assignedIds.length > 0) {
+        setNewOrderIds(new Set(assignedIds));
+      }
+    }
+  }, [newAssignmentCount, orders]);
+
+  // Clear new badges when user switches to orders tab
+  const handleFilterChange = useCallback((filter: 'orders' | 'history') => {
+    setActiveFilter(filter);
+    if (filter === 'orders') {
+      setNewOrderIds(new Set());
+      clearNewAssignments();
+    }
+  }, [clearNewAssignments]);
+
   // ─── Availability validation & update ────────────────────────────────────────
 
   const validateStatusChange = (newStatus: AvailabilityStatus): string | null => {
@@ -192,9 +222,15 @@ export default function DriverPortalContent() {
 
   // ─── Derived state ────────────────────────────────────────────────────────────
 
-  const filteredOrders = orders.filter((o) => {
-    if (activeFilter === 'active') return o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled';
-    if (activeFilter === 'completed') return o.status === 'Booking Complete';
+  const sortedOrders = [...orders].sort((a, b) => {
+    const dateA = new Date(`${a.bookingDate}T${a.deliveryWindow?.split(' - ')[0] || '00:00'}`).getTime();
+    const dateB = new Date(`${b.bookingDate}T${b.deliveryWindow?.split(' - ')[0] || '00:00'}`).getTime();
+    return dateA - dateB;
+  });
+
+  const filteredOrders = sortedOrders.filter((o) => {
+    if (activeFilter === 'orders') return o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled';
+    if (activeFilter === 'history') return o.status === 'Booking Complete' || o.status === 'Booking Cancelled';
     return true;
   });
 
@@ -287,6 +323,19 @@ export default function DriverPortalContent() {
               )}
             </div>
 
+            {/* Notification badge */}
+            {newAssignmentCount > 0 && (
+              <div className="relative">
+                <Bell size={16} style={{ color: 'hsl(var(--primary))' }} className="animate-bounce" />
+                <span
+                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none px-0.5"
+                  style={{ backgroundColor: 'hsl(0 84% 45%)', color: '#fff' }}
+                >
+                  {newAssignmentCount > 9 ? '9+' : newAssignmentCount}
+                </span>
+              </div>
+            )}
+
             <a
               href={`tel:${driver.phone}`}
               className="p-2 rounded-lg transition-colors hover:bg-secondary"
@@ -323,18 +372,29 @@ export default function DriverPortalContent() {
       {/* Filter Tabs + Refresh */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-          {(['active', 'completed', 'all'] as const).map((f) => (
+          {([
+            { key: 'orders', label: 'Orders' },
+            { key: 'history', label: 'History' },
+          ] as const).map(({ key, label }) => (
             <button
-              key={f}
-              onClick={() => setActiveFilter(f)}
-              className="px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize"
+              key={key}
+              onClick={() => handleFilterChange(key)}
+              className="relative px-3 py-1.5 rounded-md text-xs font-medium transition-all"
               style={{
-                backgroundColor: activeFilter === f ? 'hsl(var(--card))' : 'transparent',
-                color: activeFilter === f ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
-                boxShadow: activeFilter === f ? '0 1px 3px hsl(var(--border))' : 'none',
+                backgroundColor: activeFilter === key ? 'hsl(var(--card))' : 'transparent',
+                color: activeFilter === key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
+                boxShadow: activeFilter === key ? '0 1px 3px hsl(var(--border))' : 'none',
               }}
             >
-              {f}
+              {label}
+              {key === 'orders' && newAssignmentCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none px-0.5"
+                  style={{ backgroundColor: 'hsl(0 84% 45%)', color: '#fff' }}
+                >
+                  {newAssignmentCount > 9 ? '9+' : newAssignmentCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -370,76 +430,99 @@ export default function DriverPortalContent() {
           <Package size={40} className="mx-auto mb-3" style={{ color: 'hsl(var(--muted-foreground))' }} />
           <p className="font-medium text-sm" style={{ color: 'hsl(var(--foreground))' }}>No orders found</p>
           <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            {activeFilter === 'active' ? 'No active deliveries assigned to you.' : 'No orders in this category.'}
+            {activeFilter === 'orders' ? 'No active deliveries assigned to you.' : 'No completed orders yet.'}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredOrders.map((order) => (
-            <button
-              key={order.id}
-              onClick={() => setSelectedOrderId(order.id)}
-              className="w-full text-left rounded-xl border p-4 transition-all hover:shadow-md group"
-              style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
-                      {order.id}
-                    </span>
-                    <StatusBadge status={order.status} />
-                  </div>
-                  <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
-                    {order.customer.name}
-                  </p>
-                  {order.deliveryAddress && (
-                    <div className="flex items-start gap-1 mt-1">
-                      <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                      <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {order.deliveryAddress.line1}, {order.deliveryAddress.city}, {order.deliveryAddress.postcode}
-                      </p>
+          {filteredOrders.map((order) => {
+            const isNew = newOrderIds.has(order.id);
+            return (
+              <button
+                key={order.id}
+                onClick={() => {
+                  setSelectedOrderId(order.id);
+                  // Clear new badge for this specific order when opened
+                  setNewOrderIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(order.id);
+                    return next;
+                  });
+                }}
+                className="w-full text-left rounded-xl border p-4 transition-all hover:shadow-md group"
+                style={{
+                  backgroundColor: 'hsl(var(--card))',
+                  borderColor: isNew ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                  boxShadow: isNew ? '0 0 0 2px hsl(var(--primary) / 0.2)' : undefined,
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>
+                        {order.id}
+                      </span>
+                      <StatusBadge status={order.status} />
+                      {isNew && (
+                        <span
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse"
+                          style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+                        >
+                          NEW
+                        </span>
+                      )}
                     </div>
-                  )}
-                  <div className="flex items-center gap-3 mt-2">
-                    <div className="flex items-center gap-1">
-                      <Clock size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                    <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                      {order.customer.name}
+                    </p>
+                    {order.deliveryAddress && (
+                      <div className="flex items-start gap-1 mt-1">
+                        <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                        <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {order.deliveryAddress.line1}, {order.deliveryAddress.city}, {order.deliveryAddress.postcode}
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 mt-2">
+                      <div className="flex items-center gap-1">
+                        <Clock size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {order.deliveryWindow}
+                        </span>
+                      </div>
                       <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {order.deliveryWindow}
+                        {new Date(order.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                       </span>
                     </div>
-                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {new Date(order.bookingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                    </span>
+                  </div>
+                  <ChevronRight
+                    size={18}
+                    className="shrink-0 mt-1 transition-transform group-hover:translate-x-0.5"
+                    style={{ color: 'hsl(var(--muted-foreground))' }}
+                  />
+                </div>
+
+                {/* Progress bar */}
+                <div className="mt-3">
+                  <div className="flex gap-1">
+                    {STATUS_FLOW.map((s, idx) => {
+                      const currentIdx = STATUS_FLOW.indexOf(order.status);
+                      const filled = idx <= currentIdx;
+                      return (
+                        <div
+                          key={s}
+                          className="flex-1 h-1 rounded-full transition-all"
+                          style={{
+                            backgroundColor: filled ? STATUS_COLORS[order.status] || 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
-                <ChevronRight
-                  size={18}
-                  className="shrink-0 mt-1 transition-transform group-hover:translate-x-0.5"
-                  style={{ color: 'hsl(var(--muted-foreground))' }}
-                />
-              </div>
-
-              {/* Progress bar */}
-              <div className="mt-3">
-                <div className="flex gap-1">
-                  {STATUS_FLOW.map((s, idx) => {
-                    const currentIdx = STATUS_FLOW.indexOf(order.status);
-                    const filled = idx <= currentIdx;
-                    return (
-                      <div
-                        key={s}
-                        className="flex-1 h-1 rounded-full transition-all"
-                        style={{
-                          backgroundColor: filled ? STATUS_COLORS[order.status] || 'hsl(var(--primary))' : 'hsl(var(--secondary))',
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

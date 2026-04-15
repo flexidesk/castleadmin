@@ -1,59 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// ─── Shortcode Population ─────────────────────────────────────────────────────
+import { createClient } from '@/lib/db/server';
 
 function populateShortcodes(template: string, data: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? `{{${key}}}`);
 }
-
-// ─── Send via Twilio WhatsApp Edge Function ───────────────────────────────────
 
 async function sendViaWhatsApp(params: {
   to: string;
   message: string;
 }): Promise<{ success: boolean; messageSid?: string; error?: string }> {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const edgeFnUrl = `${supabaseUrl}/functions/v1/send-whatsapp`;
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
 
-    const res = await fetch(edgeFnUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        to: params.to,
-        message: params.message,
-      }),
-    });
+    if (!accountSid || !authToken || !fromNumber ||
+        accountSid.startsWith('your-') || authToken.startsWith('your-')) {
+      return { success: false, error: 'Twilio WhatsApp not configured' };
+    }
+
+    const to = params.to.startsWith('whatsapp:') ? params.to : `whatsapp:${params.to}`;
+    const from = fromNumber.startsWith('whatsapp:') ? fromNumber : `whatsapp:${fromNumber}`;
+
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        },
+        body: new URLSearchParams({ To: to, From: from, Body: params.message }),
+      }
+    );
 
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: data?.error || 'Failed to send via Twilio WhatsApp' };
+      return { success: false, error: data?.message || 'Failed to send WhatsApp message' };
     }
-    return { success: true, messageSid: data?.messageSid };
+    return { success: true, messageSid: data?.sid };
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Unknown error' };
   }
 }
 
-// ─── POST Handler ─────────────────────────────────────────────────────────────
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {
-      trigger_type,
-      recipient_phone,
-      shortcodes = {},
-    } = body;
+    const { trigger_type, recipient_phone, shortcodes = {} } = body;
 
     if (!trigger_type || !recipient_phone) {
       return NextResponse.json(
@@ -62,8 +56,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch active WhatsApp template for this trigger
-    const { data: templates, error: fetchErr } = await supabaseAdmin
+    const db = await createClient();
+
+    const { data: templates, error: fetchErr } = await db
       .from('message_templates')
       .select('*')
       .eq('trigger_type', trigger_type)
@@ -82,13 +77,9 @@ export async function POST(req: NextRequest) {
     const template = templates[0];
     const populatedMessage = populateShortcodes(template.body || '', shortcodes);
 
-    const result = await sendViaWhatsApp({
-      to: recipient_phone,
-      message: populatedMessage,
-    });
+    const result = await sendViaWhatsApp({ to: recipient_phone, message: populatedMessage });
 
-    // Log the WhatsApp alert in sms_alert_logs (same table, channel = 'whatsapp')
-    await supabaseAdmin.from('sms_alert_logs').insert({
+    await db.from('sms_alert_logs').insert({
       template_id: template.id,
       trigger_type,
       channel: 'whatsapp',
@@ -98,7 +89,7 @@ export async function POST(req: NextRequest) {
       error_message: result.error ?? null,
       message_sid: result.messageSid ?? null,
       order_id: shortcodes.order_id ?? null,
-      metadata: shortcodes,
+      metadata: JSON.stringify(shortcodes),
     });
 
     if (!result.success) {

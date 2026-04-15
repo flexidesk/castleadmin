@@ -8,9 +8,10 @@ import Icon from '@/components/ui/AppIcon';
 
 interface Props {
   order: AppOrder;
+  wcActive?: boolean;
 }
 
-export default function OrderDetailsTab({ order }: Props) {
+export default function OrderDetailsTab({ order, wcActive = false }: Props) {
   const [assignedDriver, setAssignedDriver] = useState<AppDriver | undefined>(order.driver);
   const [drivers, setDrivers] = useState<AppDriver[]>([]);
   const [driverDropdownOpen, setDriverDropdownOpen] = useState(false);
@@ -32,6 +33,60 @@ export default function OrderDetailsTab({ order }: Props) {
     if (ok) {
       setAssignedDriver(driver);
       toast.success(`Driver assigned: ${driver.name}`);
+
+      // Build notification payload
+      const addressParts = order.deliveryAddress
+        ? [
+            order.deliveryAddress.line1,
+            order.deliveryAddress.line2,
+            order.deliveryAddress.city,
+            order.deliveryAddress.postcode,
+          ].filter(Boolean)
+        : [];
+      const addressStr = addressParts.length > 0 ? addressParts.join(', ') : 'No address provided';
+
+      const productSummary = order.products
+        .slice(0, 3)
+        .map((p: any) => `${p.name ?? p.title ?? 'Item'}${p.quantity ? ` ×${p.quantity}` : ''}`)
+        .join(', ');
+      const moreProducts = order.products.length > 3 ? ` +${order.products.length - 3} more` : '';
+
+      const notificationBody = [
+        `📦 Order #${order.wooOrderId}`,
+        `📍 ${addressStr}`,
+        `👤 ${order.customer.name} | ${order.customer.phone}`,
+        productSummary ? `🛒 ${productSummary}${moreProducts}` : null,
+        order.deliveryWindow ? `🕐 ${order.deliveryWindow}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      fetch('/api/push/send-driver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: driver.id,
+          title: `New Order Assigned — #${order.wooOrderId}`,
+          body: notificationBody,
+          tag: `order-assigned-${order.id}`,
+          icon: '/icons/icon-192x192.png',
+          data: {
+            orderId: order.id,
+            wooOrderId: order.wooOrderId,
+            url: '/driver-portal',
+            deliveryAddress: order.deliveryAddress ?? null,
+            customer: {
+              name: order.customer.name,
+              phone: order.customer.phone,
+              email: order.customer.email,
+            },
+            deliveryWindow: order.deliveryWindow,
+            products: order.products,
+          },
+        }),
+      }).catch(() => {
+        // Non-blocking — push failure should not affect assignment
+      });
     } else {
       toast.error('Failed to assign driver. Please try again.');
     }
@@ -79,7 +134,7 @@ export default function OrderDetailsTab({ order }: Props) {
         </div>
 
         {/* Custom WooCommerce Fields */}
-        {order.customFields && (
+        {wcActive && order.customFields && (
           <div className="pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
             <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5"
               style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -163,10 +218,10 @@ export default function OrderDetailsTab({ order }: Props) {
 
       {/* Products + Driver */}
       <div className="space-y-4 lg:col-span-2 2xl:col-span-1">
-        {/* WooCommerce Products */}
+        {/* Items */}
         <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
           <Package size={15} style={{ color: 'hsl(var(--primary))' }} />
-          WooCommerce Items
+          {wcActive ? 'WooCommerce Items' : 'Order Items'}
         </h3>
         <div className="border rounded-xl overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
           <table className="w-full text-sm">

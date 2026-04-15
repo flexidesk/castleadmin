@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Eye, Edit3, Trash2, Plus, Download, ChevronLeft, ChevronRight, Truck, X, CheckSquare, Square, FileText, FileSpreadsheet, Calendar, User, RefreshCw } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Eye, Edit3, Trash2, Plus, Download, ChevronLeft, ChevronRight, Truck, X, CheckSquare, Square, FileText, FileSpreadsheet, Calendar, User, RefreshCw, MapPin, Signal } from 'lucide-react';
 import { ordersService, AppOrder } from '@/lib/services/ordersService';
 import { createClient } from '@/lib/supabase/client';
 import { StatusBadge, TypeBadge, PaymentBadge } from '@/components/ui/StatusBadge';
@@ -12,13 +12,26 @@ import type { BookingStatus } from '@/components/ui/StatusBadge';
 type SortKey = 'wooOrderId' | 'customer' | 'bookingDate' | 'status' | 'payment';
 type SortDir = 'asc' | 'desc';
 
+type DateFilterTab = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'delayed' | 'pending-payment';
+
 const STATUS_TABS: Array<{ label: string; value: BookingStatus | 'All' }> = [
   { label: 'All Bookings', value: 'All' },
   { label: 'Accepted', value: 'Booking Accepted' },
   { label: 'Assigned', value: 'Booking Assigned' },
-  { label: 'Out For Delivery', value: 'Booking Out For Delivery' },
+  { label: 'In Transit', value: 'Booking Out For Delivery' },
   { label: 'Complete', value: 'Booking Complete' },
+  { label: 'Failed', value: 'Booking Failed' },
 ];
+
+// Driver location record from Supabase
+interface DriverLocation {
+  driver_id: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  speed?: number;
+  recorded_at: string;
+}
 
 export default function OrdersTable() {
   const router = useRouter();
@@ -26,6 +39,7 @@ export default function OrdersTable() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeStatus, setActiveStatus] = useState<BookingStatus | 'All'>('All');
+  const [activeDateTab, setActiveDateTab] = useState<DateFilterTab>('all');
   const [sortKey, setSortKey] = useState<SortKey>('bookingDate');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
@@ -36,6 +50,9 @@ export default function OrdersTable() {
   const [driverFilter, setDriverFilter] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // GPS: map of driver_id → latest location
+  const [driverLocations, setDriverLocations] = useState<Map<string, DriverLocation>>(new Map());
 
   // WooCommerce sync state
   const [syncing, setSyncing] = useState(false);
@@ -99,6 +116,62 @@ export default function OrdersTable() {
     fetchLastSyncStatus();
 
     const supabase = createClient();
+
+    // ── Real-time driver locations subscription ──────────────────────────────
+    const fetchLatestLocations = async () => {
+      const { data } = await supabase
+        .from('driver_locations')
+        .select('driver_id, latitude, longitude, heading, speed, recorded_at')
+        .order('recorded_at', { ascending: false });
+
+      if (data) {
+        const map = new Map<string, DriverLocation>();
+        // Keep only the most recent record per driver
+        for (const row of data) {
+          if (!map.has(row.driver_id)) {
+            map.set(row.driver_id, row as DriverLocation);
+          }
+        }
+        setDriverLocations(map);
+      }
+    };
+
+    fetchLatestLocations();
+
+    const locationChannel = supabase
+      .channel('orders_driver_locations_rt')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'driver_locations' },
+        (payload) => {
+          const row = payload.new as DriverLocation;
+          setDriverLocations((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(row.driver_id);
+            if (!existing || new Date(row.recorded_at) >= new Date(existing.recorded_at)) {
+              next.set(row.driver_id, row);
+            }
+            return next;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'driver_locations' },
+        (payload) => {
+          const row = payload.new as DriverLocation;
+          setDriverLocations((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(row.driver_id);
+            if (!existing || new Date(row.recorded_at) >= new Date(existing.recorded_at)) {
+              next.set(row.driver_id, row);
+            }
+            return next;
+          });
+        }
+      )
+      .subscribe();
+    // ────────────────────────────────────────────────────────────────────────
 
     const channel = supabase
       .channel('orders_dashboard_rt')
@@ -187,6 +260,7 @@ export default function OrdersTable() {
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(locationChannel);
     };
   }, [loadOrders, fetchLastSyncStatus, runSync]);
 
@@ -198,6 +272,27 @@ export default function OrdersTable() {
   const filtered = useMemo(() => {
     let result = [...orders];
     if (activeStatus !== 'All') result = result.filter((o) => o.status === activeStatus);
+
+    // Date-based tab filtering
+    if (activeDateTab !== 'all') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+      if (activeDateTab === 'today') {
+        result = result.filter((o) => o.bookingDate === todayStr);
+      } else if (activeDateTab === 'tomorrow') {
+        result = result.filter((o) => o.bookingDate === tomorrowStr);
+      } else if (activeDateTab === 'upcoming') {
+        result = result.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed');
+      } else if (activeDateTab === 'delayed') {
+        result = result.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed');
+      } else if (activeDateTab === 'pending-payment') {
+        result = result.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending');
+      }
+    }
+
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -230,7 +325,7 @@ export default function OrdersTable() {
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
     return result;
-  }, [orders, activeStatus, search, sortKey, sortDir, dateFrom, dateTo, driverFilter]);
+  }, [orders, activeStatus, search, sortKey, sortDir, dateFrom, dateTo, driverFilter, activeDateTab]);
 
   const totalPages = Math.ceil(filtered.length / perPage);
   const paged = filtered.slice((page - 1) * perPage, page * perPage);
@@ -290,7 +385,7 @@ export default function OrdersTable() {
         `"${o.status}"`,
         `"${o.payment.status}"`,
         `"${o.payment.method}"`,
-        o.payment.amount.toFixed(2),
+        (o.payment.orderTotal ?? o.payment.amount ?? 0).toFixed(2),
         `"${o.driver?.name ?? 'Unassigned'}"`,
         `"${o.deliveryAddress?.line1 ?? ''}"`,
         `"${o.deliveryAddress?.postcode ?? ''}"`,
@@ -328,7 +423,7 @@ export default function OrdersTable() {
         <td>${o.bookingDate}</td>
         <td>${o.status}</td>
         <td>${o.payment.status}</td>
-        <td>£${o.payment.amount.toFixed(2)}</td>
+        <td>£${(o.payment.orderTotal ?? o.payment.amount ?? 0).toFixed(2)}</td>
         <td>${o.driver?.name ?? 'Unassigned'}</td>
         <td>${o.deliveryAddress?.postcode ?? '—'}</td>
       </tr>`).join('');
@@ -384,6 +479,22 @@ export default function OrdersTable() {
       const d = new Date(iso);
       return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
     } catch { return iso; }
+  };
+
+  // Helper: format "last updated" timestamp relative to now
+  const formatGpsAge = (iso: string) => {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
+  };
+
+  // Helper: GPS signal colour based on age
+  const gpsSignalColor = (iso: string) => {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 120) return '#22c55e';   // green  — < 2 min
+    if (diff < 600) return '#f59e0b';   // amber  — < 10 min
+    return '#ef4444';                    // red    — stale
   };
 
   return (
@@ -580,6 +691,59 @@ export default function OrdersTable() {
         </div>
       )}
 
+      {/* Date filter tabs */}
+      {(() => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+        const dateTabs: Array<{ label: string; value: DateFilterTab; count: number; accent?: string }> = [
+          { label: 'All Orders', value: 'all', count: orders.length },
+          { label: 'Today', value: 'today', count: orders.filter((o) => o.bookingDate === todayStr).length, accent: 'hsl(217 91% 60%)' },
+          { label: 'Tomorrow', value: 'tomorrow', count: orders.filter((o) => o.bookingDate === tomorrowStr).length, accent: 'hsl(262 83% 58%)' },
+          { label: 'Upcoming', value: 'upcoming', count: orders.filter((o) => o.bookingDate > tomorrowStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed').length, accent: 'hsl(142 69% 35%)' },
+          { label: 'Delayed', value: 'delayed', count: orders.filter((o) => o.bookingDate < todayStr && o.status !== 'Booking Complete' && o.status !== 'Booking Cancelled' && o.status !== 'Booking Failed').length, accent: 'hsl(0 84% 60%)' },
+          { label: 'Pending Payment', value: 'pending-payment', count: orders.filter((o) => o.payment.status === 'Pending' || o.payment.status === 'pending').length, accent: 'hsl(38 92% 50%)' },
+        ];
+
+        return (
+          <div className="flex items-center gap-0 border-b overflow-x-auto scrollbar-thin px-4" style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--primary) / 0.01)' }}>
+            {dateTabs.map((tab) => {
+              const isActive = activeDateTab === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => { setActiveDateTab(tab.value); setPage(1); }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all"
+                  style={{
+                    borderBottomColor: isActive ? (tab.accent ?? 'hsl(var(--primary))') : 'transparent',
+                    color: isActive ? (tab.accent ?? 'hsl(var(--primary))') : 'hsl(var(--muted-foreground))',
+                  }}
+                >
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                      style={{
+                        backgroundColor: isActive
+                          ? `${tab.accent ?? 'hsl(var(--primary))'}1a`
+                          : 'hsl(var(--secondary))',
+                        color: isActive
+                          ? (tab.accent ?? 'hsl(var(--primary))')
+                          : 'hsl(var(--muted-foreground))',
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Status filter tabs */}
       <div className="flex items-center gap-0 border-b overflow-x-auto scrollbar-thin px-4" style={{ borderColor: 'hsl(var(--border))' }}>
         {STATUS_TABS.map((tab) => {
@@ -634,7 +798,7 @@ export default function OrdersTable() {
 
       {/* Table */}
       <div className="overflow-x-auto scrollbar-thin">
-        <table className="w-full min-w-[1100px]">
+        <table className="w-full min-w-[1200px]">
           <thead>
             <tr style={{ backgroundColor: 'hsl(var(--secondary) / 0.5)' }}>
               <th className="w-10 px-4 py-3 text-left">
@@ -651,6 +815,7 @@ export default function OrdersTable() {
                 { key: null, label: 'Products' },
                 { key: null, label: 'Address' },
                 { key: null, label: 'Driver' },
+                { key: null, label: 'GPS Status' },
                 { key: 'bookingDate', label: 'Date / Window' },
                 { key: 'status', label: 'Status' },
                 { key: 'payment', label: 'Payment' },
@@ -674,7 +839,7 @@ export default function OrdersTable() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-t" style={{ borderColor: 'hsl(var(--border))' }}>
-                  {Array.from({ length: 11 }).map((_, j) => (
+                  {Array.from({ length: 12 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className="h-4 rounded animate-pulse" style={{ backgroundColor: 'hsl(var(--secondary))', width: j === 0 ? '20px' : '80%' }} />
                     </td>
@@ -683,7 +848,7 @@ export default function OrdersTable() {
               ))
             ) : paged.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-16 text-center">
+                <td colSpan={12} className="px-4 py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Search size={32} style={{ color: 'hsl(var(--muted-foreground))' }} />
                     <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>No bookings match your filters</p>
@@ -695,7 +860,9 @@ export default function OrdersTable() {
                 </td>
               </tr>
             ) : (
-              paged.map((order, idx) => (
+              paged.map((order, idx) => {
+                const loc = order.driver?.id ? driverLocations.get(order.driver.id) : undefined;
+                return (
                 <tr
                   key={order.id}
                   className="group border-t hover:bg-secondary/40 transition-colors duration-100"
@@ -770,6 +937,48 @@ export default function OrdersTable() {
                     )}
                   </td>
 
+                  {/* GPS Status */}
+                  <td className="px-4 py-3 min-w-[140px]">
+                    {!order.driver ? (
+                      <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>—</span>
+                    ) : loc ? (
+                      <div className="flex flex-col gap-0.5">
+                        {/* Signal dot + age */}
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0 animate-pulse"
+                            style={{ backgroundColor: gpsSignalColor(loc.recorded_at) }}
+                            title={`GPS signal: ${gpsSignalColor(loc.recorded_at) === '#22c55e' ? 'Live' : gpsSignalColor(loc.recorded_at) === '#f59e0b' ? 'Recent' : 'Stale'}`}
+                          />
+                          <span className="text-[10px] font-medium" style={{ color: gpsSignalColor(loc.recorded_at) }}>
+                            {gpsSignalColor(loc.recorded_at) === '#22c55e' ? 'Live' : gpsSignalColor(loc.recorded_at) === '#f59e0b' ? 'Recent' : 'Stale'}
+                          </span>
+                          <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            · {formatGpsAge(loc.recorded_at)}
+                          </span>
+                        </div>
+                        {/* Coordinates */}
+                        <div className="flex items-center gap-1">
+                          <MapPin size={9} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                          <span className="font-mono text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                          </span>
+                        </div>
+                        {/* Speed if available */}
+                        {loc.speed != null && loc.speed > 0 && (
+                          <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {Math.round(loc.speed)} km/h
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <Signal size={11} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                        <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>No GPS data</span>
+                      </div>
+                    )}
+                  </td>
+
                   {/* Date / Window */}
                   <td className="px-4 py-3">
                     <p className="text-xs font-medium">
@@ -786,7 +995,21 @@ export default function OrdersTable() {
                   {/* Payment */}
                   <td className="px-4 py-3">
                     <PaymentBadge status={order.payment.status as any} method={order.payment.method as any} />
-                    <p className="text-xs font-mono mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>£{order.payment.amount.toFixed(2)}</p>
+                    <p className="text-xs font-mono mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>£{(order.payment.orderTotal ?? order.payment.amount ?? 0).toFixed(2)}</p>
+                    {((order.payment.depositPaid ?? 0) > 0 || (order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0) && (
+                      <div className="flex flex-col gap-0.5 mt-0.5">
+                        {(order.payment.depositPaid ?? 0) > 0 && (
+                          <p className="text-[10px] font-mono" style={{ color: 'hsl(142 69% 30%)' }}>
+                            Dep: £{(order.payment.depositPaid ?? 0).toFixed(2)}
+                          </p>
+                        )}
+                        {(order.payment.totalDue ?? order.payment.amountDue ?? 0) > 0 && (
+                          <p className="text-[10px] font-mono" style={{ color: 'hsl(var(--destructive))' }}>
+                            Due: £{(order.payment.totalDue ?? order.payment.amountDue ?? 0).toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   {/* Actions */}
@@ -807,7 +1030,8 @@ export default function OrdersTable() {
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

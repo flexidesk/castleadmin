@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Lock, Mail, User, AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -23,7 +22,6 @@ const passwordRequirements = [
 ];
 
 export default function RegisterPage() {
-  const router = useRouter();
   const { signUp } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -47,12 +45,10 @@ export default function RegisterPage() {
     try {
       await signUp(data.email, data.password, { fullName: data.fullName });
       toast.success('Account created! Welcome to CastleAdmin.');
-      router.push('/orders-dashboard');
-      router.refresh();
+      window.location.href = '/orders-dashboard';
     } catch (error: any) {
       const msg = error?.message || 'Failed to create account. Please try again.';
       setAuthError(msg);
-    } finally {
       setIsLoading(false);
     }
   };

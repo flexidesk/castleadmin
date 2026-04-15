@@ -82,11 +82,15 @@ export default function BookingVolumeChart() {
     return () => { supabase.removeChannel(channel); };
   }, [loadData]);
 
-  // Compute date range label
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - 6);
-  const rangeLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const [rangeLabel, setRangeLabel] = useState('');
+  useEffect(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    setRangeLabel(
+      `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    );
+  }, []);
 
   return (
     <div className="card p-5">
@@ -121,7 +125,7 @@ export default function BookingVolumeChart() {
             <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '12px', fontFamily: 'DM Sans' }} />
             <Bar dataKey="accepted" name="Accepted" fill="hsl(213 79% 65%)" radius={[3, 3, 0, 0]} />
             <Bar dataKey="assigned" name="Assigned" fill="hsl(38 92% 65%)" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="outForDelivery" name="Out For Delivery" fill="hsl(24 95% 60%)" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="outForDelivery" name="In Transit" fill="hsl(24 95% 60%)" radius={[3, 3, 0, 0]} />
             <Bar dataKey="complete" name="Complete" fill="hsl(142 69% 50%)" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>

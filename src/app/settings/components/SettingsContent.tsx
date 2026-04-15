@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, Sliders, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2 } from 'lucide-react';
+import { Settings, Building2, Bell, Users, Plug, Save, RefreshCw, Car, AlertTriangle, Key, Globe, MapPin, ShoppingCart, CheckCircle, XCircle, Loader, Webhook, Copy, Trash2, Upload, Image, X, Database, FileText, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-
+import { useBranding } from '@/contexts/BrandingContext';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,6 +24,10 @@ interface FleetConfig {
   company_email: string;
   auto_zone_allocation?: boolean;
   map_default_zone_id?: string | null;
+  map_default_postcode?: string;
+  app_logo_url?: string | null;
+  app_favicon_url?: string | null;
+  delivery_fee_enabled?: boolean;
 }
 
 interface NotificationPrefs {
@@ -140,17 +144,6 @@ interface ApiKey {
   created_at: string;
 }
 
-interface SystemConfig {
-  id: string;
-  config_key: string;
-  config_value: string;
-  config_type: string;
-  category: string;
-  label: string;
-  description: string;
-  is_sensitive: boolean;
-}
-
 interface DeliveryZone {
   id: string;
   name: string;
@@ -164,9 +157,24 @@ interface WooCommerceSettings {
   consumer_key: string;
   consumer_secret: string;
   is_connected: boolean;
+  is_enabled?: boolean;
   last_tested_at?: string | null;
   last_test_status?: string | null;
   last_test_message?: string | null;
+  field_mapping?: WooCommerceFieldMapping;
+}
+
+interface WooCommerceFieldMapping {
+  order_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  delivery_address: string;
+  delivery_city: string;
+  delivery_postcode: string;
+  order_notes: string;
+  order_total: string;
+  order_status: string;
 }
 
 interface WebhookConfig {
@@ -181,7 +189,7 @@ interface WebhookConfig {
   last_status?: string | null;
 }
 
-type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'system';
+type TabId = 'fleet' | 'notifications' | 'driver_rates' | 'alert_thresholds' | 'roles' | 'integrations' | 'company' | 'database' | 'smtp';
 
 const TIMEZONES = [
   'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
@@ -205,70 +213,185 @@ const INTEGRATION_ICONS: Record<string, string> = {
   slack: '💬',
 };
 
+const INTEGRATION_INSTRUCTIONS: Record<string, { overview: string; steps: { title: string; desc: string }[]; tip?: string }> = {
+  twilio: {
+    overview: 'Twilio powers SMS and WhatsApp alerts sent from CastleAdmin to drivers and customers.',
+    steps: [
+      { title: 'Create a Twilio account', desc: 'Sign up at https://www.twilio.com and verify your phone number.' },
+      { title: 'Get your Account SID and Auth Token', desc: 'From the Twilio Console dashboard, copy your Account SID and Auth Token.' },
+      { title: 'Buy a Twilio phone number', desc: 'Go to Phone Numbers → Manage → Buy a number. Choose a number with SMS capability.' },
+      { title: 'Enable WhatsApp (optional)', desc: 'Go to Messaging → Try it out → Send a WhatsApp message to activate the Twilio WhatsApp sandbox, or apply for a WhatsApp Business number.' },
+      { title: 'Add credentials to your environment', desc: 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, and TWILIO_WHATSAPP_NUMBER in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste your Auth Token as the API Key and your Account SID as the Webhook URL field, then click Save Config.' },
+    ],
+    tip: 'For production use, upgrade your Twilio account from trial mode to send messages to unverified numbers.',
+  },
+  stripe: {
+    overview: 'Stripe enables payment processing for orders and deposits within CastleAdmin.',
+    steps: [
+      { title: 'Create a Stripe account', desc: 'Sign up at https://dashboard.stripe.com/register.' },
+      { title: 'Get your API keys', desc: 'Go to Developers → API keys in the Stripe Dashboard. Copy your Publishable key and Secret key.' },
+      { title: 'Add keys to your environment', desc: 'Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY and STRIPE_SECRET_KEY in your .env file.' },
+      { title: 'Enter your Secret Key above', desc: 'Paste your Stripe Secret Key (sk_live_… or sk_test_…) as the API Key and click Save Config.' },
+      { title: 'Set up webhooks (optional)', desc: 'In Stripe Dashboard → Developers → Webhooks, add an endpoint pointing to your app\'s /api/stripe/webhook route to receive payment events.' },
+    ],
+    tip: 'Use test mode keys (sk_test_…) during development. Switch to live keys only when going to production.',
+  },
+  'google-maps': {
+    overview: 'Google Maps provides live driver tracking, route optimisation, and delivery zone mapping.',
+    steps: [
+      { title: 'Open Google Cloud Console', desc: 'Go to https://console.cloud.google.com and create or select a project.' },
+      { title: 'Enable required APIs', desc: 'Navigate to APIs & Services → Library and enable: Maps JavaScript API, Geocoding API, Directions API, and Distance Matrix API.' },
+      { title: 'Create an API key', desc: 'Go to APIs & Services → Credentials → Create Credentials → API key.' },
+      { title: 'Restrict the key (recommended)', desc: 'Under API restrictions, limit the key to the four APIs above. Under Application restrictions, add your domain.' },
+      { title: 'Add the key to your environment', desc: 'Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste the key into the API Key field and click Save Config.' },
+    ],
+    tip: 'Set up billing alerts in Google Cloud Console to avoid unexpected charges. New accounts receive $200 free credit per month.',
+  },
+  sendgrid: {
+    overview: 'SendGrid delivers transactional emails such as order confirmations and status updates.',
+    steps: [
+      { title: 'Create a SendGrid account', desc: 'Sign up at https://signup.sendgrid.com.' },
+      { title: 'Verify your sender identity', desc: 'Go to Settings → Sender Authentication and verify either a single sender email or your entire domain.' },
+      { title: 'Create an API key', desc: 'Go to Settings → API Keys → Create API Key. Choose "Restricted Access" and enable "Mail Send" permission.' },
+      { title: 'Add the key to your environment', desc: 'Set SENDGRID_API_KEY in your .env file.' },
+      { title: 'Enter your API key above', desc: 'Paste the SendGrid API key (SG.…) into the API Key field and click Save Config.' },
+    ],
+    tip: 'Domain authentication (DKIM/SPF) significantly improves email deliverability. Complete it in SendGrid → Settings → Sender Authentication.',
+  },
+  slack: {
+    overview: 'Slack integration sends real-time alerts and notifications to your team channels.',
+    steps: [
+      { title: 'Create a Slack app', desc: 'Go to https://api.slack.com/apps and click "Create New App" → "From scratch". Give it a name and select your workspace.' },
+      { title: 'Enable Incoming Webhooks', desc: 'In your app settings, go to Features → Incoming Webhooks and toggle it on.' },
+      { title: 'Add a webhook to your workspace', desc: 'Click "Add New Webhook to Workspace", select the channel to post to, and click Allow.' },
+      { title: 'Copy the Webhook URL', desc: 'Copy the generated webhook URL (https://hooks.slack.com/services/…).' },
+      { title: 'Enter the webhook URL above', desc: 'Paste the Slack webhook URL into the Webhook URL field and click Save Config.' },
+    ],
+    tip: 'You can create multiple Slack apps or webhooks to route different alert types (e.g. orders vs driver alerts) to separate channels.',
+  },
+};
+
 const API_SCOPES = ['read', 'write', 'orders:read', 'orders:write', 'drivers:read', 'drivers:write', 'analytics:read', 'settings:read', 'settings:write'];
 
-const SYSTEM_CONFIG_CATEGORIES = ['general', 'orders', 'security', 'display'];
+const DEFAULT_FLEET: FleetConfig = {
+  company_name: '', timezone: 'Europe/London', currency: 'GBP',
+  base_delivery_fee: 5, per_km_fee: 0.5, min_delivery_fee: 3,
+  max_delivery_fee: 50, fee_structure: 'flat',
+  company_address: '', company_phone: '', company_email: '',
+  auto_zone_allocation: false,
+  map_default_zone_id: null,
+  map_default_postcode: '',
+  delivery_fee_enabled: true,
+};
 
-// ─── Toggle ───────────────────────────────────────────────────────────────────
+const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
+  company_name: '', trading_name: '', registration_number: '', vat_number: '',
+  industry: 'Logistics & Delivery', company_size: '1-10', founded_year: '',
+  website_url: '', logo_url: '', primary_email: '', support_email: '',
+  billing_email: '', primary_phone: '', secondary_phone: '',
+  address_line1: '', address_line2: '', city: '', county: '', postcode: '',
+  country: 'United Kingdom', social_linkedin: '', social_twitter: '',
+  social_facebook: '', description: '',
+};
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-        checked ? 'bg-primary' : 'bg-gray-300'
-      }`}
-      style={checked ? { backgroundColor: 'hsl(var(--primary))' } : {}}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? 'translate-x-5' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
+const DEFAULT_NOTIF_PREFS: NotificationPrefs = {
+  notify_new_order: true, notify_order_status_change: true,
+  notify_driver_assigned: true, notify_delivery_complete: true,
+  notify_delivery_failed: true, notify_driver_offline: false,
+  notify_low_driver_availability: true, email_notifications: true,
+  sms_notifications: false, push_notifications: true, notification_email: '',
+};
+
+const DEFAULT_DRIVER_RATES: DriverRateSettings = {
+  base_rate_per_hour: 12, rate_per_km: 0.25, overtime_multiplier: 1.5,
+  weekend_multiplier: 1.25, night_shift_multiplier: 1.20, bonus_per_delivery: 0.50,
+  fuel_allowance_per_km: 0.15, min_guaranteed_hours: 4, max_hours_per_day: 10,
+  currency: 'GBP', pay_cycle: 'weekly',
+};
+
+const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
+  min_active_drivers: 2, low_driver_warning_pct: 30,
+  late_delivery_minutes: 15, critical_delay_minutes: 45, max_failed_deliveries_pct: 10,
+  high_order_volume_per_hour: 20, unassigned_order_warning_count: 5,
+  driver_offline_alert_minutes: 10, gps_stale_alert_minutes: 5,
+  daily_revenue_target: 1000, low_revenue_warning_pct: 70,
+};
+
+const DEFAULT_WC_FIELD_MAPPING: WooCommerceFieldMapping = {
+  order_id: 'id',
+  customer_name: 'billing.first_name + billing.last_name',
+  customer_email: 'billing.email',
+  customer_phone: 'billing.phone',
+  delivery_address: 'shipping.address_1',
+  delivery_city: 'shipping.city',
+  delivery_postcode: 'shipping.postcode',
+  order_notes: 'customer_note',
+  order_total: 'total',
+  order_status: 'status',
+};
+
+const DEFAULT_WC_SETTINGS: WooCommerceSettings = {
+  store_url: '', consumer_key: '', consumer_secret: '', is_connected: false, is_enabled: true,
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function sanitizeNulls<T extends object>(data: Partial<T>, defaults: T): T {
+  const result = { ...defaults } as T;
+  // First, copy all keys from defaults (replacing nulls with defaults)
+  for (const key in defaults) {
+    const k = key as keyof T;
+    const val = (data as T)[k];
+    if (val !== null && val !== undefined) {
+      (result as T)[k] = val;
+    }
+  }
+  // Also copy any extra keys from data that are NOT in defaults (e.g. `id`, timestamps)
+  for (const key in data) {
+    const k = key as keyof T;
+    if (!(k in defaults) && (data as T)[k] !== null && (data as T)[k] !== undefined) {
+      (result as T)[k] = (data as T)[k] as T[keyof T];
+    }
+  }
+  return result;
 }
 
-// ─── Number Input ─────────────────────────────────────────────────────────────
+function generateApiKey(): { full: string; prefix: string; preview: string; hash: string } {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const randomStr = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const prefix = 'ca_' + randomStr(8);
+  const secret = randomStr(32);
+  const full = prefix + secret;
+  const preview = prefix + '…' + secret.slice(-4);
+  // Simple hash for storage (not cryptographic)
+  let hash = 0;
+  for (let i = 0; i < full.length; i++) { hash = ((hash << 5) - hash) + full.charCodeAt(i); hash |= 0; }
+  return { full, prefix, preview, hash: hash.toString(16) };
+}
 
-function NumInput({
-  label, value, onChange, step = '1', min, suffix,
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function TextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
 }: {
-  label: string; value: number; onChange: (v: number) => void;
-  step?: string; min?: string; suffix?: string;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          step={step}
-          min={min}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-          style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-        />
-        {suffix && <span className="text-xs shrink-0" style={{ color: 'hsl(var(--muted-foreground))' }}>{suffix}</span>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Text Input ───────────────────────────────────────────────────────────────
-
-function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
 }) {
   return (
     <div>
       <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
       <input
         type={type}
-        value={value}
+        value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
@@ -278,47 +401,77 @@ function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
   );
 }
 
-// ─── Generate random API key ──────────────────────────────────────────────────
+function NumInput({
+  label,
+  value,
+  onChange,
+  step = '1',
+  min = '0',
+  suffix,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  step?: string;
+  min?: string;
+  suffix?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
+      <div className="flex items-center">
+        <input
+          type="number"
+          step={step}
+          min={min}
+          value={value ?? 0}
+          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+          style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+        />
+        {suffix && <span className="ml-1.5 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
 
-function generateApiKey(): { full: string; prefix: string; preview: string; hash: string } {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const prefix = 'ca_live_';
-  let key = '';
-  for (let i = 0; i < 40; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  const full = prefix + key;
-  const preview = prefix + key.slice(0, 6) + '...' + key.slice(-4);
-  const hash = btoa(full).slice(0, 32);
-  return { full, prefix, preview, hash };
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${checked ? '' : ''}`}
+      style={{ backgroundColor: checked ? 'hsl(var(--primary))' : 'hsl(var(--border))' }}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-1'}`}
+      />
+    </button>
+  );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SettingsContent() {
   const supabase = createClient();
+  const { refresh: refreshBranding } = useBranding();
   const [activeTab, setActiveTab] = useState<TabId>('fleet');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Reset App state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+
   // Fleet config
-  const [fleet, setFleet] = useState<FleetConfig>({
-    company_name: '', timezone: 'Europe/London', currency: 'GBP',
-    base_delivery_fee: 5, per_km_fee: 0.5, min_delivery_fee: 3,
-    max_delivery_fee: 50, fee_structure: 'flat',
-    company_address: '', company_phone: '', company_email: '',
-    auto_zone_allocation: false,
-    map_default_zone_id: null,
-  });
+  const [fleet, setFleet] = useState<FleetConfig>(DEFAULT_FLEET);
 
   // Notification prefs
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({
-    notify_new_order: true, notify_order_status_change: true,
-    notify_driver_assigned: true, notify_delivery_complete: true,
-    notify_delivery_failed: true, notify_driver_offline: false,
-    notify_low_driver_availability: true, email_notifications: true,
-    sms_notifications: false, push_notifications: true, notification_email: '',
-  });
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
 
   // User roles
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
@@ -331,34 +484,16 @@ export default function SettingsContent() {
   const [editingIntegration, setEditingIntegration] = useState<string | null>(null);
   const [integrationApiKey, setIntegrationApiKey] = useState('');
   const [integrationWebhook, setIntegrationWebhook] = useState('');
+  const [expandedInstructions, setExpandedInstructions] = useState<string | null>(null);
 
   // Driver rate settings
-  const [driverRates, setDriverRates] = useState<DriverRateSettings>({
-    base_rate_per_hour: 12, rate_per_km: 0.25, overtime_multiplier: 1.5,
-    weekend_multiplier: 1.25, night_shift_multiplier: 1.20, bonus_per_delivery: 0.50,
-    fuel_allowance_per_km: 0.15, min_guaranteed_hours: 4, max_hours_per_day: 10,
-    currency: 'GBP', pay_cycle: 'weekly',
-  });
+  const [driverRates, setDriverRates] = useState<DriverRateSettings>(DEFAULT_DRIVER_RATES);
 
   // Alert thresholds
-  const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>({
-    min_active_drivers: 2, low_driver_warning_pct: 30,
-    late_delivery_minutes: 15, critical_delay_minutes: 45, max_failed_deliveries_pct: 10,
-    high_order_volume_per_hour: 20, unassigned_order_warning_count: 5,
-    driver_offline_alert_minutes: 10, gps_stale_alert_minutes: 5,
-    daily_revenue_target: 1000, low_revenue_warning_pct: 70,
-  });
+  const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>(DEFAULT_ALERT_THRESHOLDS);
 
   // Company profile
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({
-    company_name: '', trading_name: '', registration_number: '', vat_number: '',
-    industry: 'Logistics & Delivery', company_size: '1-10', founded_year: '',
-    website_url: '', logo_url: '', primary_email: '', support_email: '',
-    billing_email: '', primary_phone: '', secondary_phone: '',
-    address_line1: '', address_line2: '', city: '', county: '', postcode: '',
-    country: 'United Kingdom', social_linkedin: '', social_twitter: '',
-    social_facebook: '', description: '',
-  });
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(DEFAULT_COMPANY_PROFILE);
 
   // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -367,22 +502,32 @@ export default function SettingsContent() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 
-  // System config
-  const [systemConfigs, setSystemConfigs] = useState<SystemConfig[]>([]);
-  const [configEdits, setConfigEdits] = useState<Record<string, string>>({});
-  const [activeConfigCategory, setActiveConfigCategory] = useState('general');
+  // WooCommerce UI state
+  const [wcShowInstructions, setWcShowInstructions] = useState(false);
+  const [wcShowFieldMapping, setWcShowFieldMapping] = useState(false);
+  const [wcFieldMapping, setWcFieldMapping] = useState<WooCommerceFieldMapping>(DEFAULT_WC_FIELD_MAPPING);
+  const [wcFieldMappingSaving, setWcFieldMappingSaving] = useState(false);
 
-  // Delivery zones (for map default zone selector)
+  // WooCommerce settings state
+  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>(DEFAULT_WC_SETTINGS);
+  const [wcTesting, setWcTesting] = useState(false);
+  const [wcSaving, setWcSaving] = useState(false);
+  const [wcShowKey, setWcShowKey] = useState(false);
+  const [wcShowSecret, setWcShowSecret] = useState(false);
+
+  // Delivery zones
   const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
 
-  // WooCommerce settings
-  const [wcSettings, setWcSettings] = useState<WooCommerceSettings>({
-    store_url: '', consumer_key: '', consumer_secret: '', is_connected: false,
-  });
-  const [wcSaving, setWcSaving] = useState(false);
-  const [wcTesting, setWcTesting] = useState(false);
-  const [wcShowSecret, setWcShowSecret] = useState(false);
-  const [wcShowKey, setWcShowKey] = useState(false);
+  // Integrations sub-tab
+  const [integrationsSubTab, setIntegrationsSubTab] = useState<'connections' | 'api_keys' | 'webhooks'>('connections');
+
+  // App Branding
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
 
   // Webhooks
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
@@ -392,46 +537,108 @@ export default function SettingsContent() {
   });
   const [testingWebhook, setTestingWebhook] = useState<string | null>(null);
 
-  // Integrations sub-tab
-  const [integrationsSubTab, setIntegrationsSubTab] = useState<'connections' | 'api_keys' | 'webhooks'>('connections');
+  // SMTP Configuration
+  const [smtpConfig, setSmtpConfig] = useState({
+    host: process.env.NEXT_PUBLIC_SMTP_HOST ?? '',
+    port: '587',
+    secure: false,
+    user: '',
+    pass: '',
+    fromName: '',
+    fromEmail: '',
+  });
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpShowPass, setSmtpShowPass] = useState(false);
+  const [smtpSaved, setSmtpSaved] = useState(false);
+
+  // Database backup/export
+  const [dbExporting, setDbExporting] = useState(false);
+  const [dbTableExporting, setDbTableExporting] = useState<string | null>(null);
+  const [dbExportFormat, setDbExportFormat] = useState<'json' | 'csv'>('json');
+
+  // Import backup
+  const [importingBackup, setImportingBackup] = useState(false);
+  const [importBackupFile, setImportBackupFile] = useState<File | null>(null);
+  const [importBackupResult, setImportBackupResult] = useState<{ success: number; failed: number; tables: string[] } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  // Terms of Hire
+  const [termsOfHire, setTermsOfHire] = useState('');
+  const [termsOfHireId, setTermsOfHireId] = useState<string | null>(null);
+  const [savingTerms, setSavingTerms] = useState(false);
+
+  // SMTP saving
+  const [smtpSaving, setSmtpSaving] = useState(false);
 
   // ─── Load Data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [fleetRes, notifRes, rolesRes, intRes, ratesRes, alertRes, companyRes, apiKeysRes, sysConfigRes, zonesRes, wcRes] = await Promise.all([
-        supabase.from('fleet_config').select('*').limit(1).maybeSingle(),
-        supabase.from('notification_preferences').select('*').limit(1).maybeSingle(),
+      const [fleetRes, notifRes, rolesRes, intRes, ratesRes, alertRes, companyRes, apiKeysRes, zonesRes, wcRes] = await Promise.all([
+        supabase.from('fleet_config').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('notification_preferences').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
         supabase.from('user_roles').select('*').order('created_at', { ascending: true }),
         supabase.from('system_integrations').select('*').order('name', { ascending: true }),
-        supabase.from('driver_rate_settings').select('*').limit(1).maybeSingle(),
-        supabase.from('alert_thresholds').select('*').limit(1).maybeSingle(),
-        supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+        supabase.from('driver_rate_settings').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('alert_thresholds').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('company_profile').select('*').order('updated_at', { ascending: true }).limit(1).maybeSingle(),
         supabase.from('api_keys').select('*').order('created_at', { ascending: false }),
-        supabase.from('system_config').select('*').order('category', { ascending: true }),
         supabase.from('delivery_zones').select('id, name, color, is_active').eq('is_active', true).order('name', { ascending: true }),
         supabase.from('woocommerce_settings').select('*').limit(1).maybeSingle(),
       ]);
 
-      if (fleetRes.data) setFleet(fleetRes.data);
-      if (notifRes.data) setNotifPrefs(notifRes.data);
+      if (fleetRes.data) setFleet(sanitizeNulls(fleetRes.data, DEFAULT_FLEET));
+      if (notifRes.data) setNotifPrefs(sanitizeNulls(notifRes.data, DEFAULT_NOTIF_PREFS));
       if (rolesRes.data) setUserRoles(rolesRes.data);
       if (intRes.data) setIntegrations(intRes.data);
-      if (ratesRes.data) setDriverRates(ratesRes.data);
-      if (alertRes.data) setAlertThresholds(alertRes.data);
-      if (companyRes.data) setCompanyProfile(companyRes.data);
+      if (ratesRes.data) setDriverRates(sanitizeNulls(ratesRes.data, DEFAULT_DRIVER_RATES));
+      if (alertRes.data) setAlertThresholds(sanitizeNulls(alertRes.data, DEFAULT_ALERT_THRESHOLDS));
+      if (companyRes.data) setCompanyProfile(sanitizeNulls(companyRes.data, DEFAULT_COMPANY_PROFILE));
       if (apiKeysRes.data) setApiKeys(apiKeysRes.data);
-      if (sysConfigRes.data) {
-        setSystemConfigs(sysConfigRes.data);
-        const edits: Record<string, string> = {};
-        sysConfigRes.data.forEach((c: SystemConfig) => { edits[c.config_key] = c.config_value ?? ''; });
-        setConfigEdits(edits);
-      }
       if (zonesRes.data) setDeliveryZones(zonesRes.data);
-      if (wcRes.data) setWcSettings(wcRes.data);
-    } catch {
-      toast.error('Failed to load settings');
+      if (wcRes.data) {
+        setWcSettings(sanitizeNulls(wcRes.data, DEFAULT_WC_SETTINGS));
+        if (wcRes.data.field_mapping) setWcFieldMapping(wcRes.data.field_mapping as WooCommerceFieldMapping);
+      }
+
+      // Load webhook configs
+      const { data: whData } = await supabase.from('webhook_configs').select('*').order('created_at');
+      if (whData) setWebhooks(whData);
+
+      // Load terms of hire from system_config
+      const { data: termsData } = await supabase
+        .from('system_config')
+        .select('id, config_value')
+        .eq('config_key', 'terms_of_hire')
+        .maybeSingle();
+      if (termsData) {
+        setTermsOfHire(termsData.config_value ?? '');
+        setTermsOfHireId(termsData.id);
+      }
+
+      // Load SMTP config from system_config
+      const { data: smtpRows } = await supabase
+        .from('system_config')
+        .select('config_key, config_value')
+        .in('config_key', ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_pass', 'smtp_from_name', 'smtp_from_email']);
+      if (smtpRows && smtpRows.length > 0) {
+        const map: Record<string, string> = {};
+        smtpRows.forEach((r: { config_key: string; config_value: string }) => { map[r.config_key] = r.config_value; });
+        setSmtpConfig({
+          host: map['smtp_host'] ?? process.env.NEXT_PUBLIC_SMTP_HOST ?? '',
+          port: map['smtp_port'] ?? '587',
+          secure: map['smtp_secure'] === 'true',
+          user: map['smtp_user'] ?? '',
+          pass: map['smtp_pass'] ?? '',
+          fromName: map['smtp_from_name'] ?? '',
+          fromEmail: map['smtp_from_email'] ?? '',
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to load settings: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -445,28 +652,179 @@ export default function SettingsContent() {
   const saveFleetConfig = async () => {
     setSaving(true);
     try {
+      const payload = {
+        company_name: fleet.company_name, timezone: fleet.timezone,
+        currency: fleet.currency, base_delivery_fee: fleet.base_delivery_fee,
+        per_km_fee: fleet.per_km_fee, min_delivery_fee: fleet.min_delivery_fee,
+        max_delivery_fee: fleet.max_delivery_fee, fee_structure: fleet.fee_structure,
+        company_address: fleet.company_address, company_phone: fleet.company_phone,
+        company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
+        map_default_zone_id: fleet.map_default_zone_id ?? null,
+        map_default_postcode: fleet.map_default_postcode ?? '',
+        delivery_fee_enabled: fleet.delivery_fee_enabled ?? true,
+        updated_at: new Date().toISOString(),
+      };
       if (fleet.id) {
-        const { error } = await supabase.from('fleet_config').update({
-          company_name: fleet.company_name, timezone: fleet.timezone,
-          currency: fleet.currency, base_delivery_fee: fleet.base_delivery_fee,
-          per_km_fee: fleet.per_km_fee, min_delivery_fee: fleet.min_delivery_fee,
-          max_delivery_fee: fleet.max_delivery_fee, fee_structure: fleet.fee_structure,
-          company_address: fleet.company_address, company_phone: fleet.company_phone,
-          company_email: fleet.company_email, auto_zone_allocation: fleet.auto_zone_allocation ?? false,
-          map_default_zone_id: fleet.map_default_zone_id ?? null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', fleet.id);
+        const { error } = await supabase.from('fleet_config').update(payload).eq('id', fleet.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('fleet_config').insert(fleet).select().single();
+        const { data, error } = await supabase.from('fleet_config').insert(payload).select().single();
         if (error) throw error;
-        if (data) setFleet(data);
+        if (data) setFleet(sanitizeNulls(data, DEFAULT_FLEET));
       }
       toast.success('Fleet configuration saved');
-    } catch {
-      toast.error('Failed to save fleet configuration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save fleet configuration: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── Save Terms of Hire ──────────────────────────────────────────────────────
+
+  const saveTermsOfHire = async () => {
+    setSavingTerms(true);
+    try {
+      if (termsOfHireId) {
+        const { error } = await supabase
+          .from('system_config')
+          .update({ config_value: termsOfHire, updated_at: new Date().toISOString() })
+          .eq('id', termsOfHireId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('system_config')
+          .insert({
+            config_key: 'terms_of_hire',
+            config_value: termsOfHire,
+            config_type: 'text',
+            category: 'booking',
+            label: 'Terms of Hire',
+            description: 'Terms displayed to customers at point of delivery',
+            is_sensitive: false,
+          })
+          .select('id')
+          .single();
+        if (error) throw error;
+        if (data) setTermsOfHireId(data.id);
+      }
+      toast.success('Terms of hire saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save terms of hire: ${msg}`);
+    } finally {
+      setSavingTerms(false);
+    }
+  };
+
+  // ─── Save SMTP Config ────────────────────────────────────────────────────────
+
+  const saveSmtpConfig = async () => {
+    setSmtpSaving(true);
+    try {
+      const entries = [
+        { config_key: 'smtp_host', config_value: smtpConfig.host, label: 'SMTP Host', is_sensitive: false },
+        { config_key: 'smtp_port', config_value: smtpConfig.port, label: 'SMTP Port', is_sensitive: false },
+        { config_key: 'smtp_secure', config_value: String(smtpConfig.secure), label: 'SMTP Secure', is_sensitive: false },
+        { config_key: 'smtp_user', config_value: smtpConfig.user, label: 'SMTP Username', is_sensitive: true },
+        { config_key: 'smtp_pass', config_value: smtpConfig.pass, label: 'SMTP Password', is_sensitive: true },
+        { config_key: 'smtp_from_name', config_value: smtpConfig.fromName, label: 'SMTP From Name', is_sensitive: false },
+        { config_key: 'smtp_from_email', config_value: smtpConfig.fromEmail, label: 'SMTP From Email', is_sensitive: false },
+      ];
+      for (const entry of entries) {
+        const { error } = await supabase
+          .from('system_config')
+          .upsert(
+            {
+              config_key: entry.config_key,
+              config_value: entry.config_value,
+              config_type: 'string',
+              category: 'smtp',
+              label: entry.label,
+              description: `SMTP configuration: ${entry.label}`,
+              is_sensitive: entry.is_sensitive,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'config_key' }
+          );
+        if (error) throw error;
+      }
+      toast.success('SMTP configuration saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save SMTP configuration: ${msg}`);
+    } finally {
+      setSmtpSaving(false);
+    }
+  };
+
+  // ─── Reset App Data ──────────────────────────────────────────────────────────
+
+  const resetAppData = async () => {
+    setResetting(true);
+    try {
+      const tables = [
+        'orders',
+        'drivers',
+        'user_roles',
+        'vehicles',
+        'vehicle_inspections',
+        'vehicle_incidents',
+        'customers',
+        'activity_logs',
+        'notifications',
+        'alert_history',
+        'driver_locations',
+        'driver_shifts',
+        'driver_earnings',
+        'driver_payments',
+        'cash_management',
+        'sms_alert_logs',
+        'woocommerce_webhook_log',
+        'woocommerce_sync_log',
+        'webhook_event_logs',
+      ];
+
+      for (const table of tables) {
+        await supabase.from(table as any).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      }
+
+      setShowResetModal(false);
+      setResetConfirmText('');
+      toast.success('App data has been reset successfully');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to reset app data: ${msg}`);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  // ─── Clear Cache ─────────────────────────────────────────────────────────────
+
+  const clearCache = async () => {
+    setClearingCache(true);
+    try {
+      // Clear localStorage
+      localStorage.clear();
+
+      // Clear sessionStorage
+      sessionStorage.clear();
+
+      // Clear all caches via Cache API if available
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      }
+
+      toast.success('Cache cleared successfully. The page will reload.');
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear cache';
+      toast.error(`Cache clear failed: ${msg}`);
+    } finally {
+      setClearingCache(false);
     }
   };
 
@@ -475,19 +833,20 @@ export default function SettingsContent() {
   const saveNotifPrefs = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = notifPrefs;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (notifPrefs.id) {
-        const { error } = await supabase.from('notification_preferences').update({
-          ...notifPrefs, updated_at: new Date().toISOString(),
-        }).eq('id', notifPrefs.id);
+        const { error } = await supabase.from('notification_preferences').update(payload).eq('id', notifPrefs.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('notification_preferences').insert(notifPrefs).select().single();
+        const { data, error } = await supabase.from('notification_preferences').insert(payload).select().single();
         if (error) throw error;
-        if (data) setNotifPrefs(data);
+        if (data) setNotifPrefs(sanitizeNulls(data, DEFAULT_NOTIF_PREFS));
       }
       toast.success('Notification preferences saved');
-    } catch {
-      toast.error('Failed to save notification preferences');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save notification preferences: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -498,19 +857,20 @@ export default function SettingsContent() {
   const saveDriverRates = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = driverRates;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (driverRates.id) {
-        const { error } = await supabase.from('driver_rate_settings').update({
-          ...driverRates, updated_at: new Date().toISOString(),
-        }).eq('id', driverRates.id);
+        const { error } = await supabase.from('driver_rate_settings').update(payload).eq('id', driverRates.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('driver_rate_settings').insert(driverRates).select().single();
+        const { data, error } = await supabase.from('driver_rate_settings').insert(payload).select().single();
         if (error) throw error;
-        if (data) setDriverRates(data);
+        if (data) setDriverRates(sanitizeNulls(data, DEFAULT_DRIVER_RATES));
       }
       toast.success('Driver rate settings saved');
-    } catch {
-      toast.error('Failed to save driver rate settings');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save driver rate settings: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -521,19 +881,20 @@ export default function SettingsContent() {
   const saveAlertThresholds = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = alertThresholds;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (alertThresholds.id) {
-        const { error } = await supabase.from('alert_thresholds').update({
-          ...alertThresholds, updated_at: new Date().toISOString(),
-        }).eq('id', alertThresholds.id);
+        const { error } = await supabase.from('alert_thresholds').update(payload).eq('id', alertThresholds.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('alert_thresholds').insert(alertThresholds).select().single();
+        const { data, error } = await supabase.from('alert_thresholds').insert(payload).select().single();
         if (error) throw error;
-        if (data) setAlertThresholds(data);
+        if (data) setAlertThresholds(sanitizeNulls(data, DEFAULT_ALERT_THRESHOLDS));
       }
       toast.success('Alert thresholds saved');
-    } catch {
-      toast.error('Failed to save alert thresholds');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to save alert thresholds: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -548,6 +909,16 @@ export default function SettingsContent() {
     }
     setSaving(true);
     try {
+      const { data: existing } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('email', newRoleForm.email.trim())
+        .maybeSingle();
+      if (existing) {
+        toast.error('A user with this email already exists');
+        setSaving(false);
+        return;
+      }
       const perms = {
         admin: { can_create_orders: true, can_edit_orders: true, can_delete_orders: true, can_manage_drivers: true, can_view_analytics: true, can_manage_settings: true },
         manager: { can_create_orders: true, can_edit_orders: true, can_delete_orders: false, can_manage_drivers: true, can_view_analytics: true, can_manage_settings: false },
@@ -555,15 +926,20 @@ export default function SettingsContent() {
         viewer: { can_create_orders: false, can_edit_orders: false, can_delete_orders: false, can_manage_drivers: false, can_view_analytics: true, can_manage_settings: false },
       };
       const { data, error } = await supabase.from('user_roles').insert({
-        ...newRoleForm, is_active: true, ...perms[newRoleForm.role],
+        email: newRoleForm.email.trim(),
+        full_name: newRoleForm.full_name.trim(),
+        role: newRoleForm.role,
+        is_active: true,
+        ...perms[newRoleForm.role],
       }).select().single();
       if (error) throw error;
       if (data) setUserRoles((prev) => [...prev, data]);
       setNewRoleForm({ email: '', full_name: '', role: 'viewer' });
       setShowNewRoleForm(false);
       toast.success('User role added');
-    } catch {
-      toast.error('Failed to add user role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Unknown error';
+      toast.error(`Failed to add user role: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -574,8 +950,9 @@ export default function SettingsContent() {
       const { error } = await supabase.from('user_roles').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
       if (error) throw error;
       setUserRoles((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r));
-    } catch {
-      toast.error('Failed to update role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to update role: ${msg}`);
     }
   };
 
@@ -585,8 +962,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setUserRoles((prev) => prev.filter((r) => r.id !== id));
       toast.success('User role removed');
-    } catch {
-      toast.error('Failed to remove user role');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to remove user role: ${msg}`);
     }
   };
 
@@ -602,8 +980,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, is_enabled: enabled, status: enabled ? 'connected' : 'disconnected' } : i));
       toast.success(enabled ? 'Integration enabled' : 'Integration disabled');
-    } catch {
-      toast.error('Failed to update integration');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to update integration: ${msg}`);
     }
   };
 
@@ -619,10 +998,29 @@ export default function SettingsContent() {
       setIntegrations((prev) => prev.map((i) => i.id === id ? { ...i, api_key: integrationApiKey || null, webhook_url: integrationWebhook || null } : i));
       setEditingIntegration(null);
       toast.success('Integration configuration saved');
-    } catch {
-      toast.error('Failed to save integration config');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save integration config: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveWcFieldMapping = async () => {
+    if (!wcSettings.id) { toast.error('Save credentials first'); return; }
+    setWcFieldMappingSaving(true);
+    try {
+      const { error } = await supabase.from('woocommerce_settings').update({
+        field_mapping: wcFieldMapping,
+        updated_at: new Date().toISOString(),
+      }).eq('id', wcSettings.id);
+      if (error) throw error;
+      toast.success('Field mapping saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save field mapping: ${msg}`);
+    } finally {
+      setWcFieldMappingSaving(false);
     }
   };
 
@@ -631,21 +1029,188 @@ export default function SettingsContent() {
   const saveCompanyProfile = async () => {
     setSaving(true);
     try {
+      const { id: _id, ...rest } = companyProfile;
+      const payload = { ...rest, updated_at: new Date().toISOString() };
       if (companyProfile.id) {
-        const { error } = await supabase.from('company_profile').update({
-          ...companyProfile, updated_at: new Date().toISOString(),
-        }).eq('id', companyProfile.id);
+        const { error } = await supabase.from('company_profile').update(payload).eq('id', companyProfile.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('company_profile').insert(companyProfile).select().single();
+        const { data, error } = await supabase.from('company_profile').insert(payload).select().single();
         if (error) throw error;
-        if (data) setCompanyProfile(data);
+        if (data) setCompanyProfile(sanitizeNulls(data, DEFAULT_COMPANY_PROFILE));
       }
       toast.success('Company profile saved');
-    } catch {
-      toast.error('Failed to save company profile');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save company profile: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── App Branding ─────────────────────────────────────────────────────────────
+
+  const uploadBrandingAsset = async (
+    file: File,
+    assetType: 'logo' | 'favicon',
+    setUploading: (v: boolean) => void,
+    setPreview: (v: string | null) => void,
+  ) => {
+    setUploading(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const fileName = `${assetType}-${Date.now()}.${ext}`;
+      const { data, error } = await supabase.storage
+        .from('app-branding')
+        .upload(fileName, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from('app-branding').getPublicUrl(data.path);
+      const publicUrl = urlData.publicUrl;
+      setPreview(publicUrl);
+      // Save URL to fleet_config
+      const column = assetType === 'logo' ? 'app_logo_url' : 'app_favicon_url';
+      if (fleet.id) {
+        const { error: updateError } = await supabase
+          .from('fleet_config')
+          .update({ [column]: publicUrl })
+          .eq('id', fleet.id);
+        if (updateError) throw updateError;
+      } else {
+        const { error: upsertError } = await supabase
+          .from('fleet_config')
+          .insert({ [column]: publicUrl });
+        if (upsertError) throw upsertError;
+      }
+      setFleet((prev) => ({ ...prev, [column]: publicUrl }));
+      if (assetType === 'logo') refreshBranding();
+      toast.success(`App ${assetType} updated successfully`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to upload ${assetType}: ${msg}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    uploadBrandingAsset(file, 'logo', setLogoUploading, setLogoPreview);
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setFaviconPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    uploadBrandingAsset(file, 'favicon', setFaviconUploading, setFaviconPreview);
+  };
+
+  // ─── WooCommerce ─────────────────────────────────────────────────────────────
+
+  const saveWcSettings = async () => {
+    setWcSaving(true);
+    try {
+      if (wcSettings.id) {
+        const { error } = await supabase.from('woocommerce_settings').update({
+          store_url: wcSettings.store_url,
+          consumer_key: wcSettings.consumer_key,
+          consumer_secret: wcSettings.consumer_secret,
+          is_enabled: wcSettings.is_enabled ?? true,
+          updated_at: new Date().toISOString(),
+        }).eq('id', wcSettings.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('woocommerce_settings').insert({
+          store_url: wcSettings.store_url,
+          consumer_key: wcSettings.consumer_key,
+          consumer_secret: wcSettings.consumer_secret,
+          is_connected: false,
+          is_enabled: wcSettings.is_enabled ?? true,
+        }).select().single();
+        if (error) throw error;
+        if (data) setWcSettings((s) => ({ ...s, ...data }));
+      }
+      toast.success('WooCommerce credentials saved');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save WooCommerce settings: ${msg}`);
+    } finally {
+      setWcSaving(false);
+    }
+  };
+
+  const toggleWcEnabled = async () => {
+    const newEnabled = !(wcSettings.is_enabled ?? true);
+    setWcSettings((s) => ({ ...s, is_enabled: newEnabled }));
+    if (wcSettings.id) {
+      try {
+        const { error } = await supabase.from('woocommerce_settings').update({
+          is_enabled: newEnabled,
+          updated_at: new Date().toISOString(),
+        }).eq('id', wcSettings.id);
+        if (error) throw error;
+        toast.success(newEnabled ? 'WooCommerce integration enabled' : 'WooCommerce integration disabled');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        toast.error(`Failed to update WooCommerce status: ${msg}`);
+        setWcSettings((s) => ({ ...s, is_enabled: !newEnabled }));
+      }
+    } else {
+      toast.success(newEnabled ? 'WooCommerce integration enabled' : 'WooCommerce integration disabled');
+    }
+  };
+
+  const testWcConnection = async () => {
+    if (!wcSettings.store_url || !wcSettings.consumer_key || !wcSettings.consumer_secret) {
+      toast.error('Please fill in all WooCommerce credentials first');
+      return;
+    }
+    setWcTesting(true);
+    try {
+      const url = wcSettings.store_url.replace(/\/$/, '');
+      const res = await fetch(`${url}/wp-json/wc/v3/orders?per_page=1`, {
+        headers: {
+          Authorization: 'Basic ' + btoa(`${wcSettings.consumer_key}:${wcSettings.consumer_secret}`),
+        },
+      });
+      const status = res.ok ? 'success' : 'failed';
+      const message = res.ok
+        ? `Connection successful (HTTP ${res.status})`
+        : `Connection failed (HTTP ${res.status})`;
+      const now = new Date().toISOString();
+      if (wcSettings.id) {
+        await supabase.from('woocommerce_settings').update({
+          last_tested_at: now,
+          last_test_status: status,
+          last_test_message: message,
+          is_connected: res.ok,
+          updated_at: now,
+        }).eq('id', wcSettings.id);
+      }
+      setWcSettings((s) => ({ ...s, last_tested_at: now, last_test_status: status, last_test_message: message, is_connected: res.ok }));
+      if (res.ok) toast.success('WooCommerce connection successful');
+      else toast.error(`WooCommerce connection failed: HTTP ${res.status}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const now = new Date().toISOString();
+      if (wcSettings.id) {
+        await supabase.from('woocommerce_settings').update({
+          last_tested_at: now,
+          last_test_status: 'failed',
+          last_test_message: msg,
+          is_connected: false,
+          updated_at: now,
+        }).eq('id', wcSettings.id);
+      }
+      setWcSettings((s) => ({ ...s, last_tested_at: now, last_test_status: 'failed', last_test_message: msg, is_connected: false }));
+      toast.error(`WooCommerce connection error: ${msg}`);
+    } finally {
+      setWcTesting(false);
     }
   };
 
@@ -672,8 +1237,9 @@ export default function SettingsContent() {
       setGeneratedKey(full);
       setNewKeyForm({ name: '', description: '', scopes: ['read'], expires_at: '' });
       toast.success('API key created — copy it now, it will not be shown again');
-    } catch {
-      toast.error('Failed to create API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to create API key: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -685,8 +1251,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setApiKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
       toast.success('API key revoked');
-    } catch {
-      toast.error('Failed to revoke API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to revoke API key: ${msg}`);
     }
   };
 
@@ -696,8 +1263,9 @@ export default function SettingsContent() {
       if (error) throw error;
       setApiKeys((prev) => prev.filter((k) => k.id !== id));
       toast.success('API key deleted');
-    } catch {
-      toast.error('Failed to delete API key');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to delete API key: ${msg}`);
     }
   };
 
@@ -708,126 +1276,18 @@ export default function SettingsContent() {
     }));
   };
 
-  // ─── System Config ───────────────────────────────────────────────────────────
-
-  const saveSystemConfig = async (configKey: string) => {
-    const config = systemConfigs.find((c) => c.config_key === configKey);
-    if (!config) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase.from('system_config').update({
-        config_value: configEdits[configKey],
-        updated_at: new Date().toISOString(),
-      }).eq('id', config.id);
-      if (error) throw error;
-      setSystemConfigs((prev) => prev.map((c) => c.config_key === configKey ? { ...c, config_value: configEdits[configKey] } : c));
-      toast.success(`"${config.label}" updated`);
-    } catch {
-      toast.error('Failed to save configuration');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveAllSystemConfigs = async () => {
-    setSaving(true);
-    try {
-      const updates = systemConfigs
-        .filter((c) => c.category === activeConfigCategory)
-        .map((c) => supabase.from('system_config').update({ config_value: configEdits[c.config_key], updated_at: new Date().toISOString() }).eq('id', c.id));
-      await Promise.all(updates);
-      setSystemConfigs((prev) => prev.map((c) => c.category === activeConfigCategory ? { ...c, config_value: configEdits[c.config_key] } : c));
-      toast.success('System configuration saved');
-    } catch {
-      toast.error('Failed to save system configuration');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ─── WooCommerce ─────────────────────────────────────────────────────────────
-
-  const saveWcSettings = async () => {
-    if (!wcSettings.store_url) { toast.error('Store URL is required'); return; }
-    setWcSaving(true);
-    try {
-      if (wcSettings.id) {
-        const { error } = await supabase.from('woocommerce_settings').update({
-          store_url: wcSettings.store_url,
-          consumer_key: wcSettings.consumer_key,
-          consumer_secret: wcSettings.consumer_secret,
-          updated_at: new Date().toISOString(),
-        }).eq('id', wcSettings.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from('woocommerce_settings').insert({
-          store_url: wcSettings.store_url,
-          consumer_key: wcSettings.consumer_key,
-          consumer_secret: wcSettings.consumer_secret,
-          is_connected: false,
-        }).select().single();
-        if (error) throw error;
-        if (data) setWcSettings(data);
-      }
-      toast.success('WooCommerce credentials saved');
-    } catch {
-      toast.error('Failed to save WooCommerce credentials');
-    } finally {
-      setWcSaving(false);
-    }
-  };
-
-  const testWcConnection = async () => {
-    if (!wcSettings.store_url || !wcSettings.consumer_key || !wcSettings.consumer_secret) {
-      toast.error('Please fill in all WooCommerce fields before testing');
-      return;
-    }
-    setWcTesting(true);
-    try {
-      const baseUrl = wcSettings.store_url.replace(/\/$/, '');
-      const url = `${baseUrl}/wp-json/wc/v3/system_status?consumer_key=${encodeURIComponent(wcSettings.consumer_key)}&consumer_secret=${encodeURIComponent(wcSettings.consumer_secret)}`;
-      const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-      const success = res.ok;
-      const message = success ? 'Connection successful' : `Connection failed (HTTP ${res.status})`;
-      const now = new Date().toISOString();
-      if (wcSettings.id) {
-        await supabase.from('woocommerce_settings').update({
-          is_connected: success,
-          last_tested_at: now,
-          last_test_status: success ? 'success' : 'failed',
-          last_test_message: message,
-          updated_at: now,
-        }).eq('id', wcSettings.id);
-      }
-      setWcSettings((prev) => ({ ...prev, is_connected: success, last_tested_at: now, last_test_status: success ? 'success' : 'failed', last_test_message: message }));
-      if (success) toast.success('WooCommerce connection successful!');
-      else toast.error(message);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Connection failed';
-      const now = new Date().toISOString();
-      if (wcSettings.id) {
-        await supabase.from('woocommerce_settings').update({
-          is_connected: false, last_tested_at: now, last_test_status: 'failed', last_test_message: msg, updated_at: now,
-        }).eq('id', wcSettings.id);
-      }
-      setWcSettings((prev) => ({ ...prev, is_connected: false, last_tested_at: now, last_test_status: 'failed', last_test_message: msg }));
-      toast.error(`Connection failed: ${msg}`);
-    } finally {
-      setWcTesting(false);
-    }
-  };
-
   // ─── Tabs ────────────────────────────────────────────────────────────────────
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: 'company', label: 'Company Profile', icon: Globe },
     { id: 'fleet', label: 'Fleet Config', icon: Building2 },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'roles', label: 'Team Roles', icon: Users },
     { id: 'driver_rates', label: 'Driver Rates', icon: Car },
     { id: 'alert_thresholds', label: 'Alert Thresholds', icon: AlertTriangle },
-    { id: 'system', label: 'System Config', icon: Sliders },
+    { id: 'roles', label: 'Team Roles', icon: Users },
     { id: 'integrations', label: 'Integrations', icon: Plug },
+    { id: 'smtp', label: 'SMTP Mail', icon: Mail },
+    { id: 'database', label: 'Database', icon: Database },
   ];
 
   if (loading) {
@@ -891,7 +1351,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Industry</label>
                 <select
-                  value={companyProfile.industry}
+                  value={companyProfile.industry ?? ''}
                   onChange={(e) => setCompanyProfile((p) => ({ ...p, industry: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -902,7 +1362,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Size</label>
                 <select
-                  value={companyProfile.company_size}
+                  value={companyProfile.company_size ?? ''}
                   onChange={(e) => setCompanyProfile((p) => ({ ...p, company_size: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -916,7 +1376,7 @@ export default function SettingsContent() {
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Description</label>
               <textarea
-                value={companyProfile.description}
+                value={companyProfile.description ?? ''}
                 onChange={(e) => setCompanyProfile((p) => ({ ...p, description: e.target.value }))}
                 rows={3}
                 placeholder="Brief description of your company…"
@@ -965,6 +1425,143 @@ export default function SettingsContent() {
             </div>
           </div>
 
+          {/* App Branding */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <Image size={15} style={{ color: 'hsl(var(--primary))' }} /> App Branding
+            </h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Upload your app logo and favicon. Changes are saved immediately on upload.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Logo Upload */}
+              <div className="space-y-3">
+                <label className="block text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>App Logo</label>
+                <div
+                  className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 gap-3 cursor-pointer transition-colors hover:border-primary/60"
+                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {(logoPreview || fleet.app_logo_url) ? (
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={logoPreview || fleet.app_logo_url || ''}
+                        alt="App logo preview"
+                        className="h-16 max-w-full object-contain rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLogoPreview(null); setFleet((p) => ({ ...p, app_logo_url: null })); }}
+                        className="absolute -top-2 -right-2 p-0.5 rounded-full bg-red-500 text-white hover:bg-red-600"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-full" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                        <Upload size={20} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Click to upload logo</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>PNG, JPG, SVG, WebP — max 5 MB</p>
+                      </div>
+                    </>
+                  )}
+                  {logoUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20">
+                      <Loader size={20} className="animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                />
+                {(fleet.app_logo_url || logoPreview) && (
+                  <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {fleet.app_logo_url || logoPreview}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={logoUploading}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
+                >
+                  <Upload size={12} /> {logoUploading ? 'Uploading…' : 'Choose Logo File'}
+                </button>
+              </div>
+
+              {/* Favicon Upload */}
+              <div className="space-y-3">
+                <label className="block text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Favicon</label>
+                <div
+                  className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 gap-3 cursor-pointer transition-colors hover:border-primary/60"
+                  style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                  onClick={() => faviconInputRef.current?.click()}
+                >
+                  {(faviconPreview || fleet.app_favicon_url) ? (
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={faviconPreview || fleet.app_favicon_url || ''}
+                        alt="Favicon preview"
+                        className="h-12 w-12 object-contain rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setFaviconPreview(null); setFleet((p) => ({ ...p, app_favicon_url: null })); }}
+                        className="absolute -top-2 -right-2 p-0.5 rounded-full bg-red-500 text-white hover:bg-red-600"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-full" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                        <Upload size={20} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Click to upload favicon</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>ICO, PNG, SVG — recommended 32×32 px</p>
+                      </div>
+                    </>
+                  )}
+                  {faviconUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20">
+                      <Loader size={20} className="animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={faviconInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon,image/svg+xml"
+                  className="hidden"
+                  onChange={handleFaviconUpload}
+                />
+                {(fleet.app_favicon_url || faviconPreview) && (
+                  <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {fleet.app_favicon_url || faviconPreview}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => faviconInputRef.current?.click()}
+                  disabled={faviconUploading}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
+                >
+                  <Upload size={12} /> {faviconUploading ? 'Uploading…' : 'Choose Favicon File'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <button
               onClick={saveCompanyProfile}
@@ -972,7 +1569,7 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Company Profile'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Company Profile'}
             </button>
           </div>
         </div>
@@ -991,7 +1588,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Name</label>
                 <input
                   type="text"
-                  value={fleet.company_name}
+                  value={fleet.company_name ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_name: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1000,7 +1597,7 @@ export default function SettingsContent() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Timezone</label>
                 <select
-                  value={fleet.timezone}
+                  value={fleet.timezone ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, timezone: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1012,7 +1609,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Email</label>
                 <input
                   type="email"
-                  value={fleet.company_email}
+                  value={fleet.company_email ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_email: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1022,7 +1619,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Phone</label>
                 <input
                   type="text"
-                  value={fleet.company_phone}
+                  value={fleet.company_phone ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_phone: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1032,7 +1629,7 @@ export default function SettingsContent() {
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Company Address</label>
                 <input
                   type="text"
-                  value={fleet.company_address}
+                  value={fleet.company_address ?? ''}
                   onChange={(e) => setFleet((f) => ({ ...f, company_address: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
                   style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1043,46 +1640,52 @@ export default function SettingsContent() {
 
           {/* Delivery Fee Structure */}
           <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Fee Structure</h2>
-            <div className="flex gap-3 mb-4">
-              {['flat', 'per_km', 'tiered'].map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setFleet((f) => ({ ...f, fee_structure: type }))}
-                  className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
-                    fleet.fee_structure === type ? 'border-primary' : ''
-                  }`}
-                  style={fleet.fee_structure === type ? {
-                    backgroundColor: 'hsl(var(--primary) / 0.1)',
-                    borderColor: 'hsl(var(--primary))',
-                    color: 'hsl(var(--primary))',
-                  } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                >
-                  {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per KM' : 'Tiered'}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Fee Structure</h2>
+              <Toggle
+                checked={fleet.delivery_fee_enabled ?? true}
+                onChange={(v) => setFleet((f) => ({ ...f, delivery_fee_enabled: v }))}
+              />
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { key: 'base_delivery_fee', label: 'Base Fee (£)' },
-                { key: 'per_km_fee', label: 'Per KM Fee (£)' },
-                { key: 'min_delivery_fee', label: 'Min Fee (£)' },
-                { key: 'max_delivery_fee', label: 'Max Fee (£)' },
-              ].map(({ key, label }) => (
-                <div key={key}>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={(fleet as any)[key]}
-                    onChange={(e) => setFleet((f) => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                  />
+            {(fleet.delivery_fee_enabled ?? true) && (
+              <>
+                <div className="flex gap-3 mb-4">
+                  {['flat', 'per_km', 'tiered'].map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setFleet((f) => ({ ...f, fee_structure: type }))}
+                      className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        fleet.fee_structure === type ? 'border-primary' : ''
+                      }`}
+                      style={fleet.fee_structure === type ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                    >
+                      {type === 'flat' ? 'Flat Rate' : type === 'per_km' ? 'Per Mile' : 'Tiered'}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { key: 'base_delivery_fee', label: 'Base Fee (£)' },
+                    { key: 'per_km_fee', label: 'Per Mile Fee (£)' },
+                    { key: 'min_delivery_fee', label: 'Min Fee (£)' },
+                    { key: 'max_delivery_fee', label: 'Max Fee (£)' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={(fleet as any)[key] ?? 0}
+                        onChange={(e) => setFleet((f) => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Auto Zone Allocation */}
@@ -1104,36 +1707,63 @@ export default function SettingsContent() {
           {/* Map Default Zone */}
           <div className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
             <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <MapPin size={15} style={{ color: 'hsl(var(--primary))' }} /> Map Default Zone
+              <MapPin size={15} style={{ color: 'hsl(var(--primary))' }} /> Map Default Address
             </h2>
             <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Select the delivery zone that maps will centre on by default when no specific zone is selected.
+              Enter the postcode that maps will centre on by default when no specific location is selected.
             </p>
             <div className="max-w-sm">
-              <select
-                value={fleet.map_default_zone_id ?? ''}
-                onChange={(e) => setFleet((f) => ({ ...f, map_default_zone_id: e.target.value || null }))}
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+              <input
+                type="text"
+                value={fleet.map_default_postcode ?? ''}
+                onChange={(e) => setFleet((f) => ({ ...f, map_default_postcode: e.target.value.toUpperCase() }))}
+                placeholder="e.g. LE4 7RN"
+                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none uppercase"
                 style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+              />
+              {fleet.map_default_postcode && (
+                <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Maps will default to <span className="font-semibold font-mono" style={{ color: 'hsl(var(--foreground))' }}>{fleet.map_default_postcode}</span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Terms of Hire */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div>
+              <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                <FileText size={15} style={{ color: 'hsl(var(--primary))' }} /> Terms of Hire
+              </h2>
+              <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                These terms are displayed to customers at the point of delivery and must be accepted (with signature) before a booking can be marked as complete.
+              </p>
+            </div>
+            <textarea
+              rows={12}
+              value={termsOfHire}
+              onChange={(e) => setTermsOfHire(e.target.value)}
+              placeholder="Enter your terms and conditions of hire here…"
+              className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none resize-y font-mono"
+              style={{
+                backgroundColor: 'hsl(var(--background))',
+                borderColor: 'hsl(var(--border))',
+                color: 'hsl(var(--foreground))',
+                minHeight: '200px',
+              }}
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {termsOfHire.length} characters
+              </p>
+              <button
+                onClick={saveTermsOfHire}
+                disabled={savingTerms}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
               >
-                <option value="">— No default zone —</option>
-                {deliveryZones.map((zone) => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </option>
-                ))}
-              </select>
-              {fleet.map_default_zone_id && (() => {
-                const selected = deliveryZones.find((z) => z.id === fleet.map_default_zone_id);
-                return selected ? (
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: selected.color }} />
-                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {selected.name} is set as the map default zone
-                    </span>
-                  </div>
-                ) : null;
-              })()}
+                <Save size={14} /> {savingTerms ? 'Saving…' : 'Save Terms'}
+              </button>
             </div>
           </div>
 
@@ -1144,7 +1774,7 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Fleet Config'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Fleet Config'}
             </button>
           </div>
         </div>
@@ -1175,7 +1805,7 @@ export default function SettingsContent() {
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Notification Email Address</label>
               <input
                 type="email"
-                value={notifPrefs.notification_email}
+                value={notifPrefs.notification_email ?? ''}
                 onChange={(e) => setNotifPrefs((p) => ({ ...p, notification_email: e.target.value }))}
                 className="w-full max-w-sm px-3 py-2 rounded-lg border text-sm focus:outline-none"
                 style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
@@ -1213,7 +1843,138 @@ export default function SettingsContent() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: 'hsl(var(--primary))' }}
             >
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Preferences'}
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Preferences'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Driver Rates ──────────────────────────────────────────────────────── */}
+      {activeTab === 'driver_rates' && (
+        <div className="space-y-5">
+          {/* Pay Rates */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <Car size={15} style={{ color: 'hsl(var(--primary))' }} /> Pay Rates
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <NumInput label="Base Rate per Hour (£)" value={driverRates.base_rate_per_hour} onChange={(v) => setDriverRates((r) => ({ ...r, base_rate_per_hour: v }))} step="0.01" suffix="£/hr" />
+              <NumInput label="Rate per KM (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((r) => ({ ...r, rate_per_km: v }))} step="0.01" suffix="£/km" />
+              <NumInput label="Bonus per Delivery (£)" value={driverRates.bonus_per_delivery} onChange={(v) => setDriverRates((r) => ({ ...r, bonus_per_delivery: v }))} step="0.01" suffix="£" />
+              <NumInput label="Fuel Allowance per KM (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((r) => ({ ...r, fuel_allowance_per_km: v }))} step="0.01" suffix="£/km" />
+              <NumInput label="Min Guaranteed Hours" value={driverRates.min_guaranteed_hours} onChange={(v) => setDriverRates((r) => ({ ...r, min_guaranteed_hours: v }))} step="0.5" suffix="hrs" />
+              <NumInput label="Max Hours per Day" value={driverRates.max_hours_per_day} onChange={(v) => setDriverRates((r) => ({ ...r, max_hours_per_day: v }))} step="0.5" suffix="hrs" />
+            </div>
+          </div>
+
+          {/* Multipliers */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Pay Multipliers</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <NumInput label="Overtime Multiplier" value={driverRates.overtime_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, overtime_multiplier: v }))} step="0.05" suffix="×" />
+              <NumInput label="Weekend Multiplier" value={driverRates.weekend_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, weekend_multiplier: v }))} step="0.05" suffix="×" />
+              <NumInput label="Night Shift Multiplier" value={driverRates.night_shift_multiplier} onChange={(v) => setDriverRates((r) => ({ ...r, night_shift_multiplier: v }))} step="0.05" suffix="×" />
+            </div>
+          </div>
+
+          {/* Pay Cycle & Currency */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Pay Cycle & Currency</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Pay Cycle</label>
+                <select
+                  value={driverRates.pay_cycle}
+                  onChange={(e) => setDriverRates((r) => ({ ...r, pay_cycle: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  {['daily', 'weekly', 'fortnightly', 'monthly'].map((c) => (
+                    <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Currency</label>
+                <select
+                  value={driverRates.currency}
+                  onChange={(e) => setDriverRates((r) => ({ ...r, currency: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  {['GBP', 'EUR', 'USD', 'CAD', 'AUD'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveDriverRates}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Driver Rates'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Alert Thresholds ──────────────────────────────────────────────────── */}
+      {activeTab === 'alert_thresholds' && (
+        <div className="space-y-5">
+          {/* Driver Availability */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+              <AlertTriangle size={15} style={{ color: 'hsl(var(--primary))' }} /> Driver Availability
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="Min Active Drivers" value={alertThresholds.min_active_drivers} onChange={(v) => setAlertThresholds((t) => ({ ...t, min_active_drivers: Math.round(v) }))} step="1" suffix="drivers" />
+              <NumInput label="Low Driver Warning (%)" value={alertThresholds.low_driver_warning_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, low_driver_warning_pct: Math.round(v) }))} step="1" min="0" suffix="%" />
+              <NumInput label="Driver Offline Alert (mins)" value={alertThresholds.driver_offline_alert_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, driver_offline_alert_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="GPS Stale Alert (mins)" value={alertThresholds.gps_stale_alert_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, gps_stale_alert_minutes: Math.round(v) }))} step="1" suffix="min" />
+            </div>
+          </div>
+
+          {/* Delivery Performance */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Delivery Performance</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <NumInput label="Late Delivery Warning (mins)" value={alertThresholds.late_delivery_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, late_delivery_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="Critical Delay (mins)" value={alertThresholds.critical_delay_minutes} onChange={(v) => setAlertThresholds((t) => ({ ...t, critical_delay_minutes: Math.round(v) }))} step="1" suffix="min" />
+              <NumInput label="Max Failed Deliveries (%)" value={alertThresholds.max_failed_deliveries_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, max_failed_deliveries_pct: Math.round(v) }))} step="1" suffix="%" />
+            </div>
+          </div>
+
+          {/* Order Volume */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Order Volume</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="High Order Volume (per hour)" value={alertThresholds.high_order_volume_per_hour} onChange={(v) => setAlertThresholds((t) => ({ ...t, high_order_volume_per_hour: Math.round(v) }))} step="1" suffix="orders/hr" />
+              <NumInput label="Unassigned Order Warning" value={alertThresholds.unassigned_order_warning_count} onChange={(v) => setAlertThresholds((t) => ({ ...t, unassigned_order_warning_count: Math.round(v) }))} step="1" suffix="orders" />
+            </div>
+          </div>
+
+          {/* Financial */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Financial Targets</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <NumInput label="Daily Revenue Target (£)" value={alertThresholds.daily_revenue_target} onChange={(v) => setAlertThresholds((t) => ({ ...t, daily_revenue_target: v }))} step="10" suffix="£" />
+              <NumInput label="Low Revenue Warning (%)" value={alertThresholds.low_revenue_warning_pct} onChange={(v) => setAlertThresholds((t) => ({ ...t, low_revenue_warning_pct: Math.round(v) }))} step="1" suffix="%" />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveAlertThresholds}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {saving ? 'Saving…' : 'Save Alert Thresholds'}
             </button>
           </div>
         </div>
@@ -1262,31 +2023,26 @@ export default function SettingsContent() {
             )}
             <div className="space-y-2">
               {userRoles.map((role) => (
-                <div key={role.id} className="border rounded-lg p-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{role.full_name}</p>
-                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{role.email}</p>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[role.role]}`}>{role.role}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Toggle checked={role.is_active} onChange={(v) => updateUserRole(role.id, { is_active: v })} />
-                      <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Permissions</button>
-                      <button onClick={() => deleteUserRole(role.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Remove</button>
-                    </div>
+                <div key={role.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{role.full_name}</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{role.email}</p>
                   </div>
-                  {expandedRole === role.id && (
-                    <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
-                      {(['can_create_orders', 'can_edit_orders', 'can_delete_orders', 'can_manage_drivers', 'can_view_analytics', 'can_manage_settings'] as (keyof UserRole)[]).map((perm) => (
-                        <label key={perm} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'hsl(var(--foreground))' }}>
-                          <input type="checkbox" checked={!!role[perm]} onChange={(e) => updateUserRole(role.id, { [perm]: e.target.checked } as Partial<UserRole>)} />
-                          {perm.replace(/_/g, ' ')}
-                        </label>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setExpandedRole(expandedRole === role.id ? null : role.id)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                      {expandedRole === role.id ? 'Hide' : 'Show'}
+                    </button>
+                    {expandedRole === role.id && (
+                      <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                        {(['can_create_orders', 'can_edit_orders', 'can_delete_orders', 'can_manage_drivers', 'can_view_analytics', 'can_manage_settings'] as (keyof UserRole)[]).map((perm) => (
+                          <label key={perm} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'hsl(var(--foreground))' }}>
+                            <input type="checkbox" checked={!!role[perm]} onChange={(e) => updateUserRole(role.id, { [perm]: e.target.checked } as Partial<UserRole>)} />
+                            {perm.replace(/_/g, ' ')}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
               {userRoles.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No team members added yet.</p>}
@@ -1335,7 +2091,23 @@ export default function SettingsContent() {
                       <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Connect your WooCommerce store to sync orders automatically</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    {/* Enable/Disable toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {(wcSettings.is_enabled ?? true) ? 'Enabled' : 'Disabled'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={toggleWcEnabled}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${(wcSettings.is_enabled ?? true) ? 'bg-green-500' : 'bg-gray-300'}`}
+                        title={(wcSettings.is_enabled ?? true) ? 'Disable WooCommerce integration' : 'Enable WooCommerce integration'}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${(wcSettings.is_enabled ?? true) ? 'translate-x-4' : 'translate-x-1'}`}
+                        />
+                      </button>
+                    </div>
                     {wcSettings.last_test_status === 'success' ? (
                       <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
                         <CheckCircle size={11} /> Connected
@@ -1350,18 +2122,25 @@ export default function SettingsContent() {
                   </div>
                 </div>
 
+                {!(wcSettings.is_enabled ?? true) && (
+                  <div className="rounded-lg px-4 py-3 flex items-center gap-2 text-sm" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                    <XCircle size={15} />
+                    <span>WooCommerce integration is disabled. Order syncing and webhooks are paused. Toggle the switch above to re-enable.</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Store URL</label>
                     <input
                       type="url"
-                      value={wcSettings.store_url}
+                      value={wcSettings.store_url ?? ''}
                       onChange={(e) => setWcSettings((s) => ({ ...s, store_url: e.target.value }))}
                       placeholder="https://yourstore.com"
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none font-mono"
                       style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
                     />
-                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>The root URL of your WooCommerce store (e.g. https://yourstore.com)</p>
+                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>The root URL of your WooCommerce store (e.g. https://yourstore.com) — no trailing slash.</p>
                   </div>
 
                   <div>
@@ -1369,7 +2148,7 @@ export default function SettingsContent() {
                     <div className="relative">
                       <input
                         type={wcShowKey ? 'text' : 'password'}
-                        value={wcSettings.consumer_key}
+                        value={wcSettings.consumer_key ?? ''}
                         onChange={(e) => setWcSettings((s) => ({ ...s, consumer_key: e.target.value }))}
                         placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                         className="w-full px-3 py-2 pr-16 rounded-lg border text-sm focus:outline-none font-mono"
@@ -1384,7 +2163,7 @@ export default function SettingsContent() {
                         {wcShowKey ? 'Hide' : 'Show'}
                       </button>
                     </div>
-                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Generate in WooCommerce → Settings → Advanced → REST API</p>
+                    <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Generate in WooCommerce → Settings → Advanced → REST API — set Description to "CastleAdmin", User to an admin account, and Permissions to "Read/Write".</p>
                   </div>
 
                   <div>
@@ -1392,7 +2171,7 @@ export default function SettingsContent() {
                     <div className="relative">
                       <input
                         type={wcShowSecret ? 'text' : 'password'}
-                        value={wcSettings.consumer_secret}
+                        value={wcSettings.consumer_secret ?? ''}
                         onChange={(e) => setWcSettings((s) => ({ ...s, consumer_secret: e.target.value }))}
                         placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                         className="w-full px-3 py-2 pr-16 rounded-lg border text-sm focus:outline-none font-mono"
@@ -1414,25 +2193,144 @@ export default function SettingsContent() {
                   <div className={`text-xs px-3 py-2 rounded-lg ${wcSettings.last_test_status === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                     {wcSettings.last_test_message}
                     {wcSettings.last_tested_at && (
-                      <span className="ml-2 opacity-60">· {new Date(wcSettings.last_tested_at).toLocaleString()}</span>
+                      <span className="ml-2 opacity-60">· {new Date(wcSettings.last_tested_at).toLocaleString('en-GB')} — Status: {wcSettings.last_test_status ?? 'unknown'}
+                      </span>
                     )}
                   </div>
                 )}
+
+                {/* ── Setup Instructions ── */}
+                <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <button
+                    type="button"
+                    onClick={() => setWcShowInstructions((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left transition-colors hover:bg-black/5"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-base">📋</span> Setup Instructions
+                    </span>
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{wcShowInstructions ? '▲ Hide' : '▼ Show'}</span>
+                  </button>
+                  {wcShowInstructions && (
+                    <div className="px-4 py-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                      <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Follow these steps to connect your WooCommerce store:</p>
+                      <ol className="space-y-2.5">
+                        {[
+                          { step: 1, title: 'Log in to your WordPress admin panel', desc: 'Go to your store\'s WordPress dashboard (e.g. https://yourstore.com/wp-admin).' },
+                          { step: 2, title: 'Navigate to WooCommerce → Settings → Advanced → REST API', desc: 'Click "Add key" to create a new API key.' },
+                          { step: 3, title: 'Create a new API key', desc: 'Set Description to "CastleAdmin", User to an admin account, and Permissions to "Read/Write". Click "Generate API key".' },
+                          { step: 4, title: 'Copy your Consumer Key and Consumer Secret', desc: 'These are shown only once. Paste them into the fields above and click "Save Credentials".' },
+                          { step: 5, title: 'Enter your Store URL', desc: 'Use the root URL of your store (e.g. https://yourstore.com) — no trailing slash.' },
+                          { step: 6, title: 'Test the connection', desc: 'Click "Test Connection" to verify the credentials are working correctly.' },
+                          { step: 7, title: 'Set up the webhook (optional)', desc: 'Go to the Webhooks tab and copy the incoming webhook URL. In WooCommerce → Settings → Advanced → Webhooks, add a new webhook pointing to that URL for order events.' },
+                        ].map(({ step, title, desc }) => (
+                          <li key={step} className="flex gap-3">
+                            <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white mt-0.5" style={{ backgroundColor: 'hsl(var(--primary))' }}>{step}</span>
+                            <div>
+                              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{title}</p>
+                              <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{desc}</p>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))' }}>
+                        <p className="text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>💡 Tip</p>
+                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Make sure your WooCommerce store has the REST API enabled. Go to WooCommerce → Settings → Advanced and ensure "Legacy REST API" is enabled if you are on WooCommerce 2.x.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Field Mapping ── */}
+                <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <button
+                    type="button"
+                    onClick={() => setWcShowFieldMapping((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left transition-colors hover:bg-black/5"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-base">🗂️</span> Field Mapping
+                    </span>
+                    <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{wcShowFieldMapping ? '▲ Hide' : '▼ Show'}</span>
+                  </button>
+                  {wcShowFieldMapping && (
+                    <div className="px-4 py-4 space-y-4" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Map WooCommerce order fields to CastleAdmin fields. Use dot notation for nested fields (e.g. <code className="px-1 py-0.5 rounded text-xs" style={{ backgroundColor: 'hsl(var(--secondary))' }}>billing.email</code>).
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {(
+                          [
+                            { key: 'order_id', label: 'Order ID', placeholder: 'id' },
+                            { key: 'customer_name', label: 'Customer Name', placeholder: 'billing.first_name + billing.last_name' },
+                            { key: 'customer_email', label: 'Customer Email', placeholder: 'billing.email' },
+                            { key: 'customer_phone', label: 'Customer Phone', placeholder: 'billing.phone' },
+                            { key: 'delivery_address', label: 'Delivery Address', placeholder: 'shipping.address_1' },
+                            { key: 'delivery_city', label: 'Delivery City', placeholder: 'shipping.city' },
+                            { key: 'delivery_postcode', label: 'Delivery Postcode', placeholder: 'shipping.postcode' },
+                            { key: 'order_notes', label: 'Order Notes', placeholder: 'customer_note' },
+                            { key: 'order_total', label: 'Order Total', placeholder: 'total' },
+                            { key: 'order_status', label: 'Order Status', placeholder: 'status' },
+                          ] as { key: keyof WooCommerceFieldMapping; label: string; placeholder: string }[]
+                        ).map(({ key, label, placeholder }) => (
+                          <div key={key}>
+                            <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              {label}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs px-2 py-1 rounded-l-lg border-y border-l font-mono shrink-0" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                                WC →
+                              </span>
+                              <input
+                                type="text"
+                                value={wcFieldMapping[key]}
+                                onChange={(e) => setWcFieldMapping((m) => ({ ...m, [key]: e.target.value }))}
+                                placeholder={placeholder}
+                                className="flex-1 px-3 py-1 rounded-r-lg border text-xs focus:outline-none font-mono"
+                                style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setWcFieldMapping(DEFAULT_WC_FIELD_MAPPING)}
+                          className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+                          style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                        >
+                          Reset to Defaults
+                        </button>
+                        <button
+                          type="button"
+                          onClick={saveWcFieldMapping}
+                          disabled={wcFieldMappingSaving}
+                          className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-60"
+                          style={{ backgroundColor: 'hsl(var(--primary))' }}
+                        >
+                          <Save size={12} /> {wcFieldMappingSaving ? 'Saving…' : 'Save Mapping'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3 pt-1">
                   <button
                     onClick={testWcConnection}
                     disabled={wcTesting || wcSaving}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-60"
-                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
                   >
-                    {wcTesting ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                    {wcTesting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                     {wcTesting ? 'Testing…' : 'Test Connection'}
                   </button>
                   <button
                     onClick={saveWcSettings}
                     disabled={wcSaving || wcTesting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-60"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
                     style={{ backgroundColor: 'hsl(var(--primary))' }}
                   >
                     <Save size={14} /> {wcSaving ? 'Saving…' : 'Save Credentials'}
@@ -1442,7 +2340,7 @@ export default function SettingsContent() {
 
               {/* Other integrations */}
               {integrations.map((integration) => (
-                <div key={integration.id} className="rounded-xl border p-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                <div key={integration.id} className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{INTEGRATION_ICONS[integration.slug] ?? '🔌'}</span>
@@ -1452,13 +2350,56 @@ export default function SettingsContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${integration.status === 'connected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{integration.status}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${integration.status === 'connected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{integration.status}</span>
                       <Toggle checked={integration.is_enabled} onChange={(v) => toggleIntegration(integration.id, v)} />
                       <button onClick={() => { setEditingIntegration(integration.id === editingIntegration ? null : integration.id); setIntegrationApiKey(integration.api_key ?? ''); setIntegrationWebhook(integration.webhook_url ?? ''); }} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Configure</button>
                     </div>
                   </div>
+
+                  {/* Setup Instructions collapsible */}
+                  {INTEGRATION_INSTRUCTIONS[integration.slug] && (
+                    <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'hsl(var(--border))' }}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedInstructions(expandedInstructions === integration.id ? null : integration.id)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-left transition-colors hover:bg-black/5"
+                        style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>📋</span> Setup Instructions
+                        </span>
+                        <span style={{ color: 'hsl(var(--muted-foreground))' }}>{expandedInstructions === integration.id ? '▲ Hide' : '▼ Show'}</span>
+                      </button>
+                      {expandedInstructions === integration.id && (() => {
+                        const info = INTEGRATION_INSTRUCTIONS[integration.slug];
+                        return (
+                          <div className="px-4 py-4 space-y-3" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{info.overview}</p>
+                            <ol className="space-y-2.5">
+                              {info.steps.map(({ title, desc }, idx) => (
+                                <li key={idx} className="flex gap-3">
+                                  <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white mt-0.5" style={{ backgroundColor: 'hsl(var(--primary))' }}>{idx + 1}</span>
+                                  <div>
+                                    <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{title}</p>
+                                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{desc}</p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ol>
+                            {info.tip && (
+                              <div className="rounded-lg p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                                <p className="text-xs font-medium mb-0.5" style={{ color: 'hsl(var(--foreground))' }}>💡 Tip</p>
+                                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>{info.tip}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
                   {editingIntegration === integration.id && (
-                    <div className="mt-4 space-y-3 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
+                    <div className="mt-1 space-y-3 pt-4 border-t" style={{ borderColor: 'hsl(var(--border))' }}>
                       <TextInput label="API Key" value={integrationApiKey} onChange={setIntegrationApiKey} placeholder="Enter API key…" />
                       <TextInput label="Webhook URL" value={integrationWebhook} onChange={setIntegrationWebhook} placeholder="https://…" type="url" />
                       <button onClick={() => saveIntegrationConfig(integration.id)} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
@@ -1471,343 +2412,761 @@ export default function SettingsContent() {
               {integrations.length === 0 && <p className="text-sm text-center py-8" style={{ color: 'hsl(var(--muted-foreground))' }}>No integrations available.</p>}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── API Keys sub-tab ── */}
-          {integrationsSubTab === 'api_keys' && (
-            <div className="space-y-5">
-              <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Key size={15} style={{ color: 'hsl(var(--primary))' }} /> API Keys</h2>
-                  <button onClick={() => setShowNewKeyForm((v) => !v)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                    <Key size={13} /> New Key
-                  </button>
+      {/* ── API Keys sub-tab ── */}
+      {integrationsSubTab === 'api_keys' && (
+        <div className="space-y-5">
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Key size={15} style={{ color: 'hsl(var(--primary))' }} /> API Keys</h2>
+              <button onClick={() => setShowNewKeyForm((v) => !v)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                <Key size={13} /> New Key
+              </button>
+            </div>
+            {generatedKey && (
+              <div className="p-3 rounded-lg border border-yellow-300 bg-yellow-50 text-xs space-y-1">
+                <p className="font-semibold text-yellow-800">Copy your API key now — it will not be shown again.</p>
+                <code className="block break-all text-yellow-900">{generatedKey}</code>
+                <button onClick={() => { navigator.clipboard.writeText(generatedKey); toast.success('Copied!'); }} className="px-3 py-1 rounded bg-yellow-200 text-yellow-800 font-medium">Copy</button>
+                <button onClick={() => setGeneratedKey(null)} className="ml-2 px-3 py-1 rounded bg-gray-200 text-gray-700 font-medium">Dismiss</button>
+              </div>
+            )}
+            {showNewKeyForm && (
+              <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextInput label="Key Name" value={newKeyForm.name} onChange={(v) => setNewKeyForm((f) => ({ ...f, name: v }))} placeholder="My Integration Key" />
+                  <TextInput label="Description" value={newKeyForm.description} onChange={(v) => setNewKeyForm((f) => ({ ...f, description: v }))} placeholder="Optional description" />
+                  <TextInput label="Expires At (optional)" value={newKeyForm.expires_at} onChange={(v) => setNewKeyForm((f) => ({ ...f, expires_at: v }))} type="date" />
                 </div>
-                {generatedKey && (
-                  <div className="p-3 rounded-lg border border-yellow-300 bg-yellow-50 text-xs space-y-1">
-                    <p className="font-semibold text-yellow-800">Copy your API key now — it will not be shown again.</p>
-                    <code className="block break-all text-yellow-900">{generatedKey}</code>
-                    <button onClick={() => { navigator.clipboard.writeText(generatedKey); toast.success('Copied!'); }} className="px-3 py-1 rounded bg-yellow-200 text-yellow-800 font-medium">Copy</button>
-                    <button onClick={() => setGeneratedKey(null)} className="ml-2 px-3 py-1 rounded bg-gray-200 text-gray-700 font-medium">Dismiss</button>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes</label>
+                  <div className="flex flex-wrap gap-2">
+                    {API_SCOPES.map((scope) => (
+                      <button key={scope} onClick={() => toggleScopeOnNewKey(scope)} className={`px-2 py-1 rounded text-xs border ${newKeyForm.scopes.includes(scope) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                        style={newKeyForm.scopes.includes(scope) ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                          {scope}
+                        </button>
+                    ))}
                   </div>
-                )}
-                {showNewKeyForm && (
-                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput label="Key Name" value={newKeyForm.name} onChange={(v) => setNewKeyForm((f) => ({ ...f, name: v }))} placeholder="My Integration Key" />
-                      <TextInput label="Description" value={newKeyForm.description} onChange={(v) => setNewKeyForm((f) => ({ ...f, description: v }))} placeholder="Optional description" />
-                      <TextInput label="Expires At (optional)" value={newKeyForm.expires_at} onChange={(v) => setNewKeyForm((f) => ({ ...f, expires_at: v }))} type="date" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes</label>
-                      <div className="flex flex-wrap gap-2">
-                        {API_SCOPES.map((scope) => (
-                          <button key={scope} onClick={() => toggleScopeOnNewKey(scope)} className={`px-2 py-1 rounded text-xs border ${newKeyForm.scopes.includes(scope) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-                            style={newKeyForm.scopes.includes(scope) ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                            {scope}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>{saving ? 'Creating…' : 'Create Key'}</button>
-                      <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  {apiKeys.map((k) => (
-                    <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{k.name} {!k.is_active && <span className="ml-2 text-xs text-red-500">Revoked</span>}</p>
-                        <p className="text-xs font-mono" style={{ color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? k.key_preview : k.key_preview}</p>
-                        <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? 'Hide' : 'Show'}</button>
-                        {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
-                        <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                  {apiKeys.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No API keys yet.</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={createApiKey} disabled={saving} className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
+                    {saving ? 'Creating…' : 'Create Key'}
+                  </button>
+                  <button onClick={() => setShowNewKeyForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                    Cancel
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* ── Webhooks sub-tab ── */}
-          {integrationsSubTab === 'webhooks' && (
-            <div className="space-y-4">
-              <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-                <div className="flex items-center justify-between">
+            )}
+            <div className="space-y-2">
+              {apiKeys.map((k) => (
+                <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
                   <div>
-                    <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-                      <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} /> Webhooks
-                    </h2>
-                    <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Send real-time HTTP requests to external URLs when events occur</p>
+                    <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{k.name} {!k.is_active && <span className="ml-2 text-xs text-red-500">Revoked</span>}</p>
+                    <p className="text-xs font-mono" style={{ color: 'hsl(var(--muted-foreground))' }}>{revealedKeys.has(k.id) ? k.key_preview : k.key_preview}</p>
+                    <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Scopes: {k.scopes.join(', ')} · Used {k.usage_count} times</p>
                   </div>
-                  <button
-                    onClick={() => setShowNewWebhookForm((v) => !v)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-                    style={{ backgroundColor: 'hsl(var(--primary))' }}
-                  >
-                    <Webhook size={13} /> Add Webhook
-                  </button>
-                </div>
-
-                {/* Incoming webhook info */}
-                <div className="rounded-lg p-3 border" style={{ backgroundColor: 'hsl(var(--secondary))', borderColor: 'hsl(var(--border))' }}>
-                  <p className="text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>Incoming Webhook Endpoint (WooCommerce → CastleAdmin)</p>
                   <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono flex-1 break-all" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      POST https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook
-                    </code>
+                    <button onClick={() => setRevealedKeys((s) => { const n = new Set(s); s.has(k.id) ? n.delete(k.id) : n.add(k.id); return n; })} className="text-xs px-2 py-1 rounded border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
+                      {revealedKeys.has(k.id) ? 'Hide' : 'Show'}
+                    </button>
+                    {k.is_active && <button onClick={() => revokeApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-700">Revoke</button>}
+                    <button onClick={() => deleteApiKey(k.id)} className="text-xs px-2 py-1 rounded border border-red-200 text-red-500">Delete</button>
+                  </div>
+                </div>
+              ))}
+              {apiKeys.length === 0 && <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No API keys yet.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Webhooks sub-tab ── */}
+      {integrationsSubTab === 'webhooks' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <Webhook size={15} style={{ color: 'hsl(var(--primary))' }} />
+                <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Outgoing Webhooks</h2>
+              </div>
+              <button
+                onClick={() => setShowNewWebhookForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ backgroundColor: 'hsl(var(--primary))', color: 'white' }}
+              >
+                + Add Webhook
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Configure endpoints to receive real-time notifications when events occur (order created, status updated, driver assigned, etc.).
+            </p>
+
+            {webhooks.length === 0 && !showNewWebhookForm && (
+              <div className="text-center py-8">
+                <Webhook size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No webhooks configured yet.</p>
+              </div>
+            )}
+
+            {showNewWebhookForm && (
+              <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
+                <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
+                  <div>
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
+                    <div className="flex gap-2">
+                      {(['POST', 'GET'] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
+                          className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
+                          style={newWebhookForm.method === m
+                            ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                            : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                        >{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
+                  </div>
+                  <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="HMAC signing secret" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
+                      <button
+                        key={ev}
+                        onClick={() => setNewWebhookForm((f) => ({
+                          ...f,
+                          events: f.events.includes(ev)
+                            ? f.events.filter((e) => e !== ev)
+                            : [...f.events, ev],
+                        }))}
+                        className="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all"
+                        style={newWebhookForm.events.includes(ev)
+                          ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
+                          : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                      >{ev}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end pt-2">
+                  <button onClick={() => { setShowNewWebhookForm(false); setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true }); }} className="btn-secondary text-xs">Cancel</button>
+                  <button
+                    disabled={!newWebhookForm.name || !newWebhookForm.url || newWebhookForm.events.length === 0}
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        const { error } = await supabase.from('webhook_configs').insert({
+                          name: newWebhookForm.name, url: newWebhookForm.url,
+                          method: newWebhookForm.method, secret: newWebhookForm.secret,
+                          events: newWebhookForm.events, is_active: true,
+                        });
+                        if (error) throw error;
+                        const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                        setWebhooks(all ?? []);
+                        setShowNewWebhookForm(false);
+                        setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
+                        toast.success('Webhook created');
+                      } catch (err: unknown) {
+                        toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                      } finally { setSaving(false); }
+                    }}
+                    className="btn-primary text-xs"
+                  ><Save size={12} /> Save Webhook</button>
+                </div>
+              </div>
+            )}
+
+            {webhooks.map((wh) => (
+              <div key={wh.id} className="border rounded-lg p-4" style={{ borderColor: 'hsl(var(--border))' }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {wh.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{wh.method}</span>
+                    </div>
+                    <p className="text-xs font-mono truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {wh.events?.map((ev: string) => (
+                        <span key={ev} className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>{ev}</span>
+                      ))}
+                    </div>
+                    {wh.last_triggered_at && (
+                      <p className="text-[10px] mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Last fired: {new Date(wh.last_triggered_at).toLocaleString('en-GB')} — Status: {wh.last_status ?? 'unknown'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => { navigator.clipboard.writeText('https://castleadmi7836.builtwithrocket.new/api/woocommerce/webhook'); toast.success('Copied!'); }}
-                      className="shrink-0 p-1.5 rounded border"
-                      style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
+                      onClick={async () => {
+                        setTestingWebhook(wh.id ?? null);
+                        try {
+                          const res = await fetch('/api/webhooks/fire', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ event: 'webhook.test', data: { test: true, timestamp: new Date().toISOString() }, webhook_id: wh.id }),
+                          });
+                          const result = await res.json();
+                          if (result.fired > 0) toast.success('Test webhook sent');
+                          else toast.info('No delivery (webhook may not subscribe to webhook.test)');
+                          const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                          setWebhooks(all ?? []);
+                        } catch { toast.error('Test failed'); }
+                        finally { setTestingWebhook(null); }
+                      }}
+                      disabled={testingWebhook === wh.id}
+                      className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title="Test webhook"
                     >
-                      <Copy size={12} />
+                      {testingWebhook === wh.id ? <RefreshCw size={12} className="animate-spin" /> : <Webhook size={12} />}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await supabase.from('webhook_configs').update({ is_active: !wh.is_active }).eq('id', wh.id);
+                        const { data: all } = await supabase.from('webhook_configs').select('*').order('created_at');
+                        setWebhooks(all ?? []);
+                        toast.success(wh.is_active ? 'Webhook paused' : 'Webhook activated');
+                      }}
+                      className="p-1.5 rounded-md border text-xs hover:bg-secondary transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title={wh.is_active ? 'Pause' : 'Activate'}
+                    >
+                      {wh.is_active ? <XCircle size={12} /> : <CheckCircle size={12} />}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Delete webhook "${wh.name}"?`)) return;
+                        await supabase.from('webhook_configs').delete().eq('id', wh.id);
+                        setWebhooks((prev) => prev.filter((w) => w.id !== wh.id));
+                        toast.success('Webhook deleted');
+                      }}
+                      className="p-1.5 rounded-md border text-xs hover:bg-red-50 transition-colors"
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                      title="Delete"
+                    >
+                      <Trash2 size={12} style={{ color: 'hsl(var(--destructive))' }} />
                     </button>
                   </div>
-                  <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Topics: Order created · Order updated · Order completed</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-                {/* New webhook form */}
-                {showNewWebhookForm && (
-                  <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                    <h3 className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New Outgoing Webhook</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput label="Name" value={newWebhookForm.name} onChange={(v) => setNewWebhookForm((f) => ({ ...f, name: v }))} placeholder="My Webhook" />
-                      <div>
-                        <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Method</label>
-                        <div className="flex gap-2">
-                          {(['GET', 'POST'] as const).map((m) => (
-                            <button
-                              key={m}
-                              onClick={() => setNewWebhookForm((f) => ({ ...f, method: m }))}
-                              className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
-                              style={newWebhookForm.method === m
-                                ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' }
-                                : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                            >
-                              {m}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <TextInput label="Endpoint URL" value={newWebhookForm.url} onChange={(v) => setNewWebhookForm((f) => ({ ...f, url: v }))} placeholder="https://your-endpoint.com/webhook" type="url" />
-                      </div>
-                      <TextInput label="Secret (optional)" value={newWebhookForm.secret} onChange={(v) => setNewWebhookForm((f) => ({ ...f, secret: v }))} placeholder="Signing secret for HMAC verification" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events</label>
-                      <div className="flex flex-wrap gap-2">
-                        {['order.created', 'order.updated', 'order.completed', 'order.cancelled', 'driver.assigned', 'driver.offline', 'delivery.failed'].map((ev) => (
-                          <button
-                            key={ev}
-                            onClick={() => setNewWebhookForm((f) => ({
-                              ...f,
-                              events: f.events.includes(ev) ? f.events.filter((e) => e !== ev) : [...f.events, ev],
-                            }))}
-                            className="px-2 py-1 rounded text-xs border"
-                            style={newWebhookForm.events.includes(ev)
-                              ? { borderColor: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }
-                              : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                          >
-                            {ev}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          if (!newWebhookForm.name || !newWebhookForm.url) { toast.error('Name and URL are required'); return; }
-                          const wh: WebhookConfig = { ...newWebhookForm, id: crypto.randomUUID() };
-                          setWebhooks((prev) => [...prev, wh]);
-                          setNewWebhookForm({ name: '', url: '', method: 'POST', secret: '', events: ['order.created'], is_active: true });
-                          setShowNewWebhookForm(false);
-                          toast.success('Webhook added');
-                        }}
-                        className="px-4 py-2 rounded-lg text-xs font-medium text-white"
-                        style={{ backgroundColor: 'hsl(var(--primary))' }}
-                      >
-                        Add Webhook
-                      </button>
-                      <button onClick={() => setShowNewWebhookForm(false)} className="px-4 py-2 rounded-lg text-xs font-medium border" style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Webhook list */}
-                <div className="space-y-2">
-                  {webhooks.map((wh) => (
-                    <div key={wh.id} className="border rounded-lg p-3" style={{ borderColor: 'hsl(var(--border))' }}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>{wh.name}</p>
-                            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${wh.method === 'POST' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{wh.method}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${wh.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{wh.is_active ? 'Active' : 'Inactive'}</span>
-                          </div>
-                          <p className="text-xs font-mono mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{wh.url}</p>
-                          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Events: {wh.events.join(', ')}</p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={async () => {
-                              setTestingWebhook(wh.id ?? null);
-                              try {
-                                const payload = { event: 'test', timestamp: new Date().toISOString(), source: 'castleadmin' };
-                                const res = await fetch(wh.url, {
-                                  method: wh.method,
-                                  headers: { 'Content-Type': 'application/json', ...(wh.secret ? { 'X-Webhook-Secret': wh.secret } : {}) },
-                                  ...(wh.method === 'POST' ? { body: JSON.stringify(payload) } : {}),
-                                });
-                                if (res.ok) toast.success(`Test ${wh.method} to ${wh.url} succeeded (${res.status})`);
-                                else toast.error(`Test failed: HTTP ${res.status}`);
-                              } catch {
-                                toast.error('Test request failed — check the URL and CORS settings');
-                              } finally {
-                                setTestingWebhook(null);
-                              }
-                            }}
-                            disabled={testingWebhook === wh.id}
-                            className="text-xs px-2 py-1 rounded border disabled:opacity-60"
-                            style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
-                          >
-                            {testingWebhook === wh.id ? <Loader size={11} className="animate-spin" /> : 'Test'}
-                          </button>
-                          <Toggle
-                            checked={wh.is_active}
-                            onChange={(v) => setWebhooks((prev) => prev.map((w) => w.id === wh.id ? { ...w, is_active: v } : w))}
-                          />
-                          <button
-                            onClick={() => { setWebhooks((prev) => prev.filter((w) => w.id !== wh.id)); toast.success('Webhook removed'); }}
-                            className="text-xs px-2 py-1 rounded border border-red-200 text-red-500"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {webhooks.length === 0 && (
-                    <div className="text-center py-8">
-                      <Webhook size={28} className="mx-auto mb-2 opacity-30" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                      <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No outgoing webhooks configured yet.</p>
-                      <p className="text-xs mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>Add a webhook to push events to external services.</p>
-                    </div>
-                  )}
+      {/* ── SMTP Mail ─────────────────────────────────────────────────────────── */}
+      {activeTab === 'smtp' && (
+        <div className="space-y-5">
+          {/* Server Settings */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Mail size={16} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>SMTP Server Configuration</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Configure your outgoing mail server. These credentials are used to send booking status emails and notifications.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>SMTP Host</label>
+                <input
+                  type="text"
+                  value={smtpConfig.host}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, host: e.target.value }))}
+                  placeholder="smtp.gmail.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Port</label>
+                <input
+                  type="number"
+                  value={smtpConfig.port}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, port: e.target.value }))}
+                  placeholder="587"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div className="flex items-center gap-3 pt-5">
+                <Toggle
+                  checked={smtpConfig.secure}
+                  onChange={(v) => setSmtpConfig((c) => ({ ...c, secure: v }))}
+                />
+                <div>
+                  <p className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>Use SSL/TLS</p>
+                  <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>Enable for port 465, disable for 587 (STARTTLS)</p>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Driver Rates ──────────────────────────────────────────────────────── */}
-      {activeTab === 'driver_rates' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <Car size={15} style={{ color: 'hsl(var(--primary))' }} /> Driver Rate Settings
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <NumInput label="Base Rate / Hour (£)" value={driverRates.base_rate_per_hour} onChange={(v) => setDriverRates((d) => ({ ...d, base_rate_per_hour: v }))} step="0.01" min="0" />
-              <NumInput label="Rate / KM (£)" value={driverRates.rate_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, rate_per_km: v }))} step="0.01" min="0" />
-              <NumInput label="Overtime Multiplier" value={driverRates.overtime_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, overtime_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Weekend Multiplier" value={driverRates.weekend_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, weekend_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Night Shift Multiplier" value={driverRates.night_shift_multiplier} onChange={(v) => setDriverRates((d) => ({ ...d, night_shift_multiplier: v }))} step="0.01" min="1" />
-              <NumInput label="Bonus / Delivery (£)" value={driverRates.bonus_per_delivery} onChange={(v) => setDriverRates((d) => ({ ...d, bonus_per_delivery: v }))} step="0.01" min="0" />
-              <NumInput label="Fuel Allowance / KM (£)" value={driverRates.fuel_allowance_per_km} onChange={(v) => setDriverRates((d) => ({ ...d, fuel_allowance_per_km: v }))} step="0.01" min="0" />
-              <NumInput label="Min Guaranteed Hours" value={driverRates.min_guaranteed_hours} onChange={(v) => setDriverRates((d) => ({ ...d, min_guaranteed_hours: v }))} step="1" min="0" />
-              <NumInput label="Max Hours / Day" value={driverRates.max_hours_per_day} onChange={(v) => setDriverRates((d) => ({ ...d, max_hours_per_day: v }))} step="1" min="1" />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button onClick={saveDriverRates} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Driver Rates'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Alert Thresholds ──────────────────────────────────────────────────── */}
-      {activeTab === 'alert_thresholds' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
-              <AlertTriangle size={15} style={{ color: 'hsl(var(--primary))' }} /> Alert Thresholds
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <NumInput label="Min Active Drivers" value={alertThresholds.min_active_drivers} onChange={(v) => setAlertThresholds((a) => ({ ...a, min_active_drivers: v }))} step="1" min="1" />
-              <NumInput label="Low Driver Warning (%)" value={alertThresholds.low_driver_warning_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, low_driver_warning_pct: v }))} step="1" min="0" suffix="%" />
-              <NumInput label="Late Delivery (min)" value={alertThresholds.late_delivery_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, late_delivery_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Critical Delay (min)" value={alertThresholds.critical_delay_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, critical_delay_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Max Failed Deliveries (%)" value={alertThresholds.max_failed_deliveries_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, max_failed_deliveries_pct: v }))} step="1" min="0" suffix="%" />
-              <NumInput label="High Order Volume / Hour" value={alertThresholds.high_order_volume_per_hour} onChange={(v) => setAlertThresholds((a) => ({ ...a, high_order_volume_per_hour: v }))} step="1" min="1" />
-              <NumInput label="Unassigned Orders Warning" value={alertThresholds.unassigned_order_warning_count} onChange={(v) => setAlertThresholds((a) => ({ ...a, unassigned_order_warning_count: v }))} step="1" min="1" />
-              <NumInput label="Driver Offline Alert (min)" value={alertThresholds.driver_offline_alert_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, driver_offline_alert_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="GPS Stale Alert (min)" value={alertThresholds.gps_stale_alert_minutes} onChange={(v) => setAlertThresholds((a) => ({ ...a, gps_stale_alert_minutes: v }))} step="1" min="1" suffix="min" />
-              <NumInput label="Daily Revenue Target (£)" value={alertThresholds.daily_revenue_target} onChange={(v) => setAlertThresholds((a) => ({ ...a, daily_revenue_target: v }))} step="1" min="0" />
-              <NumInput label="Low Revenue Warning (%)" value={alertThresholds.low_revenue_warning_pct} onChange={(v) => setAlertThresholds((a) => ({ ...a, low_revenue_warning_pct: v }))} step="1" min="0" suffix="%" />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button onClick={saveAlertThresholds} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save Thresholds'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── System Config ─────────────────────────────────────────────────────── */}
-      {activeTab === 'system' && (
-        <div className="space-y-5">
-          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
-            <h2 className="font-semibold text-sm flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}><Sliders size={15} style={{ color: 'hsl(var(--primary))' }} /> System Configuration</h2>
-            <div className="flex gap-2 flex-wrap">
-              {SYSTEM_CONFIG_CATEGORIES.map((cat) => (
-                <button key={cat} onClick={() => setActiveConfigCategory(cat)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium border capitalize"
-                  style={activeConfigCategory === cat ? { backgroundColor: 'hsl(var(--primary) / 0.1)', borderColor: 'hsl(var(--primary))', color: 'hsl(var(--primary))' } : { borderColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}>
-                  {cat}
-                </button>
-              ))}
-            </div>
-            <div className="space-y-3">
-              {systemConfigs.filter((c) => c.category === activeConfigCategory).map((c) => (
-                <div key={c.config_key} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs font-medium mb-1" style={{ color: 'hsl(var(--foreground))' }}>{c.label}</label>
-                    {c.description && <p className="text-xs mb-1" style={{ color: 'hsl(var(--muted-foreground))' }}>{c.description}</p>}
-                    <input
-                      type={c.is_sensitive ? 'password' : 'text'}
-                      value={configEdits[c.config_key] ?? ''}
-                      onChange={(e) => setConfigEdits((prev) => ({ ...prev, [c.config_key]: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                    />
-                  </div>
-                  <button onClick={() => saveSystemConfig(c.config_key)} disabled={saving} className="mt-5 px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-60 shrink-0" style={{ backgroundColor: 'hsl(var(--primary))' }}>Save</button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Username / Email</label>
+                <input
+                  type="text"
+                  value={smtpConfig.user}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, user: e.target.value }))}
+                  placeholder="you@gmail.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Password / App Password</label>
+                <div className="relative">
+                  <input
+                    type={smtpShowPass ? 'text' : 'password'}
+                    value={smtpConfig.pass}
+                    onChange={(e) => setSmtpConfig((c) => ({ ...c, pass: e.target.value }))}
+                    placeholder="••••••••••••"
+                    className="w-full px-3 py-2 pr-9 rounded-lg border text-sm focus:outline-none"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSmtpShowPass((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                    style={{ color: 'hsl(var(--muted-foreground))' }}
+                  >
+                    {smtpShowPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
-              ))}
-              {systemConfigs.filter((c) => c.category === activeConfigCategory).length === 0 && (
-                <p className="text-sm text-center py-4" style={{ color: 'hsl(var(--muted-foreground))' }}>No configurations in this category.</p>
-              )}
+              </div>
             </div>
-            <div className="flex justify-end">
-              <button onClick={saveAllSystemConfigs} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--primary))' }}>
-                <Save size={15} /> {saving ? 'Saving…' : 'Save All'}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>From Name</label>
+                <input
+                  type="text"
+                  value={smtpConfig.fromName}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, fromName: e.target.value }))}
+                  placeholder="CastleAdmin"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>From Email Address</label>
+                <input
+                  type="email"
+                  value={smtpConfig.fromEmail}
+                  onChange={(e) => setSmtpConfig((c) => ({ ...c, fromEmail: e.target.value }))}
+                  placeholder="noreply@yourcompany.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={saveSmtpConfig}
+                disabled={smtpSaving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {smtpSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {smtpSaving ? 'Saving…' : 'Save SMTP Settings'}
               </button>
             </div>
           </div>
+
+          {/* Test Email */}
+          <div className="rounded-xl border p-5 space-y-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Test Connection</h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Send a test email to verify your SMTP settings are working correctly.
+            </p>
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Send Test Email To</label>
+                <input
+                  type="email"
+                  value={smtpTestEmail}
+                  onChange={(e) => setSmtpTestEmail(e.target.value)}
+                  placeholder="test@example.com"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!smtpTestEmail) { toast.error('Enter a recipient email address'); return; }
+                  if (!smtpConfig.host || !smtpConfig.user || !smtpConfig.pass || !smtpConfig.fromEmail) {
+                    toast.error('Fill in all SMTP fields before testing');
+                    return;
+                  }
+                  setSmtpTesting(true);
+                  try {
+                    const res = await fetch('/api/smtp/test', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        host: smtpConfig.host,
+                        port: smtpConfig.port,
+                        secure: smtpConfig.secure,
+                        user: smtpConfig.user,
+                        pass: smtpConfig.pass,
+                        fromName: smtpConfig.fromName,
+                        fromEmail: smtpConfig.fromEmail,
+                        toEmail: smtpTestEmail,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      toast.success('Test email sent successfully!');
+                    } else {
+                      toast.error(`SMTP test failed: ${data.error}`);
+                    }
+                  } catch {
+                    toast.error('Failed to reach SMTP test endpoint');
+                  } finally {
+                    setSmtpTesting(false);
+                  }
+                }}
+                disabled={smtpTesting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-60 whitespace-nowrap"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+              >
+                {smtpTesting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                {smtpTesting ? 'Sending…' : 'Send Test'}
+              </button>
+            </div>
+          </div>
+
+          {/* Info Banner */}
+          <div className="rounded-xl border-2 border-red-200 p-4 flex gap-3" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: 'hsl(var(--primary))' }} />
+            <div className="text-xs space-y-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              <p className="font-medium" style={{ color: 'hsl(var(--foreground))' }}>SMTP settings are saved to the database</p>
+              <p>Click <strong>Save SMTP Settings</strong> to persist your configuration. Settings are loaded from the database on startup and override environment variable defaults.</p>
+              <p>For Gmail, use an <strong>App Password</strong> (not your account password). Enable 2FA first, then generate an App Password under Google Account → Security.</p>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
+      {activeTab === 'database' && (
+        <>
+          {/* ── Backup & Export ──────────────────────────────────────────────────── */}
+          <div className="rounded-xl border p-5 space-y-4 mt-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Database size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Backup &amp; Export</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Download a full backup of all your data as a JSON file, or export individual tables as JSON or CSV.
+            </p>
+
+            {/* Format selector + full backup */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>Format:</label>
+                <select
+                  value={dbExportFormat}
+                  onChange={(e) => setDbExportFormat(e.target.value as 'json' | 'csv')}
+                  className="px-2 py-1.5 rounded-lg border text-xs focus:outline-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                >
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                </select>
+              </div>
+              <button
+                onClick={async () => {
+                  setDbExporting(true);
+                  try {
+                    const res = await fetch(`/api/database/export?format=${dbExportFormat}`);
+                    if (!res.ok) throw new Error('Export failed');
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `castle_admin_backup_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success('Full backup downloaded successfully');
+                  } catch {
+                    toast.error('Failed to export database');
+                  } finally {
+                    setDbExporting(false);
+                  }
+                }}
+                disabled={dbExporting}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {dbExporting ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
+                {dbExporting ? 'Exporting…' : 'Download Full Backup'}
+              </button>
+            </div>
+
+            {/* Per-table exports */}
+            <div className="space-y-2 pt-1">
+              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Export Individual Tables</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {['orders', 'drivers', 'customers', 'vehicles', 'driver_shifts', 'driver_earnings', 'delivery_zones', 'notifications', 'activity_logs'].map((tbl) => (
+                  <button
+                    key={tbl}
+                    onClick={async () => {
+                      setDbTableExporting(tbl);
+                      try {
+                        const res = await fetch(`/api/database/export?format=${dbExportFormat}&table=${tbl}`);
+                        if (!res.ok) throw new Error('Export failed');
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${tbl}_${new Date().toISOString().split('T')[0]}.${dbExportFormat}`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast.success(`${tbl} exported`);
+                      } catch {
+                        toast.error(`Failed to export ${tbl}`);
+                      } finally {
+                        setDbTableExporting(null);
+                      }
+                    }}
+                    disabled={dbTableExporting === tbl}
+                    className="flex items-center justify-between gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors disabled:opacity-60"
+                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+                  >
+                    <span className="truncate">{tbl.replace(/_/g, ' ')}</span>
+                    {dbTableExporting === tbl ? <Loader2 size={12} className="animate-spin flex-shrink-0" /> : <Upload size={12} className="flex-shrink-0 rotate-180" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Import / Restore ─────────────────────────────────────────────────── */}
+          <div className="rounded-xl border p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <Upload size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm" style={{ color: 'hsl(var(--foreground))' }}>Import / Restore Database</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Restore data from a previously exported JSON backup file. Existing rows with matching IDs will be updated; new rows will be inserted.
+            </p>
+
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setImportBackupFile(file);
+                setImportBackupResult(null);
+              }}
+            />
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => importFileRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
+                style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', backgroundColor: 'hsl(var(--background))' }}
+              >
+                <Upload size={14} />
+                {importBackupFile ? importBackupFile.name : 'Choose Backup File'}
+              </button>
+
+              {importBackupFile && (
+                <button
+                  onClick={async () => {
+                    if (!importBackupFile) return;
+                    setImportingBackup(true);
+                    setImportBackupResult(null);
+                    try {
+                      const text = await importBackupFile.text();
+                      const parsed = JSON.parse(text);
+                      const backupData: Record<string, Record<string, unknown>[]> = parsed.data ?? parsed;
+
+                      const supabase = createClient();
+                      let successCount = 0;
+                      let failedCount = 0;
+                      const importedTables: string[] = [];
+
+                      for (const [tableName, rows] of Object.entries(backupData)) {
+                        if (!Array.isArray(rows) || rows.length === 0) continue;
+                        try {
+                          const { error } = await supabase.from(tableName as any).upsert(rows as any[], { onConflict: 'id' });
+                          if (error) {
+                            failedCount += rows.length;
+                          } else {
+                            successCount += rows.length;
+                            importedTables.push(tableName);
+                          }
+                        } catch {
+                          failedCount += rows.length;
+                        }
+                      }
+
+                      setImportBackupResult({ success: successCount, failed: failedCount, tables: importedTables });
+                      if (successCount > 0) {
+                        toast.success(`Import complete: ${successCount} rows restored across ${importedTables.length} tables`);
+                      } else {
+                        toast.error('Import failed — no rows were restored');
+                      }
+                    } catch {
+                      toast.error('Invalid backup file — could not parse JSON');
+                    } finally {
+                      setImportingBackup(false);
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                  style={{ backgroundColor: 'hsl(var(--primary))' }}
+                >
+                  {importingBackup ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {importingBackup ? 'Importing…' : 'Restore Backup'}
+                </button>
+              )}
+            </div>
+
+            {importBackupResult && (
+              <div className={`rounded-lg p-3 text-xs space-y-1 ${importBackupResult.failed === 0 ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                <p className="font-medium" style={{ color: importBackupResult.failed === 0 ? '#166534' : '#92400e' }}>
+                  Import Result: {importBackupResult.success} rows restored, {importBackupResult.failed} failed
+                </p>
+                {importBackupResult.tables.length > 0 && (
+                  <p style={{ color: 'hsl(var(--muted-foreground))' }}>Tables: {importBackupResult.tables.join(', ')}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Force Clear Cache ──────────────────────────────────────────────────── */}
+          <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <RefreshCw size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="font-semibold text-sm text-red-600">Force Clear Cache</h2>
+            </div>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Clears all locally stored data including browser cache, localStorage, sessionStorage, and service worker caches. Use this if you are experiencing stale data or display issues. The page will automatically reload after clearing.
+            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={clearCache}
+                disabled={clearingCache}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-opacity disabled:opacity-60"
+                style={{ backgroundColor: 'hsl(var(--primary))' }}
+              >
+                {clearingCache ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Clearing…</>
+                ) : (
+                  <><RefreshCw size={14} /> Clear Cache</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
+          <div className="rounded-xl border-2 border-red-200 p-5 space-y-4 mt-4" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-500" />
+              <h2 className="font-semibold text-sm text-red-600">Danger Zone</h2>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-red-50 border border-red-100">
+              <div>
+                <p className="text-sm font-medium text-red-700">Reset App Data</p>
+                <p className="text-xs text-red-500 mt-0.5">Permanently removes all demo data — bookings, drivers, staff, vehicles, customers, and logs. Your admin account will be preserved.</p>
+              </div>
+              <button
+                onClick={() => { setShowResetModal(true); setResetConfirmText(''); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors whitespace-nowrap flex-shrink-0"
+              >
+                <Trash2 size={14} /> Reset App
+              </button>
+            </div>
+          </div>
+
+          {/* ── Reset Confirmation Modal ───────────────────────────────────────────── */}
+          {showResetModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <div className="rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}>
+                {/* Header */}
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-full bg-red-100 flex-shrink-0">
+                    <AlertTriangle size={20} className="text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base" style={{ color: 'hsl(var(--foreground))' }}>Reset App Data</h3>
+                    <p className="text-sm mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>This action is <strong>irreversible</strong>. The following data will be permanently deleted:</p>
+                  </div>
+                </div>
+
+                {/* What will be deleted */}
+                <ul className="text-sm space-y-1 pl-4 list-disc" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  <li>All bookings &amp; orders</li>
+                  <li>All drivers &amp; driver data</li>
+                  <li>All staff / team roles (except your admin account)</li>
+                  <li>All vehicles, inspections &amp; incidents</li>
+                  <li>All customers</li>
+                  <li>All activity logs, notifications &amp; alerts</li>
+                </ul>
+
+                {/* What is preserved */}
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
+                  <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+                  <p className="text-xs text-green-700 font-medium">Your admin account and all settings will be preserved.</p>
+                </div>
+
+                {/* Confirm input */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    Type <span className="font-bold text-red-600">RESET</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Type RESET here"
+                    className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-red-300"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => { setShowResetModal(false); setResetConfirmText(''); }}
+                    disabled={resetting}
+                    className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50"
+                    style={{ borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={resetAppData}
+                    disabled={resetConfirmText !== 'RESET' || resetting}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {resetting ? (
+                      <><RefreshCw size={14} className="animate-spin" /> Resetting…</>
+                    ) : (
+                      <><Trash2 size={14} /> Confirm Reset</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

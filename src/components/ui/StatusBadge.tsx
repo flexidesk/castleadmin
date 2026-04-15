@@ -1,9 +1,9 @@
 import React from 'react';
-import { CheckCircle2, Clock, Truck, PackageCheck, Circle } from 'lucide-react';
+import { CheckCircle2, Clock, Truck, PackageCheck, Circle, XCircle } from 'lucide-react';
 import Icon from '@/components/ui/AppIcon';
 
 
-export type BookingStatus = 'Booking Accepted' | 'Booking Assigned' | 'Booking Out For Delivery' | 'Booking Complete';
+export type BookingStatus = 'Booking Accepted' | 'Booking Assigned' | 'Booking Out For Delivery' | 'Booking Complete' | 'Booking Failed';
 export type BookingType = 'Delivery' | 'Collection';
 export type PaymentStatus = 'Paid' | 'Unpaid' | 'Partial';
 export type PaymentMethod = 'Card' | 'Cash' | 'Unrecorded';
@@ -36,12 +36,17 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     'Booking Out For Delivery': {
       className: 'badge badge-outfordelivery',
       icon: Truck,
-      label: 'Out For Delivery',
+      label: 'In Transit',
     },
     'Booking Complete': {
       className: 'badge badge-complete',
       icon: CheckCircle2,
       label: 'Complete',
+    },
+    'Booking Failed': {
+      className: 'badge badge-failed',
+      icon: XCircle,
+      label: 'Failed',
     },
   };
 

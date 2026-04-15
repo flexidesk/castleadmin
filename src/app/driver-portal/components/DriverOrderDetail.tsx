@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppOrder } from '@/lib/services/ordersService';
 import { ordersService } from '@/lib/services/ordersService';
+import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { ArrowLeft, MapPin, Clock, Package, Phone, MessageSquare, CheckCircle2, Truck, Navigation, FileCheck, ChevronRight,  } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import DriverPODUpload from './DriverPODUpload';
 import Icon from '@/components/ui/AppIcon';
+import DeliveryStatusButtons from './DeliveryStatusButtons';
 
 
 interface Props {
@@ -19,7 +21,7 @@ interface Props {
 const STATUS_FLOW = [
   { key: 'Booking Accepted', label: 'Accepted', icon: CheckCircle2 },
   { key: 'Booking Assigned', label: 'Assigned', icon: Truck },
-  { key: 'Booking Out For Delivery', label: 'Out for Delivery', icon: Navigation },
+  { key: 'Booking Out For Delivery', label: 'In Transit', icon: Navigation },
   { key: 'Booking Complete', label: 'Complete', icon: FileCheck },
 ];
 
@@ -29,10 +31,48 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
   const [activeTab, setActiveTab] = useState<TabKey>('details');
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<AppOrder>(order);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [statusUpdates, setStatusUpdates] = useState<any[]>([]);
+
+  const supabase = createClient();
+
+  useEffect(() => {
+    const loadDriverAndUpdates = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: driverData } = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (driverData) {
+        setDriverId(driverData.id);
+      }
+
+      const { data: updates } = await supabase
+        .from('delivery_status_updates')
+        .select('*')
+        .eq('order_id', order.id)
+        .order('timestamp', { ascending: true });
+
+      if (updates) {
+        setStatusUpdates(updates);
+      }
+    };
+
+    loadDriverAndUpdates();
+  }, [order.id]);
 
   const currentStatusIdx = STATUS_FLOW.findIndex(s => s.key === currentOrder.status);
   const nextStatus = currentStatusIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentStatusIdx + 1] : null;
   const isComplete = currentOrder.status === 'Booking Complete';
+
+  const ALL_TASK_KEYS = ['departed', 'arrived_at_location', 'started_delivery', 'completed'];
+  const allTasksDone = ALL_TASK_KEYS.every(key => statusUpdates.some(u => u.status === key));
+  const isMarkingComplete = nextStatus?.key === 'Booking Complete';
+  const canAdvance = !isMarkingComplete || allTasksDone;
 
   const handleAdvanceStatus = async () => {
     if (!nextStatus) return;
@@ -140,12 +180,13 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
         {!isComplete && nextStatus && (
           <button
             onClick={handleAdvanceStatus}
-            disabled={updatingStatus}
+            disabled={updatingStatus || !canAdvance}
             className="w-full mt-2 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2"
             style={{
-              backgroundColor: 'hsl(var(--primary))',
-              color: 'white',
+              backgroundColor: canAdvance ? 'hsl(var(--primary))' : 'hsl(var(--muted))',
+              color: canAdvance ? 'white' : 'hsl(var(--muted-foreground))',
               opacity: updatingStatus ? 0.7 : 1,
+              cursor: canAdvance ? 'pointer' : 'not-allowed',
             }}
           >
             {updatingStatus ? (
@@ -157,6 +198,11 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
               </>
             )}
           </button>
+        )}
+        {!isComplete && isMarkingComplete && !allTasksDone && (
+          <p className="text-xs text-center mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+            Complete all delivery status updates above before marking as complete
+          </p>
         )}
         {isComplete && (
           <div
@@ -192,6 +238,14 @@ export default function DriverOrderDetail({ order, onBack, onStatusUpdate }: Pro
       {/* Tab Content */}
       {activeTab === 'details' && (
         <div className="space-y-3">
+          {/* Delivery Status Buttons */}
+          <DeliveryStatusButtons
+            orderId={currentOrder.id}
+            driverId={driverId}
+            existingUpdates={statusUpdates}
+            onUpdate={(update) => setStatusUpdates((prev) => [...prev, update])}
+          />
+
           {/* Customer Info */}
           <div
             className="rounded-xl border p-4 space-y-3"

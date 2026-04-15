@@ -100,14 +100,14 @@ export default function OrdersDashboardPage() {
           <RouteOptimizationPanel />
         </CollapsibleSection>
 
-        {/* Live Driver Map */}
-        <CollapsibleSection title="Live Driver Tracking" icon={Map} defaultOpen={true}>
-          <DriverLocationMap />
-        </CollapsibleSection>
-
         {/* Bookings Table */}
         <CollapsibleSection title="Bookings Table" icon={Table2} defaultOpen={true}>
           <OrdersTable />
+        </CollapsibleSection>
+
+        {/* Live Driver Map */}
+        <CollapsibleSection title="Live Driver Tracking" icon={Map} defaultOpen={true}>
+          <DriverLocationMap />
         </CollapsibleSection>
       </div>
     </AppLayout>

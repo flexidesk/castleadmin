@@ -176,6 +176,11 @@
     color: hsl(142 69% 30%);
   }
 
+  .badge-failed {
+    background-color: hsl(0 84% 55% / 0.12);
+    color: hsl(0 84% 40%);
+  }
+
   .badge-delivery {
     background-color: hsl(213 79% 28% / 0.08);
     color: hsl(213 79% 28%);

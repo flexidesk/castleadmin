@@ -1,12 +1,5 @@
-import AppLayout from '@/components/AppLayout';
-import DriverManagementContent from './components/DriverManagementContent';
-
-export const metadata = { title: 'Driver Management | CastleAdmin' };
+import { redirect } from 'next/navigation';
 
 export default function DriverManagementPage() {
-  return (
-    <AppLayout>
-      <DriverManagementContent />
-    </AppLayout>
-  );
+  redirect('/drivers');
 }

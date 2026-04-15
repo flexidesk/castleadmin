@@ -1,4 +1,4 @@
-import { imageHosts } from './image-hosts.config.js';
+import { imageHosts } from './image-hosts.config.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -28,11 +28,12 @@ const nextConfig = {
   },
 
   webpack(config) {
-    config.module.rules.push({
+config.module.rules.push({
       test: /\.(jsx|tsx)$/,
       exclude: [/node_modules/],
       use: [{ loader: '@dhiwise/component-tagger/nextLoader' }],
     });
+
     return config;
   }
 };

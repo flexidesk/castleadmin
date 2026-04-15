@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { Eye, EyeOff, Lock, Mail, AlertCircle, Truck } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import AppLogo from '@/components/ui/AppLogo';
 
 interface DriverLoginFormData {
@@ -14,10 +13,12 @@ interface DriverLoginFormData {
 
 export default function DriverLoginPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [rateLimitCooldown, setRateLimitCooldown] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const MAX_ATTEMPTS = 5;
 
   const {
     register,
@@ -28,36 +29,52 @@ export default function DriverLoginPage() {
   });
 
   const onSubmit = async (data: DriverLoginFormData) => {
+    if (rateLimitCooldown > 0) return;
     setIsLoading(true);
     setAuthError(null);
     try {
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
+      const res = await fetch('/api/drivers/portal-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.trim(), password: data.password }),
       });
 
-      if (error) throw error;
+      const json = await res.json();
 
-      // Verify this user is linked to a driver record
-      const { data: driverData, error: driverError } = await supabase
-        .from('drivers')
-        .select('id, name')
-        .eq('auth_user_id', authData.user.id)
-        .single();
-
-      if (driverError || !driverData) {
-        // Sign out — not a driver account
-        await supabase.auth.signOut();
-        throw new Error('No driver account found for these credentials. Please contact your administrator.');
+      if (!res.ok) {
+        throw new Error(json.error || 'Invalid email or password');
       }
 
+      setFailedAttempts(0);
       router.push('/driver-portal');
       router.refresh();
     } catch (error: any) {
-      const msg = error?.message || 'Invalid email or password. Please try again.';
-      setAuthError(msg);
-    } finally {
       setIsLoading(false);
+      const rawMsg: string = error?.message || '';
+
+      const newAttempts = failedAttempts + 1;
+      setFailedAttempts(newAttempts);
+
+      if (newAttempts >= MAX_ATTEMPTS) {
+        setAuthError(
+          'Too many failed attempts. Please wait before trying again, or contact your administrator if you need access.'
+        );
+        let seconds = 30;
+        setRateLimitCooldown(seconds);
+        const interval = setInterval(() => {
+          seconds -= 1;
+          setRateLimitCooldown(seconds);
+          if (seconds <= 0) {
+            clearInterval(interval);
+            setFailedAttempts(0);
+          }
+        }, 1000);
+      } else {
+        const remaining = MAX_ATTEMPTS - newAttempts;
+        setAuthError(
+          rawMsg || `Invalid email or password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+        );
+      }
     }
   };
 
@@ -116,6 +133,19 @@ export default function DriverLoginPage() {
             >
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <span>{authError}</span>
+            </div>
+          )}
+
+          {failedAttempts > 0 && failedAttempts < MAX_ATTEMPTS && !rateLimitCooldown && (
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg mb-4 text-xs"
+              style={{
+                color: 'hsl(var(--muted-foreground))',
+                border: '1px solid hsl(var(--border))',
+              }}
+            >
+              <span className="font-medium">{failedAttempts}/{MAX_ATTEMPTS} failed attempts</span>
+              <span>— account will be temporarily locked after {MAX_ATTEMPTS} failures.</span>
             </div>
           )}
 
@@ -197,7 +227,7 @@ export default function DriverLoginPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || rateLimitCooldown > 0}
               className="btn-primary w-full justify-center py-2.5 mt-2"
             >
               {isLoading ? (
@@ -224,6 +254,8 @@ export default function DriverLoginPage() {
                   </svg>
                   Signing in…
                 </>
+              ) : rateLimitCooldown > 0 ? (
+                `Try again in ${rateLimitCooldown}s`
               ) : (
                 'Sign in as Driver'
               )}
@@ -240,6 +272,33 @@ export default function DriverLoginPage() {
             style={{ color: 'hsl(var(--primary))' }}
           >
             Sign in to Admin Dashboard
+          </a>
+        </p>
+
+        {/* Auth test link */}
+        <p className="mt-3 text-center text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          <a
+            href="/driver-portal/auth-test"
+            className="transition-colors hover:underline opacity-60 hover:opacity-100"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+          >
+            🧪 Auth test suite
+          </a>
+          <span className="mx-2 opacity-40">·</span>
+          <a
+            href="/driver-portal/e2e-test"
+            className="transition-colors hover:underline opacity-60 hover:opacity-100"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+          >
+            🚚 E2E test suite
+          </a>
+          <span className="mx-2 opacity-40">·</span>
+          <a
+            href="/driver-portal/flow-test"
+            className="transition-colors hover:underline opacity-60 hover:opacity-100"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+          >
+            🔄 Flow test
           </a>
         </p>
       </div>

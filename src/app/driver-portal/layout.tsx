@@ -9,6 +9,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Driver Portal',
   },
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+    shortcut: '/favicon.ico',
+  },
   formatDetection: {
     telephone: false,
   },

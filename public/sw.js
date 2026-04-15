@@ -1,4 +1,4 @@
-const CACHE_NAME = 'castle-driver-portal-v1';
+const CACHE_NAME = 'castle-driver-portal-v4';
 const OFFLINE_URL = '/driver-portal';
 
 const PRECACHE_URLS = [
@@ -6,9 +6,12 @@ const PRECACHE_URLS = [
   '/driver-portal/login',
   '/manifest.json',
   '/favicon.ico',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+  '/icons/icon.svg',
 ];
+
+// ── Background Sync Queue ─────────────────────────────────────────────────────
+const GPS_SYNC_TAG = 'gps-location-sync';
+const gpsQueue = [];
 
 // Install: pre-cache key shell resources
 self.addEventListener('install', (event) => {
@@ -47,13 +50,12 @@ self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests (Supabase, external APIs)
   if (url.origin !== self.location.origin) return;
 
-  // Skip Next.js internal routes
-  if (url.pathname.startsWith('/_next/')) {
-    event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request))
-    );
-    return;
-  }
+  // Only handle /driver-portal requests — never intercept admin panel or other routes
+  if (!url.pathname.startsWith('/driver-portal')) return;
+
+  // Never cache Next.js build artifacts — they change every build and serving
+  // stale chunks triggers ChunkLoadError
+  if (url.pathname.startsWith('/_next/')) return;
 
   // For driver-portal pages: network-first with offline fallback
   if (url.pathname.startsWith('/driver-portal')) {
@@ -106,13 +108,72 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request).then((response) => {
         if (response.ok) {
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+          const cloned = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, cloned));
         }
         return response;
       });
       return cached || fetchPromise;
     })
   );
+});
+
+// ── Background Sync ───────────────────────────────────────────────────────────
+// Fires when connectivity is restored — flushes queued GPS updates
+self.addEventListener('sync', (event) => {
+  if (event.tag === GPS_SYNC_TAG) {
+    event.waitUntil(flushGpsQueue());
+  }
+});
+
+async function flushGpsQueue() {
+  try {
+    const cache = await caches.open('gps-queue-v1');
+    const keys = await cache.keys();
+    for (const key of keys) {
+      const response = await cache.match(key);
+      if (!response) continue;
+      const payload = await response.json();
+      try {
+        await fetch('/api/driver/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        await cache.delete(key);
+      } catch {
+        // Keep in queue for next sync
+      }
+    }
+  } catch {
+    // Silent
+  }
+}
+
+// ── Message Handler ───────────────────────────────────────────────────────────
+// Receives GPS data from the page to queue for background sync
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+
+  if (event.data.type === 'QUEUE_GPS_UPDATE') {
+    const payload = event.data.payload;
+    // Store in cache for background sync
+    caches.open('gps-queue-v1').then((cache) => {
+      const key = `/gps-queue/${Date.now()}`;
+      cache.put(key, new Response(JSON.stringify(payload), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    });
+
+    // Register background sync if supported
+    if (self.registration.sync) {
+      self.registration.sync.register(GPS_SYNC_TAG).catch(() => {});
+    }
+  }
+
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // ── Push Notifications ────────────────────────────────────────────────────────
@@ -125,28 +186,30 @@ self.addEventListener('push', (event) => {
     payload = event.data.json();
   } catch {
     payload = {
-      title: 'CastleAdmin',
+      title: 'Castle Driver Portal',
       body: event.data.text(),
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
-      tag: 'castle-admin',
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      tag: 'castle-driver',
       data: {},
     };
   }
 
   const options = {
     body: payload.body || '',
-    icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/icon-72x72.png',
-    tag: payload.tag || 'castle-admin',
+    icon: payload.icon || '/icons/icon.svg',
+    badge: payload.badge || '/icons/icon.svg',
+    tag: payload.tag || 'castle-driver',
     data: payload.data || {},
-    requireInteraction: payload.requireInteraction || false,
+    requireInteraction: payload.requireInteraction !== undefined ? payload.requireInteraction : true,
     actions: payload.actions || [],
-    vibrate: [200, 100, 200],
+    vibrate: [200, 100, 200, 100, 200],
+    renotify: true,
+    silent: false,
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'CastleAdmin', options)
+    self.registration.showNotification(payload.title || 'Castle Driver Portal', options)
   );
 });
 
@@ -156,10 +219,10 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  let url = '/orders-dashboard';
+  let url = '/driver-portal';
 
   if (data.orderId) {
-    url = `/order-detail?id=${data.orderId}`;
+    url = `/driver-portal?order=${data.orderId}`;
   } else if (data.url) {
     url = data.url;
   }
@@ -179,4 +242,22 @@ self.addEventListener('notificationclick', (event) => {
       }
     })
   );
+});
+
+// ── Notification Close ────────────────────────────────────────────────────────
+
+self.addEventListener('notificationclose', (event) => {
+  // Track dismissed notifications if needed
+  const data = event.notification.data || {};
+  if (data.trackDismiss) {
+    // Could send analytics here
+  }
+});
+
+// ── Periodic Background Sync (Android Chrome) ─────────────────────────────────
+// Allows background GPS updates even when app is not in foreground
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'gps-periodic-sync') {
+    event.waitUntil(flushGpsQueue());
+  }
 });

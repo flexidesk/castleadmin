@@ -284,7 +284,7 @@ export default function CustomerManagementContent() {
         {[
           { label: 'Active Customers', value: totalActive, icon: Users, color: 'hsl(var(--primary))' },
           { label: 'Total Orders', value: totalOrders, icon: ShoppingBag, color: '#10b981' },
-          { label: 'Total Revenue', value: `$${totalRevenue.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: '#f59e0b' },
+          { label: 'Total Revenue', value: `£${totalRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: '#f59e0b' },
           { label: 'Avg Rating', value: avgRating > 0 ? avgRating.toFixed(1) : '—', icon: Star, color: '#f59e0b' },
         ].map((kpi) => (
           <div
@@ -417,7 +417,7 @@ export default function CustomerManagementContent() {
                       {/* Lifetime Spend */}
                       <td className="px-4 py-3">
                         <span className="font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                          ${(s?.lifetime_spend ?? 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          £{(s?.lifetime_spend ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </td>
 
