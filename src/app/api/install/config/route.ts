@@ -1,17 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
-
-const configDir = path.join(process.cwd(), 'storage');
-const configPath = path.join(configDir, 'install-config.json');
-
-function ensureConfigDir() {
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
-}
 
 function sanitizeConfig(data: any) {
   return {
@@ -26,21 +15,6 @@ function sanitizeConfig(data: any) {
 
 export async function GET() {
   try {
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
-
-      return NextResponse.json({
-        config: {
-          DB_HOST: parsed.DB_HOST || '',
-          DB_PORT: parsed.DB_PORT || '10002',
-          DB_NAME: parsed.DB_NAME || '',
-          DB_USER: parsed.DB_USER || '',
-          DATABASE_SSL: parsed.DATABASE_SSL || 'false',
-        },
-      });
-    }
-
     return NextResponse.json({
       config: {
         DB_HOST: process.env.DB_HOST || '',
@@ -63,7 +37,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const config = sanitizeConfig(body);
 
-    const missing = ['DB_HOST', 'DB_NAME', 'DB_USER'].filter((key) => !config[key as keyof typeof config]);
+    const missing = ['DB_HOST', 'DB_NAME', 'DB_USER'].filter(
+      (key) => !config[key as keyof typeof config]
+    );
     if (missing.length) {
       return NextResponse.json(
         { error: `Missing required fields: ${missing.join(', ')}` },
@@ -71,9 +47,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    ensureConfigDir();
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-
+    // In a serverless environment the filesystem is read-only.
+    // Configuration is managed via environment variables.
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json(
