@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import sql from 'mssql';
 import fs from 'fs';
 import path from 'path';
 
@@ -10,7 +10,6 @@ const configPath = path.join(process.cwd(), 'storage', 'install-config.json');
 
 function getDbConfig() {
   let fileConfig: any = {};
-
   try {
     if (fs.existsSync(configPath)) {
       fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -19,7 +18,7 @@ function getDbConfig() {
 
   return {
     DB_HOST: fileConfig.DB_HOST || process.env.DB_HOST,
-    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '3306',
+    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '10002',
     DB_NAME: fileConfig.DB_NAME || process.env.DB_NAME,
     DB_USER: fileConfig.DB_USER || process.env.DB_USER,
     DB_PASSWORD: fileConfig.DB_PASSWORD || process.env.DB_PASSWORD,
@@ -27,109 +26,49 @@ function getDbConfig() {
   };
 }
 
-function getServerConnection() {
+function getMssqlConfig(dbName?: string): sql.config {
   const cfg = getDbConfig();
-
-  return mysql.createConnection({
-    host: cfg.DB_HOST,
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    port: parseInt(cfg.DB_PORT || '3306', 10),
-    multipleStatements: false,
-    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-  });
+  return {
+    server: cfg.DB_HOST!,
+    database: dbName || cfg.DB_NAME!,
+    user: cfg.DB_USER!,
+    password: cfg.DB_PASSWORD!,
+    port: parseInt(cfg.DB_PORT || '10002', 10),
+    options: {
+      encrypt: cfg.DATABASE_SSL === 'true',
+      trustServerCertificate: true,
+      enableArithAbort: true,
+    },
+    connectionTimeout: 15000,
+    requestTimeout: 30000,
+  };
 }
 
-function getDatabaseConnection() {
-  const cfg = getDbConfig();
-
-  return mysql.createConnection({
-    host: cfg.DB_HOST,
-    database: cfg.DB_NAME,
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    port: parseInt(cfg.DB_PORT || '3306', 10),
-    multipleStatements: false,
-    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-  });
-}
-
-function splitStatements(sql: string): string[] {
+function splitStatements(sqlText: string): string[] {
+  // Split on GO or semicolons for MSSQL
+  const byGo = sqlText.split(/^\s*GO\s*$/im);
   const statements: string[] = [];
-  let current = '';
-  let inString = false;
-  let stringChar = '';
-  let i = 0;
 
-  while (i < sql.length) {
-    const ch = sql[i];
-
-    if (!inString && ch === '-' && sql[i + 1] === '-') {
-      const end = sql.indexOf('\n', i);
-      i = end === -1 ? sql.length : end + 1;
-      continue;
+  for (const block of byGo) {
+    const parts = block.split(';');
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const lines = trimmed.split('\n').filter((l) => l.trim().length > 0);
+      const hasContent = lines.some((l) => !l.trim().startsWith('--'));
+      if (hasContent) statements.push(trimmed);
     }
-
-    if (!inString && ch === '/' && sql[i + 1] === '*') {
-      const end = sql.indexOf('*/', i + 2);
-      i = end === -1 ? sql.length : end + 2;
-      continue;
-    }
-
-    if (!inString && (ch === "'" || ch === '"' || ch === '`')) {
-      inString = true;
-      stringChar = ch;
-      current += ch;
-      i++;
-      continue;
-    }
-
-    if (inString && ch === stringChar) {
-      if (sql[i + 1] === stringChar) {
-        current += ch + ch;
-        i += 2;
-        continue;
-      }
-      inString = false;
-      current += ch;
-      i++;
-      continue;
-    }
-
-    if (!inString && ch === ';') {
-      const trimmed = current.trim();
-      if (trimmed) {
-        statements.push(trimmed);
-      }
-      current = '';
-      i++;
-      continue;
-    }
-
-    current += ch;
-    i++;
   }
 
-  const trimmed = current.trim();
-  if (trimmed) {
-    statements.push(trimmed);
-  }
-
-  return statements.filter((s) => {
-    const clean = s.trim();
-    if (!clean) return false;
-    const lines = clean.split('\n').filter((l) => l.trim().length > 0);
-    return lines.some((l) => !l.trim().startsWith('--'));
-  });
+  return statements;
 }
 
 function getSqlFile(): { sql: string | null; checkedPaths: string[] } {
   const checkedPaths = [
+    path.join(process.cwd(), 'scripts', 'mssql-setup.sql'),
     path.join(process.cwd(), 'scripts', 'mysql-setup.sql'),
-    path.join(process.cwd(), 'castleadmin', 'scripts', 'mysql-setup.sql'),
-    path.join(path.resolve(process.cwd(), '..'), 'scripts', 'mysql-setup.sql'),
+    path.join(process.cwd(), 'castleadmin', 'scripts', 'mssql-setup.sql'),
+    path.join(path.resolve(process.cwd(), '..'), 'scripts', 'mssql-setup.sql'),
   ];
 
   for (const sqlPath of checkedPaths) {
@@ -142,8 +81,7 @@ function getSqlFile(): { sql: string | null; checkedPaths: string[] } {
 }
 
 export async function POST() {
-  let serverConn: mysql.Connection | null = null;
-  let conn: mysql.Connection | null = null;
+  let pool: sql.ConnectionPool | null = null;
 
   try {
     const cfg = getDbConfig();
@@ -155,8 +93,8 @@ export async function POST() {
       );
     }
 
-    const { sql, checkedPaths } = getSqlFile();
-    if (!sql) {
+    const { sql: sqlText, checkedPaths } = getSqlFile();
+    if (!sqlText) {
       return NextResponse.json(
         {
           error: 'Migration file not found.',
@@ -166,7 +104,7 @@ export async function POST() {
       );
     }
 
-    const statements = splitStatements(sql);
+    const statements = splitStatements(sqlText);
     if (statements.length === 0) {
       return NextResponse.json(
         { error: 'Migration file was found, but no SQL statements were parsed.' },
@@ -174,15 +112,18 @@ export async function POST() {
       );
     }
 
-    serverConn = await getServerConnection();
+    // Connect to master first to ensure DB exists
+    const masterConfig = getMssqlConfig('master');
+    pool = await new sql.ConnectionPool(masterConfig).connect();
 
-    await serverConn.query(
-      `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    await pool.request().query(
+      `IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'${dbName}') CREATE DATABASE [${dbName}]`
     );
 
-    conn = await getDatabaseConnection();
+    await pool.close();
 
-    await conn.query(`SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'`);
+    // Now connect to the target database
+    pool = await new sql.ConnectionPool(getMssqlConfig(dbName)).connect();
 
     const results: { statement: string; status: 'ok' | 'error'; error?: string }[] = [];
     let successCount = 0;
@@ -192,22 +133,18 @@ export async function POST() {
       const preview = stmt.substring(0, 120) + (stmt.length > 120 ? '...' : '');
 
       try {
-        await conn.query(stmt);
+        await pool.request().query(stmt);
         successCount++;
         results.push({ statement: preview, status: 'ok' });
       } catch (err: any) {
         const ignorable = [
           'already exists',
           'Duplicate entry',
-          'ER_DUP_ENTRY',
-          'ER_TABLE_EXISTS_ERROR',
-          'ER_DUP_KEYNAME',
-          'Duplicate key name',
+          'There is already an object named',
+          'Column names in each table must be unique',
         ];
 
-        const isIgnorable = ignorable.some(
-          (msg) => err?.message?.includes(msg) || err?.code === msg
-        );
+        const isIgnorable = ignorable.some((msg) => err?.message?.includes(msg));
 
         if (isIgnorable) {
           successCount++;
@@ -243,36 +180,28 @@ export async function POST() {
       { status: 500 }
     );
   } finally {
-    if (conn) {
+    if (pool) {
       try {
-        await conn.end();
-      } catch {}
-    }
-
-    if (serverConn) {
-      try {
-        await serverConn.end();
+        await pool.close();
       } catch {}
     }
   }
 }
 
 export async function GET() {
-  let conn: mysql.Connection | null = null;
+  let pool: sql.ConnectionPool | null = null;
 
   try {
-    const cfg = getDbConfig();
-    conn = await getDatabaseConnection();
+    pool = await new sql.ConnectionPool(getMssqlConfig()).connect();
 
-    const [rows] = await conn.query(
-      `SELECT table_name, table_rows
-       FROM information_schema.tables
-       WHERE table_schema = ?
-       ORDER BY table_name`,
-      [cfg.DB_NAME]
+    const result = await pool.request().query(
+      `SELECT TABLE_NAME as table_name, NULL as table_rows
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_NAME`
     );
 
-    return NextResponse.json({ tables: rows });
+    return NextResponse.json({ tables: result.recordset });
   } catch (err: any) {
     return NextResponse.json(
       {
@@ -282,9 +211,9 @@ export async function GET() {
       { status: 500 }
     );
   } finally {
-    if (conn) {
+    if (pool) {
       try {
-        await conn.end();
+        await pool.close();
       } catch {}
     }
   }

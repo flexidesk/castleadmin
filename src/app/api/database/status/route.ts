@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import sql from 'mssql';
 import fs from 'fs';
 import path from 'path';
 
@@ -26,7 +26,6 @@ const EXPECTED_TABLES = [
 
 function getDbConfig() {
   let fileConfig: any = {};
-
   try {
     if (fs.existsSync(configPath)) {
       fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -35,7 +34,7 @@ function getDbConfig() {
 
   return {
     DB_HOST: fileConfig.DB_HOST || process.env.DB_HOST,
-    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '3306',
+    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '10002',
     DB_NAME: fileConfig.DB_NAME || process.env.DB_NAME,
     DB_USER: fileConfig.DB_USER || process.env.DB_USER,
     DB_PASSWORD: fileConfig.DB_PASSWORD || process.env.DB_PASSWORD,
@@ -43,36 +42,27 @@ function getDbConfig() {
   };
 }
 
-function getServerConnection() {
+function getMssqlConfig(dbName?: string): sql.config {
   const cfg = getDbConfig();
-
-  return mysql.createConnection({
-    host: cfg.DB_HOST,
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    port: parseInt(cfg.DB_PORT || '3306', 10),
-    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-  });
-}
-
-function getDatabaseConnection() {
-  const cfg = getDbConfig();
-
-  return mysql.createConnection({
-    host: cfg.DB_HOST,
-    database: cfg.DB_NAME,
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    port: parseInt(cfg.DB_PORT || '3306', 10),
-    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-  });
+  return {
+    server: cfg.DB_HOST!,
+    database: dbName || cfg.DB_NAME!,
+    user: cfg.DB_USER!,
+    password: cfg.DB_PASSWORD!,
+    port: parseInt(cfg.DB_PORT || '10002', 10),
+    options: {
+      encrypt: cfg.DATABASE_SSL === 'true',
+      trustServerCertificate: true,
+      enableArithAbort: true,
+    },
+    connectionTimeout: 15000,
+    requestTimeout: 30000,
+  };
 }
 
 export async function GET() {
-  let serverConn: mysql.Connection | null = null;
-  let conn: mysql.Connection | null = null;
+  let masterPool: sql.ConnectionPool | null = null;
+  let dbPool: sql.ConnectionPool | null = null;
   const startTime = Date.now();
 
   try {
@@ -91,20 +81,16 @@ export async function GET() {
       );
     }
 
-    serverConn = await getServerConnection();
-    await serverConn.ping();
-
+    // Connect to master to check connectivity and database existence
+    masterPool = await new sql.ConnectionPool(getMssqlConfig('master')).connect();
     const connectMs = Date.now() - startTime;
     const dbName = cfg.DB_NAME as string;
 
-    const [dbRows] = await serverConn.query<mysql.RowDataPacket[]>(
-      `SELECT SCHEMA_NAME
-       FROM INFORMATION_SCHEMA.SCHEMATA
-       WHERE SCHEMA_NAME = ?`,
-      [dbName]
-    );
+    const dbCheckResult = await masterPool.request()
+      .input('dbName', sql.NVarChar, dbName)
+      .query(`SELECT name FROM sys.databases WHERE name = @dbName`);
 
-    const databaseExists = dbRows.length > 0;
+    const databaseExists = dbCheckResult.recordset.length > 0;
 
     if (!databaseExists) {
       return NextResponse.json({
@@ -126,18 +112,17 @@ export async function GET() {
       });
     }
 
-    conn = await getDatabaseConnection();
-    await conn.ping();
+    // Connect to the actual database
+    dbPool = await new sql.ConnectionPool(getMssqlConfig(dbName)).connect();
 
-    const [tableRows] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT table_name, table_rows, create_time, update_time
-       FROM information_schema.tables
-       WHERE table_schema = ?
-       ORDER BY table_name`,
-      [dbName]
+    const tableResult = await dbPool.request().query(
+      `SELECT TABLE_NAME as table_name, NULL as table_rows, NULL as create_time, NULL as update_time
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_NAME`
     );
 
-    const existingTableNames = tableRows.map((r) => r.table_name as string);
+    const existingTableNames = tableResult.recordset.map((r: any) => r.table_name as string);
     const tableCount = existingTableNames.length;
 
     const schemaVerification = EXPECTED_TABLES.map((name) => ({
@@ -154,10 +139,10 @@ export async function GET() {
     for (const table of sampleTables) {
       if (existingTableNames.includes(table)) {
         try {
-          const [countRows] = await conn.query<mysql.RowDataPacket[]>(
-            `SELECT COUNT(*) AS cnt FROM \`${table}\``
+          const countResult = await dbPool.request().query(
+            `SELECT COUNT(*) AS cnt FROM [${table}]`
           );
-          sampleDataCounts[table] = Number(countRows[0]?.cnt ?? 0);
+          sampleDataCounts[table] = Number(countResult.recordset[0]?.cnt ?? 0);
         } catch {
           sampleDataCounts[table] = -1;
         }
@@ -171,7 +156,7 @@ export async function GET() {
       connectTimeMs: connectMs,
       databaseExists: true,
       tableCount,
-      tables: tableRows.map((r) => ({
+      tables: tableResult.recordset.map((r: any) => ({
         name: r.table_name,
         estimatedRows: r.table_rows ?? 0,
         createdAt: r.create_time ?? null,
@@ -188,28 +173,24 @@ export async function GET() {
     });
   } catch (err: any) {
     console.error('[/api/database/status] Error:', err);
+    const cfg = getDbConfig();
 
     return NextResponse.json(
       {
         status: 'error',
-        database: getDbConfig().DB_NAME,
-        host: getDbConfig().DB_HOST,
+        database: cfg.DB_NAME,
+        host: cfg.DB_HOST,
         error: err?.message || 'Unknown database error',
         code: err?.code || null,
       },
       { status: 500 }
     );
   } finally {
-    if (conn) {
-      try {
-        await conn.end();
-      } catch {}
+    if (dbPool) {
+      try { await dbPool.close(); } catch {}
     }
-
-    if (serverConn) {
-      try {
-        await serverConn.end();
-      } catch {}
+    if (masterPool) {
+      try { await masterPool.close(); } catch {}
     }
   }
 }

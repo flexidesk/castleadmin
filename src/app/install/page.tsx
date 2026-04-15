@@ -45,7 +45,7 @@ export default function InstallPage() {
 
   const [form, setForm] = useState({
     DB_HOST: '',
-    DB_PORT: '3306',
+    DB_PORT: '10002',
     DB_NAME: '',
     DB_USER: '',
     DB_PASSWORD: '',
@@ -71,7 +71,7 @@ export default function InstallPage() {
       if (res.ok && data.config) {
         setForm({
           DB_HOST: data.config.DB_HOST || '',
-          DB_PORT: data.config.DB_PORT || '3306',
+          DB_PORT: data.config.DB_PORT || '10002',
           DB_NAME: data.config.DB_NAME || '',
           DB_USER: data.config.DB_USER || '',
           DB_PASSWORD: '',

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
+import sql from 'mssql';
 import fs from 'fs';
 import path from 'path';
 
@@ -18,7 +18,7 @@ function getDbConfig() {
 
   return {
     DB_HOST: fileConfig.DB_HOST || process.env.DB_HOST,
-    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '3306',
+    DB_PORT: fileConfig.DB_PORT || process.env.DB_PORT || '10002',
     DB_NAME: fileConfig.DB_NAME || process.env.DB_NAME,
     DB_USER: fileConfig.DB_USER || process.env.DB_USER,
     DB_PASSWORD: fileConfig.DB_PASSWORD || process.env.DB_PASSWORD,
@@ -26,23 +26,27 @@ function getDbConfig() {
   };
 }
 
-function getDatabaseConnection() {
+function getMssqlConfig(): sql.config {
   const cfg = getDbConfig();
-  return mysql.createConnection({
-    host: cfg.DB_HOST,
-    database: cfg.DB_NAME,
-    user: cfg.DB_USER,
-    password: cfg.DB_PASSWORD,
-    port: parseInt(cfg.DB_PORT || '3306', 10),
-    multipleStatements: false,
-    ssl: cfg.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-  });
+  return {
+    server: cfg.DB_HOST!,
+    database: cfg.DB_NAME!,
+    user: cfg.DB_USER!,
+    password: cfg.DB_PASSWORD!,
+    port: parseInt(cfg.DB_PORT || '10002', 10),
+    options: {
+      encrypt: cfg.DATABASE_SSL === 'true',
+      trustServerCertificate: true,
+      enableArithAbort: true,
+    },
+    connectionTimeout: 15000,
+    requestTimeout: 30000,
+  };
 }
 
-function getQueryType(sql: string): 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'OTHER' {
-  const trimmed = sql.trim().toUpperCase();
-  if (trimmed.startsWith('SELECT') || trimmed.startsWith('SHOW') || trimmed.startsWith('DESCRIBE') || trimmed.startsWith('EXPLAIN')) return 'SELECT';
+function getQueryType(sqlText: string): 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'OTHER' {
+  const trimmed = sqlText.trim().toUpperCase();
+  if (trimmed.startsWith('SELECT') || trimmed.startsWith('EXEC') || trimmed.startsWith('EXECUTE') || trimmed.startsWith('WITH')) return 'SELECT';
   if (trimmed.startsWith('INSERT')) return 'INSERT';
   if (trimmed.startsWith('UPDATE')) return 'UPDATE';
   if (trimmed.startsWith('DELETE')) return 'DELETE';
@@ -50,17 +54,17 @@ function getQueryType(sql: string): 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 
 }
 
 export async function POST(req: NextRequest) {
-  let conn: mysql.Connection | null = null;
+  let pool: sql.ConnectionPool | null = null;
 
   try {
     const body = await req.json();
-    const { sql } = body;
+    const { sql: sqlText } = body;
 
-    if (!sql || typeof sql !== 'string' || !sql.trim()) {
+    if (!sqlText || typeof sqlText !== 'string' || !sqlText.trim()) {
       return NextResponse.json({ error: 'No SQL query provided.' }, { status: 400 });
     }
 
-    const trimmedSql = sql.trim();
+    const trimmedSql = sqlText.trim();
     const queryType = getQueryType(trimmedSql);
 
     // Block dangerous DDL operations
@@ -74,14 +78,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    conn = await getDatabaseConnection();
+    pool = await new sql.ConnectionPool(getMssqlConfig()).connect();
 
     const startTime = Date.now();
-    const [result] = await conn.query(trimmedSql);
+    const result = await pool.request().query(trimmedSql);
     const execTimeMs = Date.now() - startTime;
 
     if (queryType === 'SELECT') {
-      const rows = result as mysql.RowDataPacket[];
+      const rows = result.recordset ?? [];
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
       return NextResponse.json({
         type: 'SELECT',
@@ -91,14 +95,14 @@ export async function POST(req: NextRequest) {
         execTimeMs,
       });
     } else {
-      const okPacket = result as mysql.ResultSetHeader;
+      const rowsAffected = result.rowsAffected?.[0] ?? 0;
       return NextResponse.json({
         type: queryType,
-        affectedRows: okPacket.affectedRows ?? 0,
-        insertId: okPacket.insertId ?? null,
-        changedRows: (okPacket as any).changedRows ?? 0,
+        affectedRows: rowsAffected,
+        insertId: null,
+        changedRows: rowsAffected,
         execTimeMs,
-        message: `Query executed successfully. Affected rows: ${okPacket.affectedRows ?? 0}`,
+        message: `Query executed successfully. Affected rows: ${rowsAffected}`,
       });
     }
   } catch (err: any) {
@@ -107,15 +111,13 @@ export async function POST(req: NextRequest) {
       {
         error: err?.message || 'Query execution failed',
         code: err?.code || null,
-        sqlState: err?.sqlState || null,
+        sqlState: err?.state || null,
       },
       { status: 500 }
     );
   } finally {
-    if (conn) {
-      try {
-        await conn.end();
-      } catch {}
+    if (pool) {
+      try { await pool.close(); } catch {}
     }
   }
 }
