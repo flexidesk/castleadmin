@@ -1,6 +1,8 @@
 -- ============================================================
 -- CastleAdmin MSSQL Database Setup
 -- T-SQL Compatible (SQL Server 2016+)
+-- Each statement is separated by GO so MSSQL processes them
+-- as independent batches.
 -- ============================================================
 
 -- ─── 1. ADMIN USERS ──────────────────────────────────────────────────────────
@@ -19,14 +21,17 @@ BEGIN
     reset_token_expires_at DATETIME2,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
-END;
+  )
+END
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_admin_users_email' AND object_id = OBJECT_ID('admin_users'))
-  CREATE INDEX idx_admin_users_email ON admin_users(email);
+  CREATE INDEX idx_admin_users_email ON admin_users(email)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_admin_users_reset_token' AND object_id = OBJECT_ID('admin_users'))
-  CREATE INDEX idx_admin_users_reset_token ON admin_users(reset_token);
+  CREATE INDEX idx_admin_users_reset_token ON admin_users(reset_token)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM admin_users WHERE id = 'admin-default-001')
   INSERT INTO admin_users (id, email, password_hash, password_salt, full_name, role, is_active)
@@ -38,7 +43,8 @@ IF NOT EXISTS (SELECT 1 FROM admin_users WHERE id = 'admin-default-001')
     'Admin User',
     'admin',
     1
-  );
+  )
+GO
 
 -- ─── 2. DRIVERS ──────────────────────────────────────────────────────────────
 
@@ -58,7 +64,7 @@ BEGIN
     auth_user_id CHAR(36),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_drivers_status' AND object_id = OBJECT_ID('drivers'))
@@ -69,23 +75,23 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_drivers_auth_user_id'
 
 IF NOT EXISTS (SELECT 1 FROM drivers WHERE id = 'd1000000-0000-0000-0000-000000000001')
   INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
-    ('d1000000-0000-0000-0000-000000000001', 'Marcus Webb',   '07712 345678', 'Ford Transit',      'LN23 RKT', 'On Route',  'MW', 1);
+    ('d1000000-0000-0000-0000-000000000001', 'Marcus Webb', '07712 345678', 'Ford Transit', 'LN23 RKT', 'On Route', 'MW', 1);
 
 IF NOT EXISTS (SELECT 1 FROM drivers WHERE id = 'd1000000-0000-0000-0000-000000000002')
   INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
-    ('d1000000-0000-0000-0000-000000000002', 'Priya Nair',    '07845 678901', 'Mercedes Sprinter', 'BX21 VHJ', 'Available', 'PN', 1);
+    ('d1000000-0000-0000-0000-000000000002', 'Priya Nair', '07845 678901', 'Mercedes Sprinter', 'BX21 VHJ', 'Available', 'PN', 1);
 
 IF NOT EXISTS (SELECT 1 FROM drivers WHERE id = 'd1000000-0000-0000-0000-000000000003')
   INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
-    ('d1000000-0000-0000-0000-000000000003', 'Tom Bridges',   '07923 112233', 'Ford Transit',      'YD22 MKL', 'On Route',  'TB', 1);
+    ('d1000000-0000-0000-0000-000000000003', 'Tom Bridges', '07923 112233', 'Ford Transit', 'YD22 MKL', 'On Route', 'TB', 1);
 
 IF NOT EXISTS (SELECT 1 FROM drivers WHERE id = 'd1000000-0000-0000-0000-000000000004')
   INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
-    ('d1000000-0000-0000-0000-000000000004', 'Leanne Carter', '07600 998877', 'Vauxhall Movano',   'GX20 PPT', 'Available', 'LC', 1);
+    ('d1000000-0000-0000-0000-000000000004', 'Leanne Carter', '07600 998877', 'Vauxhall Movano', 'GX20 PPT', 'Available', 'LC', 1);
 
 IF NOT EXISTS (SELECT 1 FROM drivers WHERE id = 'd1000000-0000-0000-0000-000000000005')
   INSERT INTO drivers (id, name, phone, vehicle, plate, status, avatar, is_active) VALUES
-    ('d1000000-0000-0000-0000-000000000005', 'Darren Hollis', '07711 556677', 'Mercedes Sprinter', 'KE19 ZXA', 'Off Duty',  'DH', 1);
+    ('d1000000-0000-0000-0000-000000000005', 'Darren Hollis', '07711 556677', 'Mercedes Sprinter', 'KE19 ZXA', 'Off Duty', 'DH', 1);
 
 -- ─── 3. ORDERS ───────────────────────────────────────────────────────────────
 
@@ -129,60 +135,75 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_orders_booking_date' AND object_id = OBJECT_ID('orders'))
-  CREATE INDEX idx_orders_booking_date ON orders(booking_date);
+  CREATE INDEX idx_orders_booking_date ON orders(booking_date)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_orders_status' AND object_id = OBJECT_ID('orders'))
-  CREATE INDEX idx_orders_status ON orders(status);
+  CREATE INDEX idx_orders_status ON orders(status)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_orders_driver_id' AND object_id = OBJECT_ID('orders'))
-  CREATE INDEX idx_orders_driver_id ON orders(driver_id);
+  CREATE INDEX idx_orders_driver_id ON orders(driver_id)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_orders_payment_status' AND object_id = OBJECT_ID('orders'))
-  CREATE INDEX idx_orders_payment_status ON orders(payment_status);
+  CREATE INDEX idx_orders_payment_status ON orders(payment_status)
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1042')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, delivery_address_notes, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1042', '#8841', 'Rachel Thornton', 'r.thornton@outlook.com', '07831 224455', 'Delivery', 'Booking Out For Delivery', '14 Meadow Close', 'Leicester', 'Leicestershire', 'LE4 7RN', 'Side gate is unlocked. Please set up in back garden.', 'd1000000-0000-0000-0000-000000000001', '2026-03-15', '08:00 - 10:00', '18:00 - 20:00', 'Paid', 'Card', 145.00, '2026-03-10 14:22:00', 'Sarah Atkinson', '[{"id":101,"name":"Frozen Elsa Castle - Large","sku":"BC-ELSA-LG","quantity":1,"unitPrice":145.00,"totalPrice":145.00,"category":"Bouncy Castle"}]', '2026-03-10 14:20:00', '2026-03-15 08:47:00');
+  ('CA-1042', '#8841', 'Rachel Thornton', 'r.thornton@outlook.com', '07831 224455', 'Delivery', 'Booking Out For Delivery', '14 Meadow Close', 'Leicester', 'Leicestershire', 'LE4 7RN', 'Side gate is unlocked. Please set up in back garden.', 'd1000000-0000-0000-0000-000000000001', '2026-03-15', '08:00 - 10:00', '18:00 - 20:00', 'Paid', 'Card', 145.00, '2026-03-10 14:22:00', 'Sarah Atkinson', '[{"id":101,"name":"Frozen Elsa Castle - Large","sku":"BC-ELSA-LG","quantity":1,"unitPrice":145.00,"totalPrice":145.00,"category":"Bouncy Castle"}]', '2026-03-10 14:20:00', '2026-03-15 08:47:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1041')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, delivery_address_notes, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, products, created_at, updated_at) VALUES
-  ('CA-1041', '#8839', 'James Okafor', 'j.okafor@gmail.com', '07900 334455', 'Delivery', 'Booking Assigned', '7 Birchwood Avenue', 'Leicester', 'Leicestershire', 'LE2 5GH', NULL, 'd1000000-0000-0000-0000-000000000003', '2026-03-15', '10:00 - 12:00', '19:00 - 21:00', 'Unpaid', 'Cash', 175.00, '[{"id":103,"name":"Superhero Combo Castle","sku":"BC-SUPER-CMB","quantity":1,"unitPrice":175.00,"totalPrice":175.00,"category":"Combo Castle"}]', '2026-03-11 09:10:00', '2026-03-14 16:05:00');
+  ('CA-1041', '#8839', 'James Okafor', 'j.okafor@gmail.com', '07900 334455', 'Delivery', 'Booking Assigned', '7 Birchwood Avenue', 'Leicester', 'Leicestershire', 'LE2 5GH', NULL, 'd1000000-0000-0000-0000-000000000003', '2026-03-15', '10:00 - 12:00', '19:00 - 21:00', 'Unpaid', 'Cash', 175.00, '[{"id":103,"name":"Superhero Combo Castle","sku":"BC-SUPER-CMB","quantity":1,"unitPrice":175.00,"totalPrice":175.00,"category":"Combo Castle"}]', '2026-03-11 09:10:00', '2026-03-14 16:05:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1040')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, products, created_at, updated_at) VALUES
-  ('CA-1040', '#8836', 'Sonia Patel', 'sonia.patel@hotmail.co.uk', '07724 889900', 'Delivery', 'Booking Accepted', '3 Rosewood Drive', 'Loughborough', 'Leicestershire', 'LE11 3PQ', NULL, '2026-03-15', '12:00 - 14:00', '20:00 - 22:00', 'Unpaid', 'Unrecorded', 130.00, '[{"id":104,"name":"Princess Palace Castle - Medium","sku":"BC-PRIN-MD","quantity":1,"unitPrice":130.00,"totalPrice":130.00,"category":"Bouncy Castle"}]', '2026-03-12 11:30:00', '2026-03-12 11:30:00');
+  ('CA-1040', '#8836', 'Sonia Patel', 'sonia.patel@hotmail.co.uk', '07724 889900', 'Delivery', 'Booking Accepted', '3 Rosewood Drive', 'Loughborough', 'Leicestershire', 'LE11 3PQ', NULL, '2026-03-15', '12:00 - 14:00', '20:00 - 22:00', 'Unpaid', 'Unrecorded', 130.00, '[{"id":104,"name":"Princess Palace Castle - Medium","sku":"BC-PRIN-MD","quantity":1,"unitPrice":130.00,"totalPrice":130.00,"category":"Bouncy Castle"}]', '2026-03-12 11:30:00', '2026-03-12 11:30:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1039')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1039', '#8830', 'Daniel Hughes', 'd.hughes@company.co.uk', '07811 667788', 'Delivery', 'Booking Out For Delivery', '22 Oak Lane', 'Hinckley', 'Leicestershire', 'LE10 0AB', 'd1000000-0000-0000-0000-000000000003', '2026-03-15', '09:00 - 11:00', '18:30 - 20:30', 'Paid', 'Card', 185.00, '2026-03-09 10:00:00', 'Sarah Atkinson', '[{"id":105,"name":"Jungle Safari Castle","sku":"BC-JUNG-LG","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"},{"id":106,"name":"Safety Crash Mat Set","sku":"ACC-MAT-SET","quantity":2,"unitPrice":15.00,"totalPrice":30.00,"category":"Accessory"}]', '2026-03-09 09:55:00', '2026-03-15 09:15:00');
+  ('CA-1039', '#8830', 'Daniel Hughes', 'd.hughes@company.co.uk', '07811 667788', 'Delivery', 'Booking Out For Delivery', '22 Oak Lane', 'Hinckley', 'Leicestershire', 'LE10 0AB', 'd1000000-0000-0000-0000-000000000003', '2026-03-15', '09:00 - 11:00', '18:30 - 20:30', 'Paid', 'Card', 185.00, '2026-03-09 10:00:00', 'Sarah Atkinson', '[{"id":105,"name":"Jungle Safari Castle","sku":"BC-JUNG-LG","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"},{"id":106,"name":"Safety Crash Mat Set","sku":"ACC-MAT-SET","quantity":2,"unitPrice":15.00,"totalPrice":30.00,"category":"Accessory"}]', '2026-03-09 09:55:00', '2026-03-15 09:15:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1038')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1038', '#8825', 'Natalie Frost', 'nat.frost@gmail.com', '07955 443322', 'Collection', 'Booking Complete', 'Unit 4, Castle Depot', 'Leicester', 'Leicestershire', 'LE19 1WW', NULL, '2026-03-14', '10:00 - 11:00', 'Paid', 'Cash', 95.00, '2026-03-14 10:45:00', 'Sarah Atkinson', '[{"id":107,"name":"Classic Red & Blue Castle - Small","sku":"BC-CLASS-SM","quantity":1,"unitPrice":95.00,"totalPrice":95.00,"category":"Bouncy Castle"}]', '2026-03-08 15:00:00', '2026-03-14 10:44:00');
+  ('CA-1038', '#8825', 'Natalie Frost', 'nat.frost@gmail.com', '07955 443322', 'Collection', 'Booking Complete', 'Unit 4, Castle Depot', 'Leicester', 'Leicestershire', 'LE19 1WW', NULL, '2026-03-14', '10:00 - 11:00', 'Paid', 'Cash', 95.00, '2026-03-14 10:45:00', 'Sarah Atkinson', '[{"id":107,"name":"Classic Red & Blue Castle - Small","sku":"BC-CLASS-SM","quantity":1,"unitPrice":95.00,"totalPrice":95.00,"category":"Bouncy Castle"}]', '2026-03-08 15:00:00', '2026-03-14 10:44:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1037')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1037', '#8820', 'Connor Gallagher', 'cgallagher@live.co.uk', '07700 112233', 'Delivery', 'Booking Complete', '9 Willow Street', 'Coalville', 'Leicestershire', 'LE67 3BT', NULL, '2026-03-14', '08:30 - 10:30', '19:00 - 21:00', 'Paid', 'Card', 165.00, '2026-03-13 17:00:00', 'Sarah Atkinson', '[{"id":108,"name":"Dinosaur Dino World Castle","sku":"BC-DINO-LG","quantity":1,"unitPrice":165.00,"totalPrice":165.00,"category":"Bouncy Castle"}]', '2026-03-07 10:00:00', '2026-03-14 09:06:00');
+  ('CA-1037', '#8820', 'Connor Gallagher', 'cgallagher@live.co.uk', '07700 112233', 'Delivery', 'Booking Complete', '9 Willow Street', 'Coalville', 'Leicestershire', 'LE67 3BT', NULL, '2026-03-14', '08:30 - 10:30', '19:00 - 21:00', 'Paid', 'Card', 165.00, '2026-03-13 17:00:00', 'Sarah Atkinson', '[{"id":108,"name":"Dinosaur Dino World Castle","sku":"BC-DINO-LG","quantity":1,"unitPrice":165.00,"totalPrice":165.00,"category":"Bouncy Castle"}]', '2026-03-07 10:00:00', '2026-03-14 09:06:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1036')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, products, created_at, updated_at) VALUES
-  ('CA-1036', '#8815', 'Amelia Rhodes', 'amelia.rhodes@yahoo.co.uk', '07888 776655', 'Delivery', 'Booking Accepted', '51 Granby Street', 'Melton Mowbray', 'Leicestershire', 'LE13 1JZ', NULL, '2026-03-16', '09:00 - 11:00', '19:00 - 21:00', 'Unpaid', 'Cash', 155.00, '[{"id":109,"name":"Pirate Ship Castle","sku":"BC-PIR-MD","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"}]', '2026-03-13 14:00:00', '2026-03-13 14:00:00');
+  ('CA-1036', '#8815', 'Amelia Rhodes', 'amelia.rhodes@yahoo.co.uk', '07888 776655', 'Delivery', 'Booking Accepted', '51 Granby Street', 'Melton Mowbray', 'Leicestershire', 'LE13 1JZ', NULL, '2026-03-16', '09:00 - 11:00', '19:00 - 21:00', 'Unpaid', 'Cash', 155.00, '[{"id":109,"name":"Pirate Ship Castle","sku":"BC-PIR-MD","quantity":1,"unitPrice":155.00,"totalPrice":155.00,"category":"Bouncy Castle"}]', '2026-03-13 14:00:00', '2026-03-13 14:00:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1035')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, payment_status, payment_method, payment_amount, products, created_at, updated_at) VALUES
-  ('CA-1035', '#8810', 'Ben Whitfield', 'benw@btinternet.com', '07744 998877', 'Collection', 'Booking Assigned', 'Unit 4, Castle Depot', 'Leicester', 'Leicestershire', 'LE19 1WW', 'd1000000-0000-0000-0000-000000000002', '2026-03-16', '11:00 - 12:00', 'Unpaid', 'Card', 195.00, '[{"id":110,"name":"Football Pitch Inflatable","sku":"BC-FOOT-LG","quantity":1,"unitPrice":195.00,"totalPrice":195.00,"category":"Inflatable"}]', '2026-03-14 08:30:00', '2026-03-14 08:30:00');
+  ('CA-1035', '#8810', 'Ben Whitfield', 'benw@btinternet.com', '07744 998877', 'Collection', 'Booking Assigned', 'Unit 4, Castle Depot', 'Leicester', 'Leicestershire', 'LE19 1WW', 'd1000000-0000-0000-0000-000000000002', '2026-03-16', '11:00 - 12:00', 'Unpaid', 'Card', 195.00, '[{"id":110,"name":"Football Pitch Inflatable","sku":"BC-FOOT-LG","quantity":1,"unitPrice":195.00,"totalPrice":195.00,"category":"Inflatable"}]', '2026-03-14 08:30:00', '2026-03-14 08:30:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1034')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1034', '#8805', 'Lucy Hargreaves', 'lucy.h@gmail.com', '07811 223344', 'Delivery', 'Booking Complete', '12 Park Road', 'Leicester', 'Leicestershire', 'LE1 2AB', NULL, '2026-03-13', '09:00 - 11:00', '18:00 - 20:00', 'Paid', 'Card', 120.00, '2026-03-13 09:30:00', 'Sarah Atkinson', '[{"id":111,"name":"Classic Castle Small","sku":"BC-CLASS-SM","quantity":1,"unitPrice":120.00,"totalPrice":120.00,"category":"Bouncy Castle"}]', '2026-03-10 10:00:00', '2026-03-13 18:00:00');
+  ('CA-1034', '#8805', 'Lucy Hargreaves', 'lucy.h@gmail.com', '07811 223344', 'Delivery', 'Booking Complete', '12 Park Road', 'Leicester', 'Leicestershire', 'LE1 2AB', NULL, '2026-03-13', '09:00 - 11:00', '18:00 - 20:00', 'Paid', 'Card', 120.00, '2026-03-13 09:30:00', 'Sarah Atkinson', '[{"id":111,"name":"Classic Castle Small","sku":"BC-CLASS-SM","quantity":1,"unitPrice":120.00,"totalPrice":120.00,"category":"Bouncy Castle"}]', '2026-03-10 10:00:00', '2026-03-13 18:00:00')
+GO
 
 IF NOT EXISTS (SELECT 1 FROM orders WHERE id = 'CA-1033')
   INSERT INTO orders (id, woo_order_id, customer_name, customer_email, customer_phone, booking_type, status, delivery_address_line1, delivery_address_city, delivery_address_county, delivery_address_postcode, driver_id, booking_date, delivery_window, collection_window, payment_status, payment_method, payment_amount, payment_recorded_at, payment_recorded_by, products, created_at, updated_at) VALUES
-  ('CA-1033', '#8800', 'Oliver Marsh', 'o.marsh@outlook.com', '07922 334455', 'Delivery', 'Booking Complete', '5 High Street', 'Loughborough', 'Leicestershire', 'LE11 1AA', NULL, '2026-03-12', '10:00 - 12:00', '19:00 - 21:00', 'Paid', 'Cash', 145.00, '2026-03-12 10:30:00', 'Sarah Atkinson', '[{"id":112,"name":"Pirate Ship Castle","sku":"BC-PIR-MD","quantity":1,"unitPrice":145.00,"totalPrice":145.00,"category":"Bouncy Castle"}]', '2026-03-09 11:00:00', '2026-03-12 19:00:00');
+  ('CA-1033', '#8800', 'Oliver Marsh', 'o.marsh@outlook.com', '07922 334455', 'Delivery', 'Booking Complete', '5 High Street', 'Loughborough', 'Leicestershire', 'LE11 1AA', NULL, '2026-03-12', '10:00 - 12:00', '19:00 - 21:00', 'Paid', 'Cash', 145.00, '2026-03-12 10:30:00', 'Sarah Atkinson', '[{"id":112,"name":"Pirate Ship Castle","sku":"BC-PIR-MD","quantity":1,"unitPrice":145.00,"totalPrice":145.00,"category":"Bouncy Castle"}]', '2026-03-09 11:00:00', '2026-03-12 19:00:00')
+GO
 
 -- ─── 4. VEHICLES ─────────────────────────────────────────────────────────────
 
@@ -202,26 +223,27 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (assigned_driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_vehicles_assigned_driver' AND object_id = OBJECT_ID('vehicles'))
   CREATE INDEX idx_vehicles_assigned_driver ON vehicles(assigned_driver_id);
 
 IF NOT EXISTS (SELECT 1 FROM vehicles WHERE registration = 'LN23 RKT')
-  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'LN23 RKT', 'Ford',     'Transit',  2023, 'White',  'Van',       'd1000000-0000-0000-0000-000000000001');
+  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'LN23 RKT', 'Ford', 'Transit', 2023, 'White', 'Van', 'd1000000-0000-0000-0000-000000000001');
 
 IF NOT EXISTS (SELECT 1 FROM vehicles WHERE registration = 'BX21 VHJ')
-  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'BX21 VHJ', 'Mercedes', 'Sprinter', 2021, 'Silver', 'Van',       'd1000000-0000-0000-0000-000000000002');
+  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'BX21 VHJ', 'Mercedes', 'Sprinter', 2021, 'Silver', 'Van', 'd1000000-0000-0000-0000-000000000002');
 
 IF NOT EXISTS (SELECT 1 FROM vehicles WHERE registration = 'YD22 MKL')
-  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'YD22 MKL', 'Ford',     'Transit',  2022, 'White',  'Van',       'd1000000-0000-0000-0000-000000000003');
+  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'YD22 MKL', 'Ford', 'Transit', 2022, 'White', 'Van', 'd1000000-0000-0000-0000-000000000003');
 
 IF NOT EXISTS (SELECT 1 FROM vehicles WHERE registration = 'GX20 PPT')
-  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'GX20 PPT', 'Vauxhall', 'Movano',   2020, 'Grey',   'Large Van', 'd1000000-0000-0000-0000-000000000004');
+  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'GX20 PPT', 'Vauxhall', 'Movano', 2020, 'Grey', 'Large Van', 'd1000000-0000-0000-0000-000000000004');
 
 IF NOT EXISTS (SELECT 1 FROM vehicles WHERE registration = 'KE19 ZXA')
-  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'KE19 ZXA', 'Mercedes', 'Sprinter', 2019, 'White',  'Van',       'd1000000-0000-0000-0000-000000000005');
+  INSERT INTO vehicles (id, registration, make, model, year, colour, type, assigned_driver_id) VALUES (NEWID(), 'KE19 ZXA', 'Mercedes', 'Sprinter', 2019, 'White', 'Van', 'd1000000-0000-0000-0000-000000000005');
 
 -- ─── 5. DRIVER PORTAL CREDENTIALS ────────────────────────────────────────────
 
@@ -237,8 +259,9 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_portal_creds_username' AND object_id = OBJECT_ID('driver_portal_credentials'))
   CREATE INDEX idx_driver_portal_creds_username ON driver_portal_credentials(username);
@@ -258,8 +281,9 @@ BEGIN
     recorded_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_locations_driver_id' AND object_id = OBJECT_ID('driver_locations'))
   CREATE INDEX idx_driver_locations_driver_id ON driver_locations(driver_id);
@@ -282,8 +306,9 @@ BEGIN
     notes NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_perf_driver_id' AND object_id = OBJECT_ID('driver_performance_logs'))
   CREATE INDEX idx_driver_perf_driver_id ON driver_performance_logs(driver_id);
@@ -322,8 +347,9 @@ BEGIN
     earned_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_earnings_driver_id' AND object_id = OBJECT_ID('driver_earnings'))
   CREATE INDEX idx_driver_earnings_driver_id ON driver_earnings(driver_id);
@@ -352,7 +378,7 @@ BEGIN
     notes NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_cash_alloc_driver' AND object_id = OBJECT_ID('driver_cash_allocations'))
@@ -372,7 +398,7 @@ BEGIN
     notes NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_cash_coll_driver' AND object_id = OBJECT_ID('driver_cash_collections'))
@@ -402,7 +428,7 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_shift_templates_driver' AND object_id = OBJECT_ID('driver_shift_templates'))
@@ -436,7 +462,7 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_inspection_driver' AND object_id = OBJECT_ID('driver_inspection_schedules'))
@@ -469,7 +495,7 @@ BEGIN
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (order_id) REFERENCES orders(id),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_driver_pod_order_id' AND object_id = OBJECT_ID('driver_pod_submissions'))
@@ -501,7 +527,7 @@ BEGIN
     map_default_lat DECIMAL(10,8),
     map_default_lng DECIMAL(11,8),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM fleet_config)
@@ -526,7 +552,7 @@ BEGIN
     push_notifications BIT NOT NULL DEFAULT 1,
     notification_email NVARCHAR(255),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM notification_preferences)
@@ -552,7 +578,7 @@ BEGIN
     can_manage_settings BIT NOT NULL DEFAULT 0,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_user_roles_email' AND object_id = OBJECT_ID('user_roles'))
@@ -591,7 +617,7 @@ BEGIN
     last_synced_at DATETIME2,
     status NVARCHAR(50) NOT NULL DEFAULT 'disconnected',
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_system_integrations_slug' AND object_id = OBJECT_ID('system_integrations'))
@@ -631,7 +657,7 @@ BEGIN
     last_test_message NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM woocommerce_settings)
@@ -649,7 +675,7 @@ BEGIN
     transform NVARCHAR(100),
     is_active BIT NOT NULL DEFAULT 1,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 -- ─── 19. WOOCOMMERCE SYNC LOG ────────────────────────────────────────────────
@@ -667,7 +693,7 @@ BEGIN
     started_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     completed_at DATETIME2,
     status NVARCHAR(50) NOT NULL DEFAULT 'running'
-  );
+  )
 END;
 
 -- ─── 20. WOOCOMMERCE WEBHOOK LOG ─────────────────────────────────────────────
@@ -682,7 +708,7 @@ BEGIN
     status NVARCHAR(50) NOT NULL DEFAULT 'received',
     error_message NVARCHAR(MAX),
     processed_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 -- ─── 21. WEBHOOK EVENT LOGS ──────────────────────────────────────────────────
@@ -698,7 +724,7 @@ BEGIN
     error_message NVARCHAR(MAX),
     order_id NVARCHAR(20),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_webhook_event_logs_event' AND object_id = OBJECT_ID('webhook_event_logs'))
@@ -721,7 +747,7 @@ BEGIN
     last_triggered_at DATETIME2,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 -- ─── 23. WEBHOOK REQUEST LOGS ────────────────────────────────────────────────
@@ -740,7 +766,7 @@ BEGIN
     status NVARCHAR(50) NOT NULL DEFAULT 'success',
     error_message NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 -- ─── 24. MESSAGE TEMPLATES ───────────────────────────────────────────────────
@@ -759,7 +785,7 @@ BEGIN
     description NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_message_templates_channel' AND object_id = OBJECT_ID('message_templates'))
@@ -772,7 +798,7 @@ INSERT INTO message_templates (id, name, channel, trigger_type, subject, body, i
   (NEWID(), 'New Assignment Alert',          'email', 'new_assignment',           'New Booking Assigned - {{order_id}}',          '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
   (NEWID(), 'Delivery Failure Alert',        'email', 'delivery_failure',         'Delivery Failed - {{order_id}}',               '<p>Hi {{customer_name}},</p><p>Your order {{order_id}} has been cancelled due to delivery failure.</p>', 1, 0, 'Sent to customer when their delivery fails'),
   (NEWID(), 'Booking Accepted - Customer',   'email', 'booking_accepted',         'Your Booking Has Been Accepted - {{order_id}}', '<p>Hi {{customer_name}},</p><p>Your booking has been accepted.</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their booking is accepted'),
-  (NEWID(), 'Out For Delivery - Customer SMS','sms',  'booking_out_for_delivery', NULL,                                           'Hi {{customer_name}}, your order {{order_id}} is out for delivery! Track it here: {{tracking_link}}', 1, 0, 'SMS sent to customer when their order is out for delivery'),
+  (NEWID(), 'Out For Delivery - Customer SMS','sms',   'booking_out_for_delivery', NULL,                                           'Hi {{customer_name}}, your order {{order_id}} is out for delivery! Track it here: {{tracking_link}}', 1, 0, 'SMS sent to customer when their order is out for delivery'),
   (NEWID(), 'Delivery Complete - Customer',  'email', 'booking_complete',         'Your Delivery Is Complete - {{order_id}}',     '<p>Hi {{customer_name}},</p><p>Your order has been successfully delivered!</p><p><strong>Order ID:</strong> {{order_id}}</p>', 1, 0, 'Sent to customer when their delivery is complete');
 
 -- ─── 25. EMAIL ALERT LOGS ────────────────────────────────────────────────────
@@ -791,7 +817,7 @@ BEGIN
     order_id NVARCHAR(20),
     metadata NVARCHAR(MAX),
     sent_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_email_alert_logs_trigger' AND object_id = OBJECT_ID('email_alert_logs'))
@@ -814,7 +840,7 @@ BEGIN
     provider_message_id NVARCHAR(255),
     error_message NVARCHAR(MAX),
     sent_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_sms_alert_logs_order' AND object_id = OBJECT_ID('sms_alert_logs'))
@@ -836,7 +862,7 @@ BEGIN
     driver_id CHAR(36),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 -- ─── 28. NOTIFICATIONS ───────────────────────────────────────────────────────
@@ -854,7 +880,7 @@ BEGIN
     metadata NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_notifications_is_read' AND object_id = OBJECT_ID('notifications'))
@@ -884,7 +910,7 @@ BEGIN
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_delivery_zones_driver' AND object_id = OBJECT_ID('delivery_zones'))
@@ -909,7 +935,7 @@ BEGIN
     is_active BIT NOT NULL DEFAULT 1,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_customers_email' AND object_id = OBJECT_ID('customers'))
@@ -920,13 +946,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_customers_phone' AND 
 
 INSERT INTO customers (id, name, email, phone, address, notes, is_active) VALUES
   (NEWID(), 'Rachel Thornton',  'r.thornton@outlook.com',    '07831 224455', '14 Meadow Close, Leicester, LE4 7RN',       'Prefers morning deliveries', 1),
-  (NEWID(), 'James Okafor',     'j.okafor@gmail.com',        '07900 334455', '7 Birchwood Avenue, Leicester, LE2 5GH',    NULL, 1),
-  (NEWID(), 'Sonia Patel',      'sonia.patel@hotmail.co.uk', '07724 889900', '3 Rosewood Drive, Loughborough, LE11 3PQ', NULL, 1),
-  (NEWID(), 'Daniel Hughes',    'd.hughes@company.co.uk',    '07811 667788', '22 Oak Lane, Hinckley, LE10 0AB',           'Business account', 1),
-  (NEWID(), 'Natalie Frost',    'nat.frost@gmail.com',       '07955 443322', 'Unit 4, Castle Depot, Leicester, LE19 1WW', NULL, 1),
-  (NEWID(), 'Connor Gallagher', 'cgallagher@live.co.uk',     '07700 112233', '9 Willow Street, Coalville, LE67 3BT',      NULL, 1),
+  (NEWID(), 'James Okafor',     'j.okafor@gmail.com',        '07900 334455', '7 Birchwood Avenue, Leicester, LE2 5GH',     NULL, 1),
+  (NEWID(), 'Sonia Patel',      'sonia.patel@hotmail.co.uk', '07724 889900', '3 Rosewood Drive, Loughborough, LE11 3PQ',  NULL, 1),
+  (NEWID(), 'Daniel Hughes',    'd.hughes@company.co.uk',    '07811 667788', '22 Oak Lane, Hinckley, LE10 0AB',            'Business account', 1),
+  (NEWID(), 'Natalie Frost',    'nat.frost@gmail.com',       '07955 443322', 'Unit 4, Castle Depot, Leicester, LE19 1WW',  NULL, 1),
+  (NEWID(), 'Connor Gallagher', 'cgallagher@live.co.uk',     '07700 112233', '9 Willow Street, Coalville, LE67 3BT',       NULL, 1),
   (NEWID(), 'Amelia Rhodes',    'amelia.rhodes@yahoo.co.uk', '07888 776655', '51 Granby Street, Melton Mowbray, LE13 1JZ', NULL, 1),
-  (NEWID(), 'Ben Whitfield',    'benw@btinternet.com',       '07744 998877', 'Unit 4, Castle Depot, Leicester, LE19 1WW', NULL, 1);
+  (NEWID(), 'Ben Whitfield',    'benw@btinternet.com',       '07744 998877', 'Unit 4, Castle Depot, Leicester, LE19 1WW',  NULL, 1);
 
 -- ─── 31. ACTIVITY LOGS ───────────────────────────────────────────────────────
 
@@ -941,7 +967,7 @@ BEGIN
     details NVARCHAR(MAX),
     ip_address NVARCHAR(50),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_activity_logs_entity' AND object_id = OBJECT_ID('activity_logs'))
@@ -970,7 +996,7 @@ BEGIN
     notes NVARCHAR(MAX),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (driver_id) REFERENCES drivers(id)
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_staff_unavail_driver' AND object_id = OBJECT_ID('staff_unavailability'))
@@ -993,7 +1019,7 @@ BEGIN
     value NVARCHAR(MAX),
     description NVARCHAR(MAX),
     updated_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_settings_key' AND object_id = OBJECT_ID('settings'))
@@ -1028,7 +1054,7 @@ BEGIN
     expires_at DATETIME2,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     FOREIGN KEY (order_id) REFERENCES orders(id)
-  );
+  )
 END;
 
 -- ─── 35. ANALYTICS REVENUE ───────────────────────────────────────────────────
@@ -1044,7 +1070,7 @@ BEGIN
     cancelled_orders INT NOT NULL DEFAULT 0,
     avg_order_value DECIMAL(10,2),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
-  );
+  )
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_analytics_revenue_date' AND object_id = OBJECT_ID('analytics_revenue'))

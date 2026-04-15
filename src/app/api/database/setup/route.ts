@@ -45,19 +45,22 @@ function getMssqlConfig(dbName?: string): sql.config {
 }
 
 function splitStatements(sqlText: string): string[] {
-  // Split on GO or semicolons for MSSQL
-  const byGo = sqlText.split(/^\s*GO\s*$/im);
+  // Split ONLY on GO batch separators (MSSQL batch delimiter).
+  // Never split on semicolons — IF NOT EXISTS BEGIN...END blocks contain
+  // semicolons inside them and must be sent as a single batch.
+  const batches = sqlText.split(/^\s*GO\s*$/im);
   const statements: string[] = [];
 
-  for (const block of byGo) {
-    const parts = block.split(';');
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (!trimmed) continue;
-      const lines = trimmed.split('\n').filter((l) => l.trim().length > 0);
-      const hasContent = lines.some((l) => !l.trim().startsWith('--'));
-      if (hasContent) statements.push(trimmed);
-    }
+  for (const batch of batches) {
+    const trimmed = batch.trim();
+    if (!trimmed) continue;
+    // Skip comment-only blocks
+    const lines = trimmed.split('\n');
+    const hasContent = lines.some((l) => {
+      const t = l.trim();
+      return t.length > 0 && !t.startsWith('--');
+    });
+    if (hasContent) statements.push(trimmed);
   }
 
   return statements;
